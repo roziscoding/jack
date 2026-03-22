@@ -1,0 +1,14 @@
+{
+  "name": "jack",
+  "private": true,
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}

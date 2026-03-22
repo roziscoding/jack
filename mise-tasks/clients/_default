@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+#MISE quiet=true
+#MISE depends=["clients:clean", "clients:generate"]
