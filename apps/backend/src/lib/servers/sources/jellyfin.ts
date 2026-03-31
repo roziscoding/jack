@@ -71,37 +71,34 @@ export class JellyfinServerConnector extends SourceServerConnector<BaseItemDto> 
   }
 
   async searchByImdbId(imdbId: string) {
-    const result = await this.client.getItems({
-      recursive: true,
-      hasImdbId: true,
-      fields: ['ProviderIds', 'Path', 'MediaSources'],
-      includeItemTypes: ['Movie', 'Series'],
+    // Use AnyProviderIdEquals via base fetch since the generated SDK doesn't expose it
+    const data = await this.fetch<{ Items?: BaseItemDto[] }>('/Items', {
+      method: 'GET',
+      query: {
+        recursive: 'true',
+        fields: 'ProviderIds,Path,MediaSources',
+        includeItemTypes: 'Movie,Series',
+        AnyProviderIdEquals: `Imdb.${imdbId}`,
+      },
     })
 
-    if (!result.response.ok) {
-      throw new FetchError(`Failed to search by IMDB ID: ${result.response.statusText}`, result.response)
-    }
-
-    const items = result.data?.Items ?? []
-    return items.filter(item => item.ProviderIds?.Imdb === imdbId)
+    return data.Items ?? []
   }
 
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number) {
-    const result = await this.client.getItems({
-      recursive: true,
-      hasTvdbId: true,
-      fields: ['ProviderIds', 'Path', 'MediaSources'],
-      includeItemTypes: season != null ? ['Episode'] : ['Series'],
+    const data = await this.fetch<{ Items?: BaseItemDto[] }>('/Items', {
+      method: 'GET',
+      query: {
+        recursive: 'true',
+        fields: 'ProviderIds,Path,MediaSources',
+        includeItemTypes: season != null ? 'Episode' : 'Series',
+        AnyProviderIdEquals: `Tvdb.${tvdbId}`,
+      },
     })
 
-    if (!result.response.ok) {
-      throw new FetchError(`Failed to search by TVDB ID: ${result.response.statusText}`, result.response)
-    }
-
-    const items = result.data?.Items ?? []
+    const items = data.Items ?? []
+    if (season == null && episode == null) return items
     return items.filter(item => {
-      const matchesTvdb = item.ProviderIds?.Tvdb === tvdbId
-      if (!matchesTvdb) return false
       if (season != null && item.ParentIndexNumber !== season) return false
       if (episode != null && item.IndexNumber !== episode) return false
       return true
