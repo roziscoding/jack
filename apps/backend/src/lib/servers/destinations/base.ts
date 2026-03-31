@@ -57,4 +57,58 @@ export class DestinationServerConnector extends ServerConnector {
   async getHealthIssues() {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
   }
+
+  @requireInitialization
+  async triggerImport(downloadPath: string) {
+    await this.fetch('/api/v3/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: this.importCommandName, path: downloadPath }),
+    } as any)
+  }
+
+  protected get importCommandName(): string {
+    return 'DownloadedMoviesScan'
+  }
+
+  @requireInitialization
+  async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[] }) {
+    const existingIndexers = await this.fetch<any>('/api/v3/indexer', { method: 'GET' })
+    const existing = Array.isArray(existingIndexers)
+      ? existingIndexers.find((idx: any) =>
+        idx.fields?.some((f: any) => f.name === 'baseUrl' && f.value === indexerConfig.baseUrl))
+      : null
+
+    const body = {
+      name: indexerConfig.name,
+      implementation: 'Torznab',
+      implementationName: 'Torznab',
+      configContract: 'TorznabSettings',
+      enableRss: true,
+      enableAutomaticSearch: true,
+      enableInteractiveSearch: true,
+      priority: indexerConfig.priority,
+      fields: [
+        { name: 'baseUrl', value: indexerConfig.baseUrl },
+        { name: 'apiPath', value: '/api' },
+        { name: 'apiKey', value: indexerConfig.apiKey },
+        { name: 'categories', value: indexerConfig.categories },
+        { name: 'minimumSeeders', value: 0 },
+      ],
+    }
+
+    if (existing) {
+      await this.fetch(`/api/v3/indexer/${existing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, id: existing.id }),
+      } as any)
+    } else {
+      await this.fetch('/api/v3/indexer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      } as any)
+    }
+  }
 }
