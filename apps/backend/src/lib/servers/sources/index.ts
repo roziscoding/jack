@@ -1,5 +1,6 @@
 import type { AppConfig, SourceServerType } from '../../config'
 import { JellyfinServerConnector } from './jellyfin'
+import { JackServerConnector } from './jack'
 
 const connectorMap = {
   jellyfin: JellyfinServerConnector,
@@ -15,6 +16,12 @@ export function getConnector(config: { type: SourceServerType, url: string, apiK
   return new Connector(config)
 }
 
+export function getPeerConnectors(peers: NonNullable<AppConfig['servers']['peers']>) {
+  return peers.map(config => new JackServerConnector(config))
+}
+
 export function getSourceConnectors(servers: AppConfig['servers']) {
-  return servers.sources.map(getConnector).filter(Boolean)
+  const sources = servers.sources.map(getConnector).filter(Boolean)
+  const peers = getPeerConnectors(servers.peers ?? [])
+  return { sources, peers }
 }

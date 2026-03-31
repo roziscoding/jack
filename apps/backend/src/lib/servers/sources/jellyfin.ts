@@ -25,7 +25,7 @@ export class JellyfinServerConnector extends SourceServerConnector<BaseItemDto> 
           return
         }
 
-        logger.debug({ info }, `Found ${info.ProductName} ${info.Version}`) 
+        logger.debug({ info }, `Found ${info.ProductName} ${info.Version}`)
         this._isInitialized = true
         this._initialization?.resolve()
       })
@@ -41,12 +41,67 @@ export class JellyfinServerConnector extends SourceServerConnector<BaseItemDto> 
   }
 
   async searchItems(searchTerm: string) {
-    const result = await this.client.getItems({ searchTerm })
+    const result = await this.client.getItems({
+      searchTerm,
+      recursive: true,
+      fields: ['ProviderIds', 'Path', 'MediaSources'],
+      includeItemTypes: ['Movie', 'Series', 'Episode'],
+    })
 
     if (!result.response.ok) {
       throw new FetchError(`Failed to fetch url: ${result.response.statusText}`, result.response)
     }
 
     return result.data?.Items ?? []
+  }
+
+  async getItemById(itemId: string) {
+    const result = await this.client.getItem({ itemId })
+
+    if (!result.response.ok) {
+      throw new FetchError(`Failed to fetch item ${itemId}: ${result.response.statusText}`, result.response)
+    }
+
+    return result.data!
+  }
+
+  async getItemFilePath(itemId: string): Promise<string | null> {
+    const item = await this.getItemById(itemId)
+    return item.Path ?? null
+  }
+
+  async searchByImdbId(imdbId: string) {
+    // Use AnyProviderIdEquals via base fetch since the generated SDK doesn't expose it
+    const data = await this.fetch<{ Items?: BaseItemDto[] }>('/Items', {
+      method: 'GET',
+      query: {
+        recursive: 'true',
+        fields: 'ProviderIds,Path,MediaSources',
+        includeItemTypes: 'Movie,Series',
+        AnyProviderIdEquals: `Imdb.${imdbId}`,
+      },
+    })
+
+    return data.Items ?? []
+  }
+
+  async searchByTvdbId(tvdbId: string, season?: number, episode?: number) {
+    const data = await this.fetch<{ Items?: BaseItemDto[] }>('/Items', {
+      method: 'GET',
+      query: {
+        recursive: 'true',
+        fields: 'ProviderIds,Path,MediaSources',
+        includeItemTypes: season != null ? 'Episode' : 'Series',
+        AnyProviderIdEquals: `Tvdb.${tvdbId}`,
+      },
+    })
+
+    const items = data.Items ?? []
+    if (season == null && episode == null) return items
+    return items.filter(item => {
+      if (season != null && item.ParentIndexNumber !== season) return false
+      if (episode != null && item.IndexNumber !== episode) return false
+      return true
+    })
   }
 }

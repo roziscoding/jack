@@ -30,11 +30,45 @@ export const SourceServerConfig = z.object({
 
 export type SourceServerConfig = z.infer<typeof SourceServerConfig>
 
-export type ServerType = SourceServerType | DestinationServerType
+export const PeerServerConfig = z.object({
+  name: z.string().optional(),
+  url: z.url(),
+  apiKey: z.string().min(1),
+})
+
+export type PeerServerConfig = z.infer<typeof PeerServerConfig>
+
+export type ServerType = SourceServerType | DestinationServerType | 'jack'
+
+export const JackConfig = z.object({
+  baseUrl: z.url(),
+  apiKey: z.string().min(1),
+  mediaPath: z.string().min(1),
+})
+
+export type JackConfig = z.infer<typeof JackConfig>
+
+export const IndexerConfig = z.object({
+  priority: z.number().int().min(1).default(1),
+  autoRegister: z.boolean().default(true),
+})
+
+export type IndexerConfig = z.infer<typeof IndexerConfig>
+
+export const DownloadsConfig = z.object({
+  watchPath: z.string().min(1),
+  completedPath: z.string().min(1),
+})
+
+export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 
 export const AppConfig = z.object({
+  jack: JackConfig.optional(),
+  indexer: IndexerConfig.optional(),
+  downloads: DownloadsConfig.optional(),
   servers: z.object({
     sources: z.array(SourceServerConfig),
+    peers: z.array(PeerServerConfig).default([]),
     destinations: z.array(DestinationServerConfig),
   }),
 })
@@ -44,6 +78,7 @@ export type AppConfig = z.infer<typeof AppConfig>
 const DEFAULT_APP_CONFIG: AppConfig = {
   servers: {
     sources: [],
+    peers: [],
     destinations: [],
   },
 }
