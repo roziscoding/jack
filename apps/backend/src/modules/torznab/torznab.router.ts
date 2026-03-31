@@ -1,0 +1,86 @@
+import type { TorznabController } from './torznab.controller'
+import { Hono } from 'hono'
+import { buildCapsXml, buildSearchResultXml, buildErrorXml } from './torznab.xml'
+
+export function getTorznabRouter(controller: TorznabController, apiKey: string) {
+  const app = new Hono()
+
+  app.get('/api', async (c) => {
+    const t = c.req.query('t')
+    const key = c.req.query('apikey')
+
+    if (key !== apiKey) {
+      return c.body(buildErrorXml(100, 'Incorrect API Key'), 403, {
+        'Content-Type': 'application/xml',
+      })
+    }
+
+    if (!t) {
+      return c.body(buildErrorXml(200, 'Missing parameter: t'), 400, {
+        'Content-Type': 'application/xml',
+      })
+    }
+
+    switch (t) {
+      case 'caps': {
+        return c.body(buildCapsXml(), 200, {
+          'Content-Type': 'application/xml',
+        })
+      }
+
+      case 'search': {
+        const q = c.req.query('q') ?? ''
+        const items = await controller.search(q)
+        return c.body(buildSearchResultXml(items), 200, {
+          'Content-Type': 'application/xml',
+        })
+      }
+
+      case 'movie': {
+        const imdbId = c.req.query('imdbid')
+        if (!imdbId) {
+          const q = c.req.query('q') ?? ''
+          const items = await controller.search(q)
+          return c.body(buildSearchResultXml(items), 200, {
+            'Content-Type': 'application/xml',
+          })
+        }
+        const items = await controller.searchMovie(imdbId)
+        return c.body(buildSearchResultXml(items), 200, {
+          'Content-Type': 'application/xml',
+        })
+      }
+
+      case 'tvsearch': {
+        const tvdbId = c.req.query('tvdbid')
+        const season = c.req.query('season')
+        const ep = c.req.query('ep')
+
+        if (!tvdbId) {
+          const q = c.req.query('q') ?? ''
+          const items = await controller.search(q)
+          return c.body(buildSearchResultXml(items), 200, {
+            'Content-Type': 'application/xml',
+          })
+        }
+
+        const items = await controller.searchTv(
+          tvdbId,
+          season ? Number(season) : undefined,
+          ep ? Number(ep) : undefined,
+        )
+        return c.body(buildSearchResultXml(items), 200, {
+          'Content-Type': 'application/xml',
+        })
+      }
+
+      default: {
+        return c.body(buildErrorXml(202, `Unknown function: ${t}`), 400, {
+          'Content-Type': 'application/xml',
+        })
+      }
+    }
+  })
+
+  return app
+}

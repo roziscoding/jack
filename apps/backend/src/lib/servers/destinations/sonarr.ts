@@ -1,4 +1,3 @@
-import z from 'zod'
 import { DestinationServerConnector } from './base'
 
 export class SonarrServerConnector extends DestinationServerConnector {
@@ -9,5 +8,9 @@ export class SonarrServerConnector extends DestinationServerConnector {
       authHeader: 'X-Api-Key',
       expectedAppName: 'Sonarr',
     }, { ...config, type: 'sonarr' })
+  }
+
+  protected override get importCommandName(): string {
+    return 'DownloadedEpisodeImport'
   }
 }

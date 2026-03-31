@@ -2,7 +2,13 @@ import type { DestinationServerType, ServerType } from '../config'
 import z from 'zod'
 import { FetchError } from '../errors/FetchError'
 
+function generateId(url: string): string {
+  const hash = new Bun.CryptoHasher('sha256').update(url).digest('hex')
+  return hash.slice(0, 8)
+}
+
 export abstract class ServerConnector {
+  public readonly id: string
   public readonly type: ServerType
   public readonly url: string
   protected readonly apiKey: string
@@ -23,6 +29,7 @@ export abstract class ServerConnector {
     this.authHeader = connectorConfig.authHeader
     this.authHeaderPrefix = connectorConfig.authHeaderPrefix ?? ''
 
+    this.id = generateId(config.url)
     this.type = config.type
     this.url = config.url
     this.apiKey = config.apiKey
