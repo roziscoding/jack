@@ -73,17 +73,24 @@ export class JackServerConnector extends SourceServerConnector<BaseItemDto> {
     return this.peerFetch<BaseItemDto>(`/peer/items/${itemId}`)
   }
 
-  async downloadFile(itemId: string, destPath: string): Promise<void> {
+  async downloadFile(itemId: string, destPath: string, timeoutMs = 30 * 60 * 1000): Promise<void> {
     const url = new URL(`/peer/items/${itemId}/file`, this.url)
     const response = await fetch(url, {
       headers: { 'X-Api-Key': this.apiKey },
+      signal: AbortSignal.timeout(timeoutMs),
     })
 
     if (!response.ok) {
       throw new FetchError(`Failed to download file from peer: ${response.statusText}`, response)
     }
 
+    const contentLength = Number(response.headers.get('Content-Length') || 0)
+    const maxSize = 100 * 1024 * 1024 * 1024 // 100GB
+    if (contentLength > maxSize) {
+      throw new Error(`File too large: ${contentLength} bytes exceeds ${maxSize} byte limit`)
+    }
+
     await Bun.write(destPath, response)
-    logger.info({ itemId, destPath, peer: this.name ?? this.url }, 'Downloaded file from peer')
+    logger.info({ itemId, destPath, size: contentLength, peer: this.name ?? this.url }, 'Downloaded file from peer')
   }
 }
