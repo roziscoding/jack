@@ -5,19 +5,15 @@ import { getDestinationConnectors } from './destinations'
 import { getSourceConnectors } from './sources'
 
 export function getConnectors(servers: AppConfig['servers']) {
-  return {
-    sources: getSourceConnectors(servers),
-    destinations: getDestinationConnectors(servers),
-
-  }
+  const { sources, peers } = getSourceConnectors(servers)
+  const destinations = getDestinationConnectors(servers)
+  return { sources, peers, destinations }
 }
 
 export async function initializeConnectors(servers: AppConfig['servers']) {
   const connectors = getConnectors(servers)
-  const connectorCount = connectors.sources.length + connectors.destinations.length
-  logger.debug(`Found ${connectorCount} connectors. Initializing...`)
-
-  const allConnectors = [...connectors.sources, ...connectors.destinations]
+  const allConnectors: ServerConnector[] = [...connectors.sources, ...connectors.peers, ...connectors.destinations]
+  logger.debug(`Found ${allConnectors.length} connectors. Initializing...`)
 
   await Promise.all(
     allConnectors.map(async (connector) => {
