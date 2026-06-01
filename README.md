@@ -18,16 +18,18 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 
 ## Requirements
 
-- [Bun](https://bun.com) `1.3.14` (pinned in `mise.toml`), **or** Docker.
+- [Bun](https://bun.com) `1.3.14` (pinned in `mise.toml`), **or** Docker with
+  Docker Compose (recommended).
 - A config file (`config.jsonc`). A documented template lives at
   [`examples/config.jsonc`](examples/config.jsonc).
 
-## Quick start (Docker)
+## Quick start (Docker Compose)
 
-The image is published to GitHub Container Registry
-(`ghcr.io/roziscoding/jack:main`) on every push to `main` — you don't need to
-clone the repo. Grab the [`examples/docker-compose.yml`](examples/docker-compose.yml)
-and [`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
+Running with Docker Compose is the recommended way to self-host jack. The image
+is published to GitHub Container Registry (`ghcr.io/roziscoding/jack:main`) on
+every push to `main`, so you don't need to clone the repo — just grab
+[`examples/docker-compose.yml`](examples/docker-compose.yml) and
+[`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
 
 ```bash
 # 1. Create your config from the template
