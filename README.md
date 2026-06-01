@@ -79,6 +79,15 @@ The compose file mounts three host paths — adjust them for your setup:
 > container name (and set `jack.baseUrl` to something they can resolve, e.g.
 > `http://jack:5225`). Otherwise use the host IP.
 
+> ⚠️ **Mount the blackhole folder into Radarr/Sonarr too.** jack registers the
+> Torrent Blackhole download client using the **literal** `downloads.watchPath`
+> and `downloads.completedPath`, and your Radarr/Sonarr resolve those paths in
+> *their own* filesystem. So the same blackhole watch/completed folder must be
+> mounted into your **Radarr and Sonarr** containers at the **exact same paths**
+> jack uses (e.g. `/data/torrents/watch` and `/data/torrents/completed`).
+> If they don't line up, *arr can't drop the stub `.torrent` or import the
+> finished file, and every grab fails.
+
 ## How it works
 
 There are two flows: **searching** for media (Torznab) and **downloading** it
@@ -271,6 +280,10 @@ Field notes:
 - **`servers.destinations[].apiKey`** is the Radarr/Sonarr API key — **exactly
   32 hex characters** (Settings → General).
 - **`servers.sources[].apiKey`** is the Jellyfin API key.
+- **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
+  your **Radarr and Sonarr** containers at the **same paths** — jack registers
+  the Torrent Blackhole client with these literal paths and *arr resolves them in
+  its own filesystem (see the callout in [Quick start](#quick-start-docker-compose)).
 
 ### Secrets from environment variables
 

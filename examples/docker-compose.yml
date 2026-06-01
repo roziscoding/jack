@@ -21,6 +21,10 @@ services:
       # the container. Mirror your Jellyfin/*arr media mount here.
       - ${MEDIA_PATH:-./data/media}:/data/media
       # Blackhole download dirs — must match `downloads.*` in config.jsonc.
+      # IMPORTANT: mount this SAME folder into your Radarr and Sonarr containers
+      # at the SAME path (e.g. /data/torrents). jack registers the Torrent
+      # Blackhole client with these literal paths, and *arr resolves them in its
+      # own filesystem — if they don't match, *arr can't drop stubs or import.
       - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
     # If Jellyfin / Radarr / Sonarr run in their own compose network,
     # attach this service to it so `jack.baseUrl` / server URLs resolve by
