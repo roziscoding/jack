@@ -55,6 +55,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Short hash of the PR's head commit this image was last built from, so
+      # the sticky comment shows which commit the current `pr-<number>` tag points at.
+      - name: Compute short commit SHA
+        id: sha
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: echo "short=${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
       # Tell PR authors the image is up and how to use it. The sticky comment is
       # keyed by `header`, so it's updated in place on every push (no spam).
       - name: Comment image usage on the PR
@@ -78,7 +87,7 @@ jobs:
             docker run --rm ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
             ```
 
-            > Heads up: this image is automatically deleted when the PR is closed.
+            > Last built from commit `${{ steps.sha.outputs.short }}`. Heads up: this image is automatically deleted when the PR is closed.
 
   # When a PR is closed (merged or not), delete the `pr-<number>` image it published to GHCR.
   cleanup-pr-image:
