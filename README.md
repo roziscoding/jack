@@ -8,21 +8,17 @@ BitTorrent swarm, just a private peer-to-peer bridge between your media servers.
 
 Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 
----
-
 ## Table of contents
 
 - [Concepts](#concepts)
+- [Quick start (Docker Compose)](#quick-start-docker-compose)
 - [How it works](#how-it-works)
 - [The API key](#the-api-key)
-- [Quick start (Docker Compose)](#quick-start-docker-compose)
 - [Configuration](#configuration)
 - [Environment variables](#environment-variables)
 - [Running without Docker](#running-without-docker)
 - [Development](#development)
 - [Project layout](#project-layout)
-
----
 
 ## Concepts
 
@@ -44,7 +40,42 @@ to search and import).
 > your *arr apps can search your friends' libraries with zero special setup —
 > to them, jack looks like any other indexer.
 
----
+## Quick start (Docker Compose)
+
+Running with Docker Compose is the recommended way to self-host jack. The image
+is published to GitHub Container Registry (`ghcr.io/roziscoding/jack:main`) on
+every push to `main`, so you don't need to clone the repo — just grab
+[`examples/docker-compose.yml`](examples/docker-compose.yml) and
+[`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
+
+```bash
+# 1. Create your config from the template
+mkdir -p config
+cp config.jsonc config/config.jsonc   # the template you downloaded
+$EDITOR config/config.jsonc           # fill in your servers (see below)
+
+# 2. Pull and run
+docker compose up -d
+
+# 3. Watch the logs
+docker compose logs -f
+```
+
+You should see `Server listening` and, if you configured destinations,
+`Registered Jack as Torznab indexer` lines.
+
+The compose file mounts three host paths — adjust them for your setup:
+
+| Mount | Purpose | Related config |
+| --- | --- | --- |
+| `./config` → `/config` | App config | `APP_CONFIG_PATH` |
+| `${MEDIA_PATH:-./data/media}` → `/data/media` | Your media, so jack can stream it to peers | must match the paths Jellyfin reports |
+| `${TORRENTS_PATH:-./data/torrents}` → `/data/torrents` | Blackhole watch/completed dirs | `downloads.watchPath`, `downloads.completedPath` |
+
+> **Networking:** if Jellyfin/Radarr/Sonarr run in their own Docker network,
+> uncomment the `networks:` block in the compose file so jack can reach them by
+> container name (and set `jack.baseUrl` to something they can resolve, e.g.
+> `http://jack:3000`). Otherwise use the host IP.
 
 ## How it works
 
@@ -53,28 +84,22 @@ There are two flows: **searching** for media (Torznab) and **downloading** it
 tiny stubs jack uses to ride on the *arr "torrent blackhole" workflow. Nothing
 ever touches BitTorrent.
 
-```
-                    YOUR machine                          FRIEND's machine
-        ┌─────────────────────────────────┐         ┌────────────────────────┐
-        │                                  │         │                        │
- search │   Radarr/Sonarr                  │         │                        │
- ───────┼─▶ (destination)                  │         │                        │
-        │      │  Torznab query            │         │                        │
-        │      ▼  /torznab?apikey=…        │ /peer/  │                        │
-        │    jack ──────────────────────────search──▶ jack ──▶ Jellyfin       │
-        │      ▲                           │         │         (their source) │
-        │      │  releases (stub .torrent) │         │                        │
-        │   Radarr/Sonarr                  │         │                        │
-        │      │  grab → drop .torrent     │         │                        │
-        │      ▼  into watchPath           │         │                        │
-        │    jack blackhole watcher        │ /peer/  │                        │
-        │      │  parse stub, fetch file ────items/──▶ jack ──▶ streams file  │
-        │      ▼  write to completedPath   │  …/file │         from disk      │
-        │    jack ──▶ "import" command ──▶ Radarr/Sonarr ──▶ your library     │
-        └─────────────────────────────────┘         └────────────────────────┘
-```
-
 ### 1. Search flow (Torznab)
+
+```mermaid
+sequenceDiagram
+    participant ARR as Radarr / Sonarr (you)
+    participant JACK as jack (you)
+    participant FJACK as jack (friend)
+    participant JELLY as Jellyfin (friend)
+
+    ARR->>JACK: Torznab query /torznab?apikey=…
+    JACK->>FJACK: /peer/search (X-Api-Key)
+    FJACK->>JELLY: search library
+    JELLY-->>FJACK: matching items
+    FJACK-->>JACK: results
+    JACK-->>ARR: releases (stub .torrent)<br/>link → /torznab/download/{peerId}:{itemId}.torrent
+```
 
 1. On startup jack **registers itself as a Torznab indexer** in each of your
    `destinations` (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`. (Auto,
@@ -90,6 +115,22 @@ ever touches BitTorrent.
    normal indexer's results.
 
 ### 2. Download flow (blackhole)
+
+```mermaid
+sequenceDiagram
+    participant ARR as Radarr / Sonarr (you)
+    participant JACK as jack (you)
+    participant FJACK as jack (friend)
+
+    ARR->>JACK: grab release → fetch stub .torrent
+    Note over ARR,JACK: *arr drops the stub into downloads.watchPath
+    Note over JACK: watcher detects file, parses stub (peerId + itemId)
+    JACK->>FJACK: GET /peer/items/:id/file
+    FJACK-->>JACK: streams real file from disk<br/>→ downloads.completedPath
+    Note over JACK: delete stub
+    JACK->>ARR: import command (scan completed folder)
+    Note over ARR: file lands in your library
+```
 
 1. You grab a release. Your *arr's download client is a **Torrent Blackhole**
    client pointed at jack's `downloads.watchPath`, so *arr fetches the
@@ -115,8 +156,6 @@ When a friend lists *you* as a peer, their jack calls your `/peer/*` endpoints
 jack streams files straight from disk using the paths your Jellyfin reports, so
 **the jack process must be able to read your media files at those same paths**
 (mount your media into the container the same way Jellyfin sees it).
-
----
 
 ## The API key
 
@@ -162,47 +201,6 @@ After that, each side's Radarr/Sonarr can find and pull media the other has.
 > Torznab endpoint, so anyone you hand it to can also query your indexer. There
 > are no per-peer keys yet — only share it with people you trust. (Per-peer,
 > revocable keys are a planned improvement.)
-
----
-
-## Quick start (Docker Compose)
-
-Running with Docker Compose is the recommended way to self-host jack. The image
-is published to GitHub Container Registry (`ghcr.io/roziscoding/jack:main`) on
-every push to `main`, so you don't need to clone the repo — just grab
-[`examples/docker-compose.yml`](examples/docker-compose.yml) and
-[`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
-
-```bash
-# 1. Create your config from the template
-mkdir -p config
-cp config.jsonc config/config.jsonc   # the template you downloaded
-$EDITOR config/config.jsonc           # fill in your servers (see below)
-
-# 2. Pull and run
-docker compose up -d
-
-# 3. Watch the logs
-docker compose logs -f
-```
-
-You should see `Server listening` and, if you configured destinations,
-`Registered Jack as Torznab indexer` lines.
-
-The compose file mounts three host paths — adjust them for your setup:
-
-| Mount | Purpose | Related config |
-| --- | --- | --- |
-| `./config` → `/config` | App config | `APP_CONFIG_PATH` |
-| `${MEDIA_PATH:-./data/media}` → `/data/media` | Your media, so jack can stream it to peers | must match the paths Jellyfin reports |
-| `${TORRENTS_PATH:-./data/torrents}` → `/data/torrents` | Blackhole watch/completed dirs | `downloads.watchPath`, `downloads.completedPath` |
-
-> **Networking:** if Jellyfin/Radarr/Sonarr run in their own Docker network,
-> uncomment the `networks:` block in the compose file so jack can reach them by
-> container name (and set `jack.baseUrl` to something they can resolve, e.g.
-> `http://jack:3000`). Otherwise use the host IP.
-
----
 
 ## Configuration
 
@@ -268,8 +266,6 @@ Field notes:
   32 hex characters** (Settings → General).
 - **`servers.sources[].apiKey`** is the Jellyfin API key.
 
----
-
 ## Environment variables
 
 | Var | Default | Description |
@@ -278,8 +274,6 @@ Field notes:
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
-
----
 
 ## Running without Docker
 
@@ -298,8 +292,6 @@ For local development with hot reload:
 mise run dev     # bun --cwd apps/backend --hot src/index.ts
 ```
 
----
-
 ## Development
 
 ```bash
@@ -313,8 +305,6 @@ API clients for external services are generated from OpenAPI specs:
 ```bash
 mise run clients   # regenerate packages/schemas/src/generated
 ```
-
----
 
 ## Project layout
 
