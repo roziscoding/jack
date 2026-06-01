@@ -31,7 +31,7 @@ WORKDIR /app
 
 ENV ENVIRONMENT=production \
     NODE_ENV=production \
-    PORT=3000 \
+    PORT=5225 \
     APP_CONFIG_PATH=/config/config.jsonc
 
 COPY package.json bun.lock ./
@@ -47,7 +47,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/schemas/node_modules ./packages/schemas/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 
-EXPOSE 3000
+EXPOSE 5225
 
 # Config lives outside the image so it survives rebuilds.
 VOLUME ["/config"]

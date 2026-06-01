@@ -5,12 +5,12 @@ services:
     container_name: jack
     restart: unless-stopped
     ports:
-      - "${JACK_PORT:-3000}:3000"
+      - "${JACK_PORT:-5225}:5225"
     environment:
       # production turns off pino-pretty and structured-logs JSON
       ENVIRONMENT: production
       LOG_LEVEL: info
-      PORT: 3000
+      PORT: 5225
       APP_CONFIG_PATH: /config/config.jsonc
     volumes:
       # App config. Drop your config.jsonc in a ./config dir next to this file

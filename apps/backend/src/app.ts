@@ -34,19 +34,17 @@ export function getApp(config: AppConfig, connectors: Connectors) {
   if (config.jack) {
     const jackConfig = config.jack
 
-    // Peer API — other Jacks talk to us
+    // Peer API — other Jacks talk to us. Always mounted; serves empty results
+    // when there's no local source to read from.
     const localJellyfin = connectors.sources.find(s => s.type === 'jellyfin') as JellyfinServerConnector | undefined
-    if (localJellyfin) {
-      const peerController = new PeerController(localJellyfin, jackConfig)
-      app.route('/peer', getPeerRouter(peerController, jackConfig.apiKey))
-    }
+    const peerController = new PeerController(localJellyfin, jackConfig)
+    app.route('/peer', getPeerRouter(peerController, jackConfig.apiKey))
 
-    // Torznab API — Radarr/Sonarr search through us
-    if (connectors.peers.length > 0) {
-      const torznabController = new TorznabController(connectors.peers, jackConfig)
-      app.route('/torznab', getTorznabRouter(torznabController, jackConfig.apiKey))
-      app.route('/torznab', getDownloadRouter(connectors.peers, jackConfig.apiKey))
-    }
+    // Torznab API — Radarr/Sonarr search through us. Always mounted; returns
+    // empty results when there are no peers to fan out to.
+    const torznabController = new TorznabController(connectors.peers, jackConfig)
+    app.route('/torznab', getTorznabRouter(torznabController, jackConfig.apiKey))
+    app.route('/torznab', getDownloadRouter(connectors.peers, jackConfig.apiKey))
   }
 
   app.onError((err, c) => {

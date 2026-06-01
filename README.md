@@ -62,7 +62,8 @@ docker compose logs -f
 ```
 
 You should see `Server listening` and, if you configured destinations,
-`Registered Jack as Torznab indexer` lines.
+`Registered Jack as Torznab indexer` and `Registered Jack as Torrent Blackhole
+download client` lines.
 
 The compose file mounts three host paths — adjust them for your setup:
 
@@ -75,7 +76,7 @@ The compose file mounts three host paths — adjust them for your setup:
 > **Networking:** if Jellyfin/Radarr/Sonarr run in their own Docker network,
 > uncomment the `networks:` block in the compose file so jack can reach them by
 > container name (and set `jack.baseUrl` to something they can resolve, e.g.
-> `http://jack:3000`). Otherwise use the host IP.
+> `http://jack:5225`). Otherwise use the host IP.
 
 ## How it works
 
@@ -102,8 +103,10 @@ sequenceDiagram
 ```
 
 1. On startup jack **registers itself as a Torznab indexer** in each of your
-   `destinations` (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`. (Auto,
-   unless you set `indexer.autoRegister: false`.)
+   `destinations` (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`, and
+   **registers a Torrent Blackhole download client** pointed at your
+   `downloads` paths (only if `downloads` is configured). (Auto, unless you set
+   `indexer.autoRegister: false`.)
 2. When you search or monitor something, Radarr/Sonarr query jack's `/torznab`
    endpoint with that API key.
 3. jack **fans the query out to every `peer`** you've configured, calling their
@@ -133,8 +136,9 @@ sequenceDiagram
 ```
 
 1. You grab a release. Your *arr's download client is a **Torrent Blackhole**
-   client pointed at jack's `downloads.watchPath`, so *arr fetches the
-   `.torrent` from jack and drops it there.
+   client pointed at jack's `downloads.watchPath` (jack registers this client
+   for you on startup), so *arr fetches the `.torrent` from jack and drops it
+   there.
 2. That `.torrent` is a **stub** — bencoded data that just encodes the
    `peerId` and `itemId`. No trackers, no pieces.
 3. jack's **blackhole watcher** notices the new file, parses the stub, and finds
@@ -217,14 +221,15 @@ need for what you're doing.
   // This instance's identity. Needed to expose a Torznab indexer and to be
   // reachable by peers.
   "jack": {
-    "baseUrl": "http://jack:3000",   // URL your *arr apps / peers reach you at
+    "baseUrl": "http://jack:5225",   // URL your *arr apps / peers reach you at
     "apiKey": "a-long-random-string" // openssl rand -hex 32 — see "The API key"
   },
 
-  // How jack registers itself in Radarr/Sonarr. Optional.
+  // How jack registers itself in Radarr/Sonarr (indexer + download client).
+  // Optional.
   "indexer": {
     "priority": 1,        // indexer priority in *arr (lower = preferred)
-    "autoRegister": true  // set false to register the indexer yourself
+    "autoRegister": true  // set false to register the indexer/client yourself
   },
 
   // Blackhole watcher. Needed to *consume* (download) from peers.
@@ -266,11 +271,31 @@ Field notes:
   32 hex characters** (Settings → General).
 - **`servers.sources[].apiKey`** is the Jellyfin API key.
 
+### Secrets from environment variables
+
+Any `apiKey` can be given either as a plain string or as a reference to an
+environment variable, so secrets can stay out of the config file:
+
+```jsonc
+{
+  "jack": {
+    "baseUrl": "http://jack:5225",
+    "apiKey": { "env": "JACK_API_KEY" } // resolved from $JACK_API_KEY at startup
+  }
+}
+```
+
+Both forms are interchangeable everywhere an `apiKey` appears (`jack`, `sources`,
+`peers`, `destinations`), and the plain-string form keeps working unchanged. If a
+referenced variable is unset or empty at startup, jack reports which one and
+refuses to load that config. The default config jack writes on first boot uses
+this env form for `jack.apiKey` (reading `JACK_API_KEY`).
+
 ## Environment variables
 
 | Var | Default | Description |
 | --- | --- | --- |
-| `PORT` | `3000` | HTTP port |
+| `PORT` | `5225` | HTTP port |
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
@@ -282,7 +307,7 @@ bun install
 
 APP_CONFIG_PATH=./config/config.jsonc \
 ENVIRONMENT=production \
-PORT=3000 \
+PORT=5225 \
 bun apps/backend/src/index.ts
 ```
 

@@ -2,9 +2,22 @@ import process from 'node:process'
 import { getApp } from './app'
 import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
+import { FetchError } from './lib/errors/FetchError'
 import { initializeConnectors } from './lib/servers'
 import { BlackholeWatcher } from './modules/downloads/blackhole'
 import { logger } from './logger'
+
+// Surface the *arr response body (which carries the actual validation message)
+// instead of just "Bad Request" — registration failures are almost always a
+// validation/test error Radarr/Sonarr return in the 400 body.
+function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
+  if (err instanceof FetchError) {
+    logger.error({ destination: destName, status: err.status, body: err.extras.body }, `Failed to register ${what}`)
+    return
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  logger.error({ destination: destName, error: message }, `Failed to register ${what}`)
+}
 
 logger.debug('Loading environment variables')
 const envs = getAppEnvs()
@@ -27,10 +40,15 @@ logger.info({
   destinations: connectors.destinations.filter(c => c.isInitialized).length,
 }, 'Server listening')
 
-// Auto-register as Torznab indexer in Radarr/Sonarr
+// Auto-register as Torznab indexer (and Torrent Blackhole download client) in Radarr/Sonarr
 if (config.jack && config.indexer?.autoRegister !== false) {
   const jackConfig = config.jack
   const indexerConfig = config.indexer ?? { priority: 1, autoRegister: true }
+  const downloads = config.downloads
+
+  if (!downloads) {
+    logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a Torrent Blackhole client is configured.')
+  }
 
   for (const dest of connectors.destinations.filter(d => d.isInitialized)) {
     const categories = dest.type === 'radarr' ? [2000] : [5000]
@@ -44,8 +62,21 @@ if (config.jack && config.indexer?.autoRegister !== false) {
       })
       logger.info({ destination: dest.name, categories }, 'Registered Jack as Torznab indexer')
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error({ destination: dest.name, error: message }, 'Failed to register indexer')
+      logRegistrationFailure('indexer', dest.name, err)
+    }
+
+    if (downloads) {
+      try {
+        await dest.registerDownloadClient({
+          name: 'Jack',
+          watchPath: downloads.watchPath,
+          completedPath: downloads.completedPath,
+          priority: indexerConfig.priority,
+        })
+        logger.info({ destination: dest.name }, 'Registered Jack as Torrent Blackhole download client')
+      } catch (err) {
+        logRegistrationFailure('download client', dest.name, err)
+      }
     }
   }
 }

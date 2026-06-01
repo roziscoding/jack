@@ -111,4 +111,45 @@ export class DestinationServerConnector extends ServerConnector {
       } as any)
     }
   }
+
+  @requireInitialization
+  async registerDownloadClient(clientConfig: { name: string, watchPath: string, completedPath: string, priority: number }) {
+    const existingClients = await this.fetch<any>('/api/v3/downloadclient', { method: 'GET' })
+    const existing = Array.isArray(existingClients)
+      ? existingClients.find((client: any) =>
+        client.fields?.some((f: any) => f.name === 'torrentFolder' && f.value === clientConfig.watchPath))
+      : null
+
+    const body = {
+      name: clientConfig.name,
+      enable: true,
+      protocol: 'torrent',
+      priority: clientConfig.priority,
+      implementation: 'TorrentBlackhole',
+      implementationName: 'Torrent Blackhole',
+      configContract: 'TorrentBlackholeSettings',
+      fields: [
+        // *arr writes the stub .torrent here; jack's watcher picks it up.
+        { name: 'torrentFolder', value: clientConfig.watchPath },
+        // jack writes the finished file here; *arr scans it to import.
+        { name: 'watchFolder', value: clientConfig.completedPath },
+        { name: 'saveMagnetFiles', value: false },
+        { name: 'readOnly', value: false },
+      ],
+    }
+
+    if (existing) {
+      await this.fetch(`/api/v3/downloadclient/${existing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, id: existing.id }),
+      } as any)
+    } else {
+      await this.fetch('/api/v3/downloadclient', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      } as any)
+    }
+  }
 }

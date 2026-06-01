@@ -33,6 +33,9 @@ export function getPeerRouter(controller: PeerController, apiKey: string) {
   app.get('/items/:itemId', async (c) => {
     const { itemId } = c.req.param()
     const item = await controller.getItem(itemId)
+    if (!item) {
+      return c.json({ error: 'Not found' }, 404)
+    }
     return c.json(item)
   })
 
