@@ -5,15 +5,21 @@ on:
     branches:
       - main
   pull_request:
+    # `closed` is needed so we can clean up the PR image once it's merged.
+    types: [opened, synchronize, reopened, closed]
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # Don't build on close — that event is only used to trigger cleanup below.
     # Skip PRs from forks — their GITHUB_TOKEN is read-only and can't push to GHCR.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.action != 'closed' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
       packages: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,3 +54,70 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Tell PR authors the image is up and how to use it. The sticky comment is
+      # keyed by `header`, so it's updated in place on every push (no spam).
+      - name: Comment image usage on the PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-docker-image
+          message: |
+            ### 🐳 Docker image published
+
+            This PR has been built and pushed to GHCR:
+
+            ```
+            ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+            ```
+
+            Pull and run it locally:
+
+            ```sh
+            docker pull ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+            docker run --rm ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+            ```
+
+            > Heads up: this image is automatically deleted when the PR is closed.
+
+  # When a PR is closed (merged or not), delete the `pr-<number>` image it published to GHCR.
+  cleanup-pr-image:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    permissions:
+      packages: write
+      pull-requests: write
+    steps:
+      - name: Delete PR image tag from GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          TAG="pr-${PR_NUMBER}"
+          echo "Looking for GHCR version tagged '${TAG}' in package ${OWNER}/${PACKAGE}"
+
+          # Find the package version whose tag list contains pr-<number>.
+          IDS="$(gh api --paginate \
+            "/users/${OWNER}/packages/container/${PACKAGE}/versions" \
+            --jq ".[] | select(.metadata.container.tags[]? == \"${TAG}\") | .id")"
+          VERSION_ID="$(printf '%s' "${IDS}" | head -n1)"
+
+          if [ -z "${VERSION_ID}" ]; then
+            echo "No GHCR version tagged '${TAG}' found — nothing to delete."
+            exit 0
+          fi
+
+          echo "Deleting version ${VERSION_ID} (tag '${TAG}')"
+          gh api --method DELETE \
+            "/users/${OWNER}/packages/container/${PACKAGE}/versions/${VERSION_ID}"
+          echo "Deleted '${TAG}' from ghcr.io/${OWNER}/${PACKAGE}"
+
+      # Remove the sticky image comment now that the image is gone.
+      - name: Delete image comment from the PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-docker-image
+          delete: true
