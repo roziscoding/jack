@@ -97,17 +97,22 @@ export class DestinationServerConnector extends ServerConnector {
       ],
     }
 
+    // forceSave: false keeps *arr's validation test on save. We deliberately do
+    // NOT want to register when it fails — better to fail loudly (the caller logs
+    // the *arr error) than to silently register a broken indexer.
     if (existing) {
       await this.fetch(`/api/v3/indexer/${existing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, id: existing.id }),
+        query: { forceSave: 'false' },
       } as any)
     } else {
       await this.fetch('/api/v3/indexer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        query: { forceSave: 'false' },
       } as any)
     }
   }
@@ -138,17 +143,23 @@ export class DestinationServerConnector extends ServerConnector {
       ],
     }
 
+    // forceSave: false keeps *arr's folder-accessibility test on save. We
+    // deliberately do NOT want to register when it fails — better to fail loudly
+    // (the caller logs the *arr error) than to silently register a download
+    // client whose watch/completed folders *arr can't actually reach.
     if (existing) {
       await this.fetch(`/api/v3/downloadclient/${existing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, id: existing.id }),
+        query: { forceSave: 'false' },
       } as any)
     } else {
       await this.fetch('/api/v3/downloadclient', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        query: { forceSave: 'false' },
       } as any)
     }
   }
