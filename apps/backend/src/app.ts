@@ -6,6 +6,7 @@ import type { JellyfinServerConnector } from './lib/servers/sources/jellyfin'
 import { Hono } from 'hono'
 import { AppError } from './lib/errors/AppError'
 import { FetchError } from './lib/errors/FetchError'
+import { logger } from './logger'
 import { ItemsController } from './modules/items/items.controller'
 import { getItemsRouter } from './modules/items/items.router'
 import { ServersController } from './modules/servers/servers.controllers'
@@ -24,6 +25,16 @@ interface Connectors {
 
 export function getApp(config: AppConfig, connectors: Connectors) {
   const app = new Hono()
+
+  // Log every request at trace level: method + path on the way in, status +
+  // duration on the way out.
+  app.use('*', async (c, next) => {
+    const start = performance.now()
+    logger.trace({ method: c.req.method, path: c.req.path }, 'Request received')
+    await next()
+    const durationMs = Math.round((performance.now() - start) * 100) / 100
+    logger.trace({ method: c.req.method, path: c.req.path, status: c.res.status, durationMs }, 'Request completed')
+  })
 
   const serversController = new ServersController(connectors)
   const itemsController = new ItemsController(connectors)
