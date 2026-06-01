@@ -35,6 +35,9 @@ export function getApp(config: AppConfig, connectors: Connectors) {
     logger.trace({ method: c.req.method, path: c.req.path, status: c.res.status, durationMs }, 'Request completed')
   })
 
+  // Health check — unauthenticated, used by Docker/orchestrators.
+  app.get('/ping', c => c.json({ status: 'OK' }, 200))
+
   const serversController = new ServersController(connectors)
   const itemsController = new ItemsController(connectors)
 

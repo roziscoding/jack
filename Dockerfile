@@ -52,4 +52,8 @@ EXPOSE 5225
 # Config lives outside the image so it survives rebuilds.
 VOLUME ["/config"]
 
+# Hit the /ping endpoint to report container health.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null "http://localhost:${PORT}/ping" || exit 1
+
 CMD ["bun", "apps/backend/src/index.ts"]
