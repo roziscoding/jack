@@ -115,7 +115,6 @@ const config: AppConfig = {
   jack: {
     baseUrl: 'http://localhost:3000',
     apiKey: 'test-api-key',
-    mediaPath: '/media',
   },
   indexer: { priority: 1, autoRegister: true },
   downloads: { watchPath: '/tmp/jack-test-watch', completedPath: '/tmp/jack-test-completed' },
