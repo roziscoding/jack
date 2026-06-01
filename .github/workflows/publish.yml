@@ -2,6 +2,9 @@ name: Publish Docker image
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
   build-and-push:
@@ -28,10 +31,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
-          # Tag the image with the branch name (slashes become dashes,
-          # e.g. feat/docker -> feat-docker).
+          # main pushes -> :main ; pull requests -> :pr-<number>
           tags: |
             type=ref,event=branch
+            type=ref,event=pr
 
       - name: Build and push
         uses: docker/build-push-action@v6
