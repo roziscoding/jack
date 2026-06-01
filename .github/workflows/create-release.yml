@@ -51,10 +51,10 @@ jobs:
           git push origin HEAD:main
           SHA="$(git rev-parse HEAD)"
 
-          # 3. Create the GitHub release; the tag is the version number itself.
+          # 3. Create the GitHub release; the tag is the version prefixed with "v".
           if [ -n "${NOTES:-}" ]; then
             printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.md"
-            gh release create "$VERSION" --title "$VERSION" --target "$SHA" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "v$VERSION" --title "v$VERSION" --target "$SHA" --notes-file "$RUNNER_TEMP/notes.md"
           else
-            gh release create "$VERSION" --title "$VERSION" --target "$SHA" --generate-notes
+            gh release create "v$VERSION" --title "v$VERSION" --target "$SHA" --generate-notes
           fi
