@@ -1,0 +1,60 @@
+name: Create Release
+
+# Manual only — run it from the Actions tab via "Run workflow".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # Dry run: only compute the next version + notes from the commit history.
+      # Tag format and plugins come from .releaserc.json.
+      - name: Determine next version with semantic-release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Nothing to release
+        if: steps.semantic.outputs.new_release_published != 'true'
+        run: echo "No release-worthy commits since the last tag — skipping."
+
+      - name: Bump package.json, commit and create the release
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          NOTES: ${{ steps.semantic.outputs.new_release_notes }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 1. Write the computed version into the local package.json.
+          npm pkg set version="$VERSION"
+
+          # 2. Commit the bump to main, skipping CI for this push.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): $VERSION [skip ci]"
+          git push origin HEAD:main
+          SHA="$(git rev-parse HEAD)"
+
+          # 3. Create the GitHub release; the tag is the version number itself.
+          if [ -n "${NOTES:-}" ]; then
+            printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.md"
+            gh release create "$VERSION" --title "$VERSION" --target "$SHA" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$VERSION" --title "$VERSION" --target "$SHA" --generate-notes
+          fi
