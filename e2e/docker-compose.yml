@@ -50,7 +50,7 @@ services:
   jack-alpha:
     build:
       context: ..
-      dockerfile: e2e/Dockerfile
+      dockerfile: Dockerfile
     ports:
       - "13000:3000"
     environment:
@@ -77,7 +77,7 @@ services:
   jack-beta:
     build:
       context: ..
-      dockerfile: e2e/Dockerfile
+      dockerfile: Dockerfile
     ports:
       - "13001:3000"
     environment:

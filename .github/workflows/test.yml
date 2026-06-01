@@ -30,3 +30,16 @@ jobs:
 
       - name: Run unit tests
         run: bun test apps packages
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+
+      - name: Run e2e tests
+        run: mise run e2e
