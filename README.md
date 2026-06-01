@@ -16,6 +16,7 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 - [The API key](#the-api-key)
 - [Configuration](#configuration)
 - [Environment variables](#environment-variables)
+- [Health check](#health-check)
 - [Running without Docker](#running-without-docker)
 - [Development](#development)
 - [Project layout](#project-layout)
@@ -299,6 +300,23 @@ this env form for `jack.apiKey` (reading `JACK_API_KEY`).
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
+
+> Set `LOG_LEVEL=trace` to log every HTTP request — method, path, response
+> status, and duration — as it completes.
+
+## Health check
+
+jack exposes an unauthenticated `GET /ping` that returns `{ "status": "OK" }`
+with a `200`, handy for uptime monitors and orchestrators:
+
+```bash
+curl http://localhost:5225/ping
+# {"status":"OK"}
+```
+
+The Docker image wires this endpoint up as a built-in `HEALTHCHECK`, so
+`docker ps` and Compose report the container's health automatically — no extra
+configuration needed.
 
 ## Running without Docker
 
