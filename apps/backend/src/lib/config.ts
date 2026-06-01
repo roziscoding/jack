@@ -43,7 +43,6 @@ export type ServerType = SourceServerType | DestinationServerType | 'jack'
 export const JackConfig = z.object({
   baseUrl: z.url(),
   apiKey: z.string().min(1),
-  mediaPath: z.string().min(1),
 })
 
 export type JackConfig = z.infer<typeof JackConfig>
