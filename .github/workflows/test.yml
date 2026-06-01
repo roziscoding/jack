@@ -25,5 +25,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate API clients
+        run: bun run --cwd packages/schemas openapi-ts
+
       - name: Run tests
         run: bun test

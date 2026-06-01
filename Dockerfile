@@ -11,6 +11,20 @@ COPY packages/schemas/package.json packages/schemas/package.json
 
 RUN bun install --frozen-lockfile --production
 
+# ---- generate: full install + generate the API clients (gitignored) ----
+FROM oven/bun:1.3.14-alpine AS generate
+WORKDIR /app
+
+COPY package.json bun.lock ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY packages/schemas/package.json packages/schemas/package.json
+
+# Full install here (openapi-ts is a devDependency).
+RUN bun install --frozen-lockfile
+
+COPY packages/schemas ./packages/schemas
+RUN bun run --cwd packages/schemas openapi-ts
+
 # ---- runtime ----
 FROM oven/bun:1.3.14-alpine AS runtime
 WORKDIR /app
@@ -27,6 +41,8 @@ COPY package.json bun.lock ./
 # apps/backend/node_modules/@jack/schemas is a symlink into packages/schemas.
 COPY packages/schemas ./packages/schemas
 COPY apps/backend ./apps/backend
+# Generated API clients are gitignored, so pull them from the generate stage.
+COPY --from=generate /app/packages/schemas/src/generated ./packages/schemas/src/generated
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/schemas/node_modules ./packages/schemas/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
