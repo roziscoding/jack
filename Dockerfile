@@ -49,8 +49,20 @@ COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 
 EXPOSE 5225
 
+# Pre-create the config dir owned by the runtime user so jack can write the
+# default config on first boot even when /config is a fresh named/anonymous
+# volume. (Must come before VOLUME so the volume inherits the ownership.)
+RUN mkdir -p /config && chown bun:bun /config
+
 # Config lives outside the image so it survives rebuilds.
 VOLUME ["/config"]
+
+# Run as the image's non-root `bun` user (uid/gid 1000). This matches the
+# PUID/PGID the *arr / linuxserver.io images default to, so files jack writes
+# (e.g. finished downloads in the blackhole completed folder) are owned by the
+# same user that imports them. Bind-mounted /config and download folders must
+# therefore be readable/writable by uid 1000.
+USER bun
 
 # Hit the /ping endpoint to report container health.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

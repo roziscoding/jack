@@ -390,26 +390,32 @@ Two gotchas:
 - **Use a dedicated completed folder.** Don't point `completedPath` at a folder
   another download client (e.g. qBittorrent's `/downloads`) already writes to,
   or *arr's blackhole client will try to import unrelated files.
-- **Watch permissions.** Radarr/Sonarr typically run as `PUID/PGID=1000`, while
-  the jack image runs as root. jack writes the finished file (as root) into the
-  completed folder and *arr (uid 1000) has to read/move it on import. `chown` the
-  watch/completed folders to the same uid your *arr uses to avoid import errors.
+- **Watch permissions.** jack runs as **uid/gid 1000**, matching the `PUID/PGID`
+  the linuxserver.io *arr images default to, so files jack writes are owned by
+  the same user that imports them. Make sure the watch/completed folders (and the
+  `/config` mount) are readable/writable by uid 1000 — `chown -R 1000:1000` them
+  if your *arr uses a different `PUID`, set it to match.
 
-### `Failed to register indexer` — "no results in the configured categories"
+### No indexer or download client registered
 
-```json
-{ "errorMessage": "Query successful, but no results in the configured categories were returned from your indexer.", … }
+```
+No peers configured; skipping indexer and download client registration (nothing to search or grab yet).
 ```
 
-When jack registers itself as a Torznab indexer, Radarr/Sonarr run a **test
-query** and reject the indexer if it returns nothing. With **no `peers`
-configured** jack has nothing to fan the query out to, so the feed is empty and
-the test fails (look for `"peers":0` in the `Server listening` log line).
+jack only registers itself in Radarr/Sonarr when you have at least one `peer` —
+without peers there's nothing to search and nothing to grab, and Radarr/Sonarr
+reject an indexer whose test query returns no results anyway. So with **no
+`peers` configured** jack deliberately skips registration (look for `"peers":0`
+in the `Server listening` log line).
 
-**Fix:** configure at least one entry under `servers.peers`. The indexer is
-registered on the next startup once there's a peer to return results from.
-(An indexer with no peers behind it has nothing to offer, so this is expected on
-a consume-less setup.)
+**Fix:** configure at least one entry under `servers.peers`. The indexer and
+download client are registered on the next startup once there's a peer behind
+them.
+
+If you *do* have peers but registration still fails with
+`Failed to register indexer` / *"no results in the configured categories"*, it
+means the test query returned nothing — check that the peer is reachable and its
+library actually contains matching items.
 
 ### `ConnectionRefused` / "Jellyfin Server is loading" on startup
 

@@ -8,7 +8,7 @@ beforeAll(async () => {
 })
 
 describe('Auto-registration (e2e)', () => {
-  test('Jack Alpha registers as indexer in Radarr (always, even without peers)', async () => {
+  test('Jack Alpha does NOT register as indexer (no peers = nothing to search)', async () => {
     const indexers = await fetchJson<Array<{ name: string, fields: Array<{ name: string, value: unknown }> }>>(
       `${env.radarrUrl}/api/v3/indexer`,
       { headers: { 'X-Api-Key': env.radarrApiKey } },
@@ -17,8 +17,7 @@ describe('Auto-registration (e2e)', () => {
     const alphaIndexer = indexers.find(idx =>
       idx.fields?.some(f => f.name === 'baseUrl' && String(f.value).includes('jack-alpha')),
     )
-    expect(alphaIndexer).toBeDefined()
-    expect(alphaIndexer!.name).toBe('Jack')
+    expect(alphaIndexer).toBeUndefined()
   })
 
   test('Jack Beta registered as indexer in Radarr', async () => {

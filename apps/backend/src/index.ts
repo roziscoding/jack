@@ -40,42 +40,48 @@ logger.info({
   destinations: connectors.destinations.filter(c => c.isInitialized).length,
 }, 'Server listening')
 
-// Auto-register as Torznab indexer (and Torrent Blackhole download client) in Radarr/Sonarr
+// Auto-register as Torznab indexer (and Torrent Blackhole download client) in Radarr/Sonarr.
 if (config.jack && config.indexer?.autoRegister !== false) {
-  const jackConfig = config.jack
-  const indexerConfig = config.indexer ?? { priority: 1, autoRegister: true }
-  const downloads = config.downloads
+  // Without peers there's nothing to search and nothing to grab, and *arr rejects
+  // an indexer whose test query returns no results — so skip registration entirely.
+  if (connectors.peers.length === 0) {
+    logger.info('No peers configured; skipping indexer and download client registration (nothing to search or grab yet).')
+  } else {
+    const jackConfig = config.jack
+    const indexerConfig = config.indexer ?? { priority: 1, autoRegister: true }
+    const downloads = config.downloads
 
-  if (!downloads) {
-    logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a Torrent Blackhole client is configured.')
-  }
-
-  for (const dest of connectors.destinations.filter(d => d.isInitialized)) {
-    const categories = dest.type === 'radarr' ? [2000] : [5000]
-    try {
-      await dest.registerIndexer({
-        name: 'Jack',
-        baseUrl: `${jackConfig.baseUrl}/torznab`,
-        apiKey: jackConfig.apiKey,
-        priority: indexerConfig.priority,
-        categories,
-      })
-      logger.info({ destination: dest.name, categories }, 'Registered Jack as Torznab indexer')
-    } catch (err) {
-      logRegistrationFailure('indexer', dest.name, err)
+    if (!downloads) {
+      logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a Torrent Blackhole client is configured.')
     }
 
-    if (downloads) {
+    for (const dest of connectors.destinations.filter(d => d.isInitialized)) {
+      const categories = dest.type === 'radarr' ? [2000] : [5000]
       try {
-        await dest.registerDownloadClient({
+        await dest.registerIndexer({
           name: 'Jack',
-          watchPath: downloads.watchPath,
-          completedPath: downloads.completedPath,
+          baseUrl: `${jackConfig.baseUrl}/torznab`,
+          apiKey: jackConfig.apiKey,
           priority: indexerConfig.priority,
+          categories,
         })
-        logger.info({ destination: dest.name }, 'Registered Jack as Torrent Blackhole download client')
+        logger.info({ destination: dest.name, categories }, 'Registered Jack as Torznab indexer')
       } catch (err) {
-        logRegistrationFailure('download client', dest.name, err)
+        logRegistrationFailure('indexer', dest.name, err)
+      }
+
+      if (downloads) {
+        try {
+          await dest.registerDownloadClient({
+            name: 'Jack',
+            watchPath: downloads.watchPath,
+            completedPath: downloads.completedPath,
+            priority: indexerConfig.priority,
+          })
+          logger.info({ destination: dest.name }, 'Registered Jack as Torrent Blackhole download client')
+        } catch (err) {
+          logRegistrationFailure('download client', dest.name, err)
+        }
       }
     }
   }
