@@ -24,19 +24,22 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 
 ## Quick start (Docker)
 
-From a clone of this repo:
+The image is published to GitHub Container Registry
+(`ghcr.io/roziscoding/jack:main`) on every push to `main` — you don't need to
+clone the repo. Grab the [`examples/docker-compose.yml`](examples/docker-compose.yml)
+and [`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
 
 ```bash
 # 1. Create your config from the template
 mkdir -p config
-cp examples/config.jsonc config/config.jsonc
-$EDITOR config/config.jsonc        # fill in your servers (see below)
+cp config.jsonc config/config.jsonc   # the template you downloaded
+$EDITOR config/config.jsonc           # fill in your servers (see below)
 
-# 2. Build and run
-docker compose -f examples/docker-compose.yml up -d --build
+# 2. Pull and run
+docker compose up -d
 
 # 3. Watch the logs
-docker compose -f examples/docker-compose.yml logs -f
+docker compose logs -f
 ```
 
 You should see `Server listening` and, if you configured destinations,

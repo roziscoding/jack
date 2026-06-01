@@ -1,11 +1,7 @@
 services:
   jack:
-    # Build context is the repo root (one level up from this examples/ dir).
-    # Run from the repo with: docker compose -f examples/docker-compose.yml up -d --build
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: jack:latest
+    # Pre-built image published to GitHub Container Registry on every push to main.
+    image: ghcr.io/roziscoding/jack:main
     container_name: jack
     restart: unless-stopped
     ports:
@@ -17,9 +13,8 @@ services:
       PORT: 3000
       APP_CONFIG_PATH: /config/config.jsonc
     volumes:
-      # App config. Create a config dir and drop your config.jsonc in it:
-      #   mkdir -p config && cp examples/config.jsonc config/config.jsonc
-      # (paths here resolve relative to this compose file's directory)
+      # App config. Drop your config.jsonc in a ./config dir next to this file
+      # (start from the config.jsonc template in this examples/ folder).
       - ./config:/config
       # Media library — must match `jack.mediaPath` in config.jsonc.
       # Point the host side at the SAME path your *arr/Jellyfin see.
