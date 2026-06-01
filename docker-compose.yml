@@ -1,0 +1,32 @@
+services:
+  jack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jack:latest
+    container_name: jack
+    restart: unless-stopped
+    ports:
+      - "${JACK_PORT:-3000}:3000"
+    environment:
+      # production turns off pino-pretty and structured-logs JSON
+      ENVIRONMENT: production
+      LOG_LEVEL: info
+      PORT: 3000
+      APP_CONFIG_PATH: /config/config.jsonc
+    volumes:
+      # App config (copy config.example.jsonc -> ./config/config.jsonc first)
+      - ./config:/config
+      # Media library — must match `jack.mediaPath` in config.jsonc.
+      # Point the host side at the SAME path your *arr/Jellyfin see.
+      - ${MEDIA_PATH:-./data/media}:/data/media
+      # Blackhole download dirs — must match `downloads.*` in config.jsonc.
+      - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
+    # If Jellyfin / Radarr / Sonarr run in their own compose network,
+    # attach this service to it so `jack.baseUrl` / server URLs resolve by
+    # container name. Otherwise reach them via host IP.
+    # networks:
+    #   - media
+# networks:
+#   media:
+#     external: true
