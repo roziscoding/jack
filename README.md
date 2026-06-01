@@ -18,6 +18,7 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 - [Environment variables](#environment-variables)
 - [Health check](#health-check)
 - [Running without Docker](#running-without-docker)
+- [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Project layout](#project-layout)
 
@@ -347,6 +348,98 @@ For local development with hot reload:
 ```bash
 mise run dev     # bun --cwd apps/backend --hot src/index.ts
 ```
+
+## Troubleshooting
+
+Registration runs on every startup and logs the *arr response body, so check
+`docker compose logs jack` first. The common failures:
+
+### `Failed to register download client` — "Folder does not exist" (`TorrentFolder` / `WatchFolder`)
+
+```json
+{ "propertyName": "TorrentFolder", "errorMessage": "Folder does not exist", … }
+```
+
+jack registers the Torrent Blackhole client using the **literal**
+`downloads.watchPath` / `downloads.completedPath`, and Radarr/Sonarr resolve
+those paths in **their own** filesystem. This error means those paths don't
+exist *inside the Radarr/Sonarr containers* — almost always because the
+blackhole folders are only mounted into jack, not into *arr.
+
+**Fix:** mount the **same host folders** into Radarr **and** Sonarr at the
+**same container paths** jack uses. If jack has:
+
+```yaml
+# jack
+volumes:
+  - /srv/media/jack-watch:/data/torrents/watch
+  - /srv/media/jack-completed:/data/torrents/completed
+```
+
+then Radarr and Sonarr each need:
+
+```yaml
+# radarr AND sonarr
+volumes:
+  - /srv/media/jack-watch:/data/torrents/watch
+  - /srv/media/jack-completed:/data/torrents/completed
+```
+
+Two gotchas:
+
+- **Use a dedicated completed folder.** Don't point `completedPath` at a folder
+  another download client (e.g. qBittorrent's `/downloads`) already writes to,
+  or *arr's blackhole client will try to import unrelated files.
+- **Watch permissions.** Radarr/Sonarr typically run as `PUID/PGID=1000`, while
+  the jack image runs as root. jack writes the finished file (as root) into the
+  completed folder and *arr (uid 1000) has to read/move it on import. `chown` the
+  watch/completed folders to the same uid your *arr uses to avoid import errors.
+
+### `Failed to register indexer` — "no results in the configured categories"
+
+```json
+{ "errorMessage": "Query successful, but no results in the configured categories were returned from your indexer.", … }
+```
+
+When jack registers itself as a Torznab indexer, Radarr/Sonarr run a **test
+query** and reject the indexer if it returns nothing. With **no `peers`
+configured** jack has nothing to fan the query out to, so the feed is empty and
+the test fails (look for `"peers":0` in the `Server listening` log line).
+
+**Fix:** configure at least one entry under `servers.peers`. The indexer is
+registered on the next startup once there's a peer to return results from.
+(An indexer with no peers behind it has nothing to offer, so this is expected on
+a consume-less setup.)
+
+### `ConnectionRefused` / "Jellyfin Server is loading" on startup
+
+```
+Failed to initialize connector radarr: Unable to connect. Is the computer able to access the url?
+```
+
+jack connects to your servers **once at boot**. If it starts before
+Jellyfin/Radarr/Sonarr are ready, those connectors fail and you'll see
+`sources:0` / `destinations:0` in the `Server listening` line. It usually fixes
+itself on the next restart, but to make it deterministic, wait for the
+dependencies to be healthy:
+
+```yaml
+# jack
+depends_on:
+  jellyfin: { condition: service_healthy }
+  radarr:   { condition: service_healthy }
+  sonarr:   { condition: service_healthy }
+```
+
+(This needs `healthcheck` blocks on those services — the linuxserver.io images
+ship with them.)
+
+### Seeing what jack is doing
+
+Set `LOG_LEVEL=trace` to log every HTTP request (method, path, status,
+duration). Registration failures always log the raw *arr response body at
+`error` level, which carries the real validation message — read that body, it
+usually tells you exactly what *arr is unhappy about.
 
 ## Development
 
