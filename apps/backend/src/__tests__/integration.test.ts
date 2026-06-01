@@ -33,8 +33,8 @@ const mockJellyfinItems = [
 ]
 
 const handlers = [
-  // Jellyfin System Info
-  http.get(`${JELLYFIN_URL}/System/Info`, () => {
+  // Jellyfin System Info (Public)
+  http.get(`${JELLYFIN_URL}/System/Info/Public`, () => {
     return HttpResponse.json({ ProductName: 'Jellyfin Server', Version: '10.8.0' })
   }),
 

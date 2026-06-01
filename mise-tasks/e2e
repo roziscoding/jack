@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Run e2e tests with real containers"
+set -e
+
+E2E_DIR="$(cd "$(dirname "$0")/../e2e" && pwd)"
+
+echo "🧹 Cleaning up previous state..."
+docker compose -f "$E2E_DIR/docker-compose.yml" down -v 2>/dev/null || true
+rm -f "$E2E_DIR/config/jack-alpha.jsonc" "$E2E_DIR/config/jack-beta.jsonc" "$E2E_DIR/config/test-env.json"
+rm -rf "$E2E_DIR/volumes"
+mkdir -p "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
+mkdir -p "$E2E_DIR/config"
+
+cleanup() {
+  echo ""
+  echo "🧹 Tearing down containers..."
+  docker compose -f "$E2E_DIR/docker-compose.yml" down -v 2>/dev/null || true
+}
+trap cleanup EXIT
+
+echo "🐳 Starting infrastructure (Jellyfin, Radarr, Sonarr)..."
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build jellyfin radarr sonarr
+
+echo "⚙️  Running setup (bootstrap services, write configs)..."
+bun run "$E2E_DIR/setup.ts"
+
+echo "🚀 Starting Jack instances..."
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d jack-alpha jack-beta
+
+echo "⏳ Waiting for Jack Alpha..."
+timeout 60 bash -c 'until curl -sf http://localhost:13000/servers > /dev/null 2>&1; do sleep 2; done'
+echo "✅ Jack Alpha ready"
+
+echo "⏳ Waiting for Jack Beta..."
+timeout 60 bash -c 'until curl -sf http://localhost:13001/servers > /dev/null 2>&1; do sleep 2; done'
+echo "✅ Jack Beta ready"
+
+echo ""
+echo "🧪 Running e2e tests..."
+bun test "$E2E_DIR/tests/" --timeout 120000

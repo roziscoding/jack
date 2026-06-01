@@ -84,6 +84,7 @@ export function buildSearchResultXml(items: TorznabItem[]): string {
     return `    <item>
       <title>${escapeXml(item.title)}</title>
       <guid>${escapeXml(item.guid)}</guid>
+      <pubDate>${new Date().toUTCString()}</pubDate>
       <size>${item.size}</size>
       <link>${escapeXml(item.downloadUrl)}</link>
       <enclosure url="${escapeXml(item.downloadUrl)}" length="${item.size}" type="application/x-bittorrent" />

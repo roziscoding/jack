@@ -9,7 +9,7 @@ export class JellyfinServerConnector extends SourceServerConnector<BaseItemDto> 
   private readonly client = createJellyfinClient(this.url, this.apiKey)
   constructor(config: { url: string, apiKey: string, name?: string }) {
     super({
-      pingPath: '/System/Info',
+      pingPath: '/System/Info/Public',
       pingMethod: 'GET',
       authHeader: 'Authorization',
     }, { ...config, type: 'jellyfin' })
@@ -17,7 +17,7 @@ export class JellyfinServerConnector extends SourceServerConnector<BaseItemDto> 
 
   override init() {
     this._initialization = Promise.withResolvers()
-    this.ping(schemas.zSystemInfo)
+    this.ping(schemas.zPublicSystemInfo)
       .then((info) => {
         if (info.ProductName !== 'Jellyfin Server') {
           this._initializationError = `Invalid appName "${info.ProductName}" found for server type ${this.type}. Expected "Jellyfin Server"`
