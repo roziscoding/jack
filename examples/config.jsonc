@@ -3,9 +3,11 @@
   // for peers to reach you. `baseUrl` must be reachable from your *arr apps.
   "jack": {
     "baseUrl": "http://jack:3000",
-    "apiKey": "change-me-to-a-long-random-string",
-    // Where your media library lives *inside the container* (see compose volumes).
-    "mediaPath": "/data/media"
+    // Shared secret that protects your /torznab and /peer endpoints.
+    // Generate one with:  openssl rand -hex 32
+    // You hand this SAME value to your peers so they can reach you, and your
+    // Radarr/Sonarr use it to query your Torznab indexer (see README).
+    "apiKey": "change-me-run-openssl-rand-hex-32"
   },
 
   // Torznab auto-registration in Radarr/Sonarr. Optional.

@@ -16,8 +16,9 @@ services:
       # App config. Drop your config.jsonc in a ./config dir next to this file
       # (start from the config.jsonc template in this examples/ folder).
       - ./config:/config
-      # Media library — must match `jack.mediaPath` in config.jsonc.
-      # Point the host side at the SAME path your *arr/Jellyfin see.
+      # Media library. jack streams files to peers using the paths your
+      # Jellyfin reports, so it must see those files at the SAME path inside
+      # the container. Mirror your Jellyfin/*arr media mount here.
       - ${MEDIA_PATH:-./data/media}:/data/media
       # Blackhole download dirs — must match `downloads.*` in config.jsonc.
       - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
