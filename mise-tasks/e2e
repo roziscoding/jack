@@ -23,13 +23,13 @@ cleanup() {
 trap cleanup EXIT
 
 echo "🐳 Starting infrastructure (Radarr, Sonarr)..."
-docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build radarr sonarr
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d radarr sonarr
 
 echo "⚙️  Running setup (bootstrap services, write configs)..."
 bun run "$E2E_DIR/setup.ts"
 
 echo "🚀 Starting Jack instances..."
-docker compose -f "$E2E_DIR/docker-compose.yml" up -d jack-alpha jack-beta
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build jack-alpha jack-beta
 
 echo "⏳ Waiting for Jack Alpha..."
 timeout 60 bash -c 'until curl -sf http://localhost:13000/servers > /dev/null 2>&1; do sleep 2; done'
