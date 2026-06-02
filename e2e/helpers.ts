@@ -1,8 +1,6 @@
 import { join } from 'node:path'
 
 export interface TestEnv {
-  jellyfinUrl: string
-  jellyfinApiKey: string
   radarrUrl: string
   radarrApiKey: string
   sonarrUrl: string

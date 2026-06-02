@@ -1,8 +1,8 @@
 import { watch } from 'node:fs'
 import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { JackServerConnector } from '../../lib/servers/sources/jack'
-import type { DestinationServerConnector } from '../../lib/servers/destinations/base'
+import type { PeerConnector } from '../../lib/servers/peer'
+import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { AppConfig } from '../../lib/config'
 import { parseTorrentStub } from '../torznab/torrent'
 import { logger } from '../../logger'
@@ -16,8 +16,8 @@ export class BlackholeWatcher {
 
   constructor(
     private readonly config: NonNullable<AppConfig['downloads']>,
-    private readonly peers: JackServerConnector[],
-    private readonly destinations: DestinationServerConnector[],
+    private readonly peers: PeerConnector[],
+    private readonly destinations: ArrServerConnector[],
   ) {}
 
   async start() {
@@ -97,11 +97,8 @@ export class BlackholeWatcher {
 
       logger.info({ peerId, itemId, peer: peer.name ?? peer.url }, 'Downloading from peer')
 
-      const item = await peer.getItemMetadata(itemId)
-      const itemName = item.Name ?? 'Unknown'
-      const ext = item.MediaSources?.[0]?.Path?.split('.').pop() ?? 'mkv'
-      const destFilename = `${itemName}.${ext}`
-      const destPath = join(this.config.completedPath, destFilename)
+      const release = await peer.getRelease(itemId)
+      const destPath = join(this.config.completedPath, release.filename)
 
       await peer.downloadFile(itemId, destPath)
 
@@ -111,7 +108,7 @@ export class BlackholeWatcher {
       // Trigger import scan on all destinations
       await this.triggerImport()
 
-      logger.info({ itemName, destPath }, 'Download complete, triggered import')
+      logger.info({ filename: release.filename, destPath }, 'Download complete, triggered import')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ filename, error: message }, 'Failed to process torrent')
@@ -121,7 +118,7 @@ export class BlackholeWatcher {
   }
 
   private async triggerImport() {
-    for (const dest of this.destinations.filter(d => d.isInitialized)) {
+    for (const dest of this.destinations.filter(d => d.isInitialized && d.canDestination)) {
       try {
         await dest.triggerImport(this.config.completedPath)
       } catch (err) {

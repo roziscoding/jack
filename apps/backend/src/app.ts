@@ -1,8 +1,6 @@
 import type { AppConfig } from './lib/config'
-import type { DestinationServerConnector } from './lib/servers/destinations/base'
-import type { SourceServerConnector } from './lib/servers/sources/base'
-import type { JackServerConnector } from './lib/servers/sources/jack'
-import type { JellyfinServerConnector } from './lib/servers/sources/jellyfin'
+import type { ArrServerConnector } from './lib/servers/arr/base'
+import type { PeerConnector } from './lib/servers/peer'
 import { Hono } from 'hono'
 import { AppError } from './lib/errors/AppError'
 import { FetchError } from './lib/errors/FetchError'
@@ -18,9 +16,8 @@ import { getTorznabRouter } from './modules/torznab/torznab.router'
 import { getDownloadRouter } from './modules/torznab/download.router'
 
 interface Connectors {
-  sources: SourceServerConnector[]
-  peers: JackServerConnector[]
-  destinations: DestinationServerConnector[]
+  servers: ArrServerConnector[]
+  peers: PeerConnector[]
 }
 
 export function getApp(config: AppConfig, connectors: Connectors) {
@@ -38,8 +35,8 @@ export function getApp(config: AppConfig, connectors: Connectors) {
   // Health check — unauthenticated, used by Docker/orchestrators.
   app.get('/ping', c => c.json({ status: 'OK' }, 200))
 
-  const serversController = new ServersController(connectors)
-  const itemsController = new ItemsController(connectors)
+  const serversController = new ServersController({ servers: connectors.servers, peers: connectors.peers })
+  const itemsController = new ItemsController({ sources: connectors.servers })
 
   app.route('/servers', getServersRouter(serversController))
   app.route('/items', getItemsRouter(itemsController))
@@ -49,8 +46,7 @@ export function getApp(config: AppConfig, connectors: Connectors) {
 
     // Peer API — other Jacks talk to us. Always mounted; serves empty results
     // when there's no local source to read from.
-    const localJellyfin = connectors.sources.find(s => s.type === 'jellyfin') as JellyfinServerConnector | undefined
-    const peerController = new PeerController(localJellyfin, jackConfig)
+    const peerController = new PeerController(connectors.servers)
     app.route('/peer', getPeerRouter(peerController, jackConfig.apiKey))
 
     // Torznab API — Radarr/Sonarr search through us. Always mounted; returns

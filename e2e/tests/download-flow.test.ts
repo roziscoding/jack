@@ -24,7 +24,7 @@ describe('Download flow (e2e)', () => {
     expect(enclosureMatch).not.toBeNull()
 
     // The URL in the XML will have the docker-internal host, replace with localhost
-    let downloadUrl = enclosureMatch![1]
+    let downloadUrl = enclosureMatch![1]!
       .replace('http://jack-beta:3000', env.jackBetaUrl)
       .replace(/&amp;/g, '&')
 

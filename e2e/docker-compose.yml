@@ -1,18 +1,4 @@
 services:
-  jellyfin:
-    image: jellyfin/jellyfin:10.9.11
-    ports:
-      - "18096:8096"
-    volumes:
-      - jellyfin-config:/config
-      - ./fixtures/media:/media:ro
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
-
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     ports:
@@ -22,6 +8,7 @@ services:
       - PGID=1000
     volumes:
       - radarr-config:/config
+      - ./fixtures/media:/media
       - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
@@ -40,6 +27,7 @@ services:
       - PGID=1000
     volumes:
       - sonarr-config:/config
+      - ./fixtures/media:/media
       - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
@@ -63,8 +51,6 @@ services:
       - ./config:/config
       - ./fixtures/media:/media:ro
     depends_on:
-      jellyfin:
-        condition: service_healthy
       radarr:
         condition: service_healthy
       sonarr:
@@ -102,6 +88,5 @@ services:
       start_period: 5s
 
 volumes:
-  jellyfin-config:
   radarr-config:
   sonarr-config:

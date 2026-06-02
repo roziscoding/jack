@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import z from 'zod'
-import { AppConfig, ConfigSecret, DestinationServerConfig, JackConfig } from '../lib/config'
+import { AppConfig, ConfigSecret, JackConfig, ServerConfig } from '../lib/config'
 
 const HEX_KEY = '0123456789abcdef0123456789abcdef'
 
@@ -68,41 +68,82 @@ describe('appConfig parsing', () => {
     process.env.RADARR_KEY = HEX_KEY
   })
 
-  test('parses legacy string-based configs unchanged', () => {
+  test('parses a servers + peers config', () => {
     const parsed = AppConfig.parse({
-      jack: { baseUrl: 'http://jack:3000', apiKey: 'legacy-key' },
-      servers: {
-        sources: [{ type: 'jellyfin', url: 'http://jellyfin:8096', apiKey: 'jf-key' }],
-        peers: [{ url: 'http://peer:3000', apiKey: 'peer-key' }],
-        destinations: [{ type: 'radarr', url: 'http://radarr:7878', apiKey: HEX_KEY }],
-      },
+      jack: { baseUrl: 'http://jack:3000', apiKey: 'jack-key' },
+      servers: [
+        { name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: HEX_KEY },
+      ],
+      peers: [{ name: 'friend', url: 'http://peer:3000', apiKey: 'peer-key' }],
     })
 
-    expect(parsed.jack?.apiKey).toBe('legacy-key')
-    expect(parsed.servers.sources[0]?.apiKey).toBe('jf-key')
-    expect(parsed.servers.peers[0]?.apiKey).toBe('peer-key')
-    expect(parsed.servers.destinations[0]?.apiKey).toBe(HEX_KEY)
+    expect(parsed.jack?.apiKey).toBe('jack-key')
+    expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
+    expect(parsed.peers[0]?.apiKey).toBe('peer-key')
+  })
+
+  test('defaults source/destination/autoregister', () => {
+    const parsed = AppConfig.parse({
+      servers: [{ name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: HEX_KEY }],
+    })
+
+    const server = parsed.servers[0]!
+    expect(server.source).toBe(true)
+    expect(server.destination).toBe(true)
+    expect(server.autoregister).toEqual({ enable: true, priority: 1 })
+  })
+
+  test('respects explicit source/destination/autoregister', () => {
+    const parsed = AppConfig.parse({
+      servers: [{
+        name: 'sonarr',
+        type: 'sonarr',
+        url: 'http://sonarr:8989',
+        apiKey: HEX_KEY,
+        source: false,
+        destination: true,
+        autoregister: { enable: false, priority: 5 },
+      }],
+    })
+
+    const server = parsed.servers[0]!
+    expect(server.source).toBe(false)
+    expect(server.destination).toBe(true)
+    expect(server.autoregister).toEqual({ enable: false, priority: 5 })
+  })
+
+  test('defaults servers and peers to empty arrays', () => {
+    const parsed = AppConfig.parse({})
+    expect(parsed.servers).toEqual([])
+    expect(parsed.peers).toEqual([])
   })
 
   test('resolves env-reference api keys into plain strings', () => {
     const parsed = AppConfig.parse({
       jack: { baseUrl: 'http://jack:3000', apiKey: { env: 'JACK_KEY' } },
-      servers: {
-        sources: [],
-        destinations: [{ type: 'radarr', url: 'http://radarr:7878', apiKey: { env: 'RADARR_KEY' } }],
-      },
+      servers: [{ name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: { env: 'RADARR_KEY' } }],
     })
 
     expect(parsed.jack?.apiKey).toBe('jack-secret')
-    expect(parsed.servers.destinations[0]?.apiKey).toBe(HEX_KEY)
+    expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
   })
 
-  test('keeps the destination hex constraint for env-resolved keys', () => {
+  test('keeps the hex constraint for env-resolved server keys', () => {
     process.env.BAD_HEX = 'too-short'
-    const result = DestinationServerConfig.safeParse({
+    const result = ServerConfig.safeParse({
+      name: 'radarr',
       type: 'radarr',
       url: 'http://radarr:7878',
       apiKey: { env: 'BAD_HEX' },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  test('requires a name on servers', () => {
+    const result = ServerConfig.safeParse({
+      type: 'radarr',
+      url: 'http://radarr:7878',
+      apiKey: HEX_KEY,
     })
     expect(result.success).toBe(false)
   })

@@ -31,13 +31,11 @@ export function parseTorrentStub(data: Buffer): { peerId: string, itemId: string
     const comment = raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw)
     if (!comment.startsWith('jack:')) return null
 
-    const parts = comment.split(':')
-    if (parts.length < 3) return null
+    const [, peerId, ...itemParts] = comment.split(':')
+    const itemId = itemParts.join(':')
+    if (!peerId || !itemId) return null
 
-    return {
-      peerId: parts[1],
-      itemId: parts.slice(2).join(':'),
-    }
+    return { peerId, itemId }
   } catch {
     return null
   }

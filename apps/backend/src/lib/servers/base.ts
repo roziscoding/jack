@@ -1,4 +1,4 @@
-import type { DestinationServerType, ServerType } from '../config'
+import type { ConnectorType } from '../config'
 import z from 'zod'
 import { FetchError } from '../errors/FetchError'
 
@@ -9,10 +9,10 @@ function generateId(url: string): string {
 
 export abstract class ServerConnector {
   public readonly id: string
-  public readonly type: ServerType
+  public readonly type: ConnectorType
   public readonly url: string
   protected readonly apiKey: string
-  public readonly name: string | undefined
+  public readonly name: string
 
   private readonly pingPath: string
   private readonly pingMethod: string
@@ -23,7 +23,7 @@ export abstract class ServerConnector {
   protected _initialization: ReturnType<typeof Promise.withResolvers<void>> | null = null
   protected _initializationError: string | null = null
 
-  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ServerType, url: string, apiKey: string, name?: string }) {
+  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ConnectorType, url: string, apiKey: string, name: string }) {
     this.pingPath = connectorConfig.pingPath
     this.pingMethod = connectorConfig.pingMethod
     this.authHeader = connectorConfig.authHeader

@@ -22,8 +22,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "🐳 Starting infrastructure (Jellyfin, Radarr, Sonarr)..."
-docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build jellyfin radarr sonarr
+echo "🐳 Starting infrastructure (Radarr, Sonarr)..."
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build radarr sonarr
 
 echo "⚙️  Running setup (bootstrap services, write configs)..."
 bun run "$E2E_DIR/setup.ts"

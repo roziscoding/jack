@@ -1,62 +1,64 @@
-import type { JellyfinServerConnector } from '../../lib/servers/sources/jellyfin'
-import type { AppConfig } from '../../lib/config'
+import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import type { Release } from '../../lib/release'
 import { logger } from '../../logger'
 
+/**
+ * Serves the /peer API that other jacks talk to. Reads availability from the
+ * local arr sources (the `source: true` Radarr/Sonarr servers) and streams the
+ * underlying files from disk.
+ */
 export class PeerController {
   constructor(
-    private readonly jellyfin: JellyfinServerConnector | undefined,
-    private readonly jackConfig: NonNullable<AppConfig['jack']>,
+    private readonly sources: ArrServerConnector[],
   ) {}
 
-  async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }) {
-    if (!this.jellyfin) return []
-
-    if (params.imdbId) {
-      return this.jellyfin.searchByImdbId(params.imdbId)
-    }
-
-    if (params.tvdbId) {
-      return this.jellyfin.searchByTvdbId(params.tvdbId, params.season, params.episode)
-    }
-
-    return this.jellyfin.searchItems(params.q ?? '')
+  private get activeSources() {
+    return this.sources.filter(s => s.isInitialized && s.canSource)
   }
 
-  async getItem(itemId: string) {
-    if (!this.jellyfin) return null
-    return this.jellyfin.getItemById(itemId)
+  async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
+    const sources = this.activeSources
+    if (sources.length === 0) return []
+
+    const results = await Promise.all(sources.map((source) => {
+      if (params.imdbId) return source.searchByImdbId(params.imdbId)
+      if (params.tvdbId) return source.searchByTvdbId(params.tvdbId, params.season, params.episode)
+      return source.searchItems(params.q ?? '')
+    }))
+
+    return results.flat()
   }
 
-  async getFilePath(itemId: string): Promise<string | null> {
-    if (!this.jellyfin) return null
-    const filePath = await this.jellyfin.getItemFilePath(itemId)
+  async getItem(id: string): Promise<Release | null> {
+    const source = this.findSource(id)
+    if (!source) return null
+    return source.getRelease(id)
+  }
+
+  // A release id is `${connectorId}:${kind}:${entityId}`; route it to the arr
+  // source that produced it.
+  private findSource(id: string): ArrServerConnector | undefined {
+    const connectorId = id.split(':')[0]
+    return this.activeSources.find(s => s.id === connectorId)
+  }
+
+  async streamFile(id: string): Promise<{ stream: ReadableStream, size: number, filename: string } | null> {
+    const source = this.findSource(id)
+    if (!source) return null
+
+    const filePath = await source.getFilePath(id)
     if (!filePath) return null
-    return filePath
-  }
 
-  resolveLocalPath(jellyfinPath: string): string {
-    return jellyfinPath
-  }
-
-  async streamFile(itemId: string): Promise<{ stream: ReadableStream, size: number, filename: string } | null> {
-    const filePath = await this.getFilePath(itemId)
-    if (!filePath) return null
-
-    const localPath = this.resolveLocalPath(filePath)
-    const file = Bun.file(localPath)
-
+    const file = Bun.file(filePath)
     if (!await file.exists()) {
-      logger.warn({ localPath, itemId }, 'File not found on disk')
+      logger.warn({ filePath, id }, 'File not found on disk')
       return null
     }
 
-    const size = file.size
-    const filename = localPath.split('/').pop() ?? 'unknown'
-
     return {
       stream: file.stream(),
-      size,
-      filename,
+      size: file.size,
+      filename: filePath.split('/').pop() ?? 'unknown',
     }
   }
 }

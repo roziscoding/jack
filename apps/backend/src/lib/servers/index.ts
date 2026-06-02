@@ -1,18 +1,30 @@
-import type { AppConfig } from '../config'
+import type { AppConfig, ServerConfig } from '../config'
+import type { ArrServerConnector } from './arr/base'
 import type { ServerConnector } from './base'
 import { logger } from '../../logger'
-import { getDestinationConnectors } from './destinations'
-import { getSourceConnectors } from './sources'
+import { RadarrServerConnector } from './arr/radarr'
+import { SonarrServerConnector } from './arr/sonarr'
+import { PeerConnector } from './peer'
 
-export function getConnectors(servers: AppConfig['servers']) {
-  const { sources, peers } = getSourceConnectors(servers)
-  const destinations = getDestinationConnectors(servers)
-  return { sources, peers, destinations }
+const serverConnectorMap = {
+  radarr: RadarrServerConnector,
+  sonarr: SonarrServerConnector,
+} as const
+
+export function getServerConnector(config: ServerConfig): ArrServerConnector {
+  const Connector = serverConnectorMap[config.type]
+  return new Connector(config)
 }
 
-export async function initializeConnectors(servers: AppConfig['servers']) {
-  const connectors = getConnectors(servers)
-  const allConnectors: ServerConnector[] = [...connectors.sources, ...connectors.peers, ...connectors.destinations]
+export function getConnectors(config: Pick<AppConfig, 'servers' | 'peers'>) {
+  const servers = config.servers.map(getServerConnector)
+  const peers = config.peers.map(peer => new PeerConnector(peer))
+  return { servers, peers }
+}
+
+export async function initializeConnectors(config: Pick<AppConfig, 'servers' | 'peers'>) {
+  const connectors = getConnectors(config)
+  const allConnectors: ServerConnector[] = [...connectors.servers, ...connectors.peers]
   logger.debug(`Found ${allConnectors.length} connectors. Initializing...`)
 
   await Promise.all(

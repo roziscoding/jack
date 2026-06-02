@@ -17,13 +17,6 @@
     "apiKey": { "env": "JACK_API_KEY" }
   },
 
-  // Auto-registration in Radarr/Sonarr (Torznab indexer + Torrent Blackhole
-  // download client, the latter only when "downloads" below is set). Optional.
-  "indexer": {
-    "priority": 1,
-    "autoRegister": true
-  },
-
   // Blackhole watcher: drops .torrent files for your client to pick up,
   // and moves finished downloads. Paths are *inside the container*.
   "downloads": {
@@ -31,20 +24,28 @@
     "completedPath": "/data/torrents/completed"
   },
 
-  "servers": {
-    // Where jack pulls availability from (e.g. your Jellyfin).
-    "sources": [
-      // { "type": "jellyfin", "url": "http://jellyfin:8096", "apiKey": { "env": "JELLYFIN_API_KEY" } }
-    ],
-    // Other jack instances you share with (peer-to-peer).
-    "peers": [
-      // { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "their-shared-secret" }
-    ],
-    // Radarr/Sonarr that jack registers itself into as an indexer.
-    // apiKey is the *arr API key: exactly 32 hex chars (Settings -> General).
-    "destinations": [
-      // { "type": "radarr", "url": "http://radarr:7878", "apiKey": { "env": "RADARR_API_KEY" } },
-      // { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
-    ]
-  }
+  // Your Radarr/Sonarr servers. apiKey is the *arr API key: exactly 32 hex
+  // chars (Settings -> General). Each server can be a:
+  //   - "source":      its library is shared with your peers (read via /peer).
+  //   - "destination": jack registers itself there as a Torznab indexer +
+  //                    Torrent Blackhole download client, and triggers imports.
+  //   - both:          share your library AND search your friends', symmetric.
+  // "autoregister" controls the indexer/client registration (destinations only):
+  //   { "enable": true, "priority": 1 }
+  "servers": [
+    // {
+    //   "type": "radarr",
+    //   "url": "http://radarr:7878",
+    //   "apiKey": { "env": "RADARR_API_KEY" },
+    //   "source": true,
+    //   "destination": true,
+    //   "autoregister": { "enable": true, "priority": 1 }
+    // },
+    // { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
+  ],
+
+  // Other jack instances you search (peer-to-peer). Sources only.
+  "peers": [
+    // { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "their-shared-secret" }
+  ]
 }

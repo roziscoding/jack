@@ -8,7 +8,7 @@
  * @throws {TypeError} If the decorated method's class does not implement `isInitialized` and `init`.
  *
  * @example
- * class MyConnector extends DestinationServerConnector {
+ * class MyConnector extends ArrServerConnector {
  *   @requireInitialization
  *   async fetchData() { ... }
  * }

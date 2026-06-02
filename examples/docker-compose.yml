@@ -17,8 +17,8 @@ services:
       # (start from the config.jsonc template in this examples/ folder).
       - ./config:/config
       # Media library. jack streams files to peers using the paths your
-      # Jellyfin reports, so it must see those files at the SAME path inside
-      # the container. Mirror your Jellyfin/*arr media mount here.
+      # Radarr/Sonarr report, so it must see those files at the SAME path inside
+      # the container. Mirror your *arr media mount here.
       - ${MEDIA_PATH:-./data/media}:/data/media
       # Blackhole download dirs — must match `downloads.*` in config.jsonc.
       # IMPORTANT: mount this SAME folder into your Radarr and Sonarr containers
@@ -26,9 +26,9 @@ services:
       # Blackhole client with these literal paths, and *arr resolves them in its
       # own filesystem — if they don't match, *arr can't drop stubs or import.
       - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
-    # If Jellyfin / Radarr / Sonarr run in their own compose network,
-    # attach this service to it so `jack.baseUrl` / server URLs resolve by
-    # container name. Otherwise reach them via host IP.
+    # If Radarr / Sonarr run in their own compose network, attach this service
+    # to it so `jack.baseUrl` / server URLs resolve by container name.
+    # Otherwise reach them via host IP.
     # networks:
     #   - media
 # networks:

@@ -1,49 +1,33 @@
-import type { JackServerConnector } from '../../lib/servers/sources/jack'
+import type { PeerConnector } from '../../lib/servers/peer'
 import type { AppConfig } from '../../lib/config'
-import { jellyfinItemToTorznab, type TorznabItem } from './torznab.xml'
+import { releaseToTorznab, type TorznabItem } from './torznab.xml'
 
 export class TorznabController {
   constructor(
-    private readonly peers: JackServerConnector[],
+    private readonly peers: PeerConnector[],
     private readonly jackConfig: NonNullable<AppConfig['jack']>,
   ) {}
 
-  async search(query: string): Promise<TorznabItem[]> {
+  private async fanOut(search: (peer: PeerConnector) => Promise<Awaited<ReturnType<PeerConnector['searchItems']>>>): Promise<TorznabItem[]> {
     const activePeers = this.peers.filter(p => p.isInitialized)
     const results = await Promise.all(
       activePeers.map(async (peer) => {
-        const items = await peer.searchItems(query)
-        return items
-          .map(item => jellyfinItemToTorznab(item, peer.id, peer.name, this.jackConfig.baseUrl))
-          .filter((item): item is TorznabItem => item != null)
+        const releases = await search(peer)
+        return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl))
       }),
     )
     return results.flat()
+  }
+
+  async search(query: string): Promise<TorznabItem[]> {
+    return this.fanOut(peer => peer.searchItems(query))
   }
 
   async searchMovie(imdbId: string): Promise<TorznabItem[]> {
-    const activePeers = this.peers.filter(p => p.isInitialized)
-    const results = await Promise.all(
-      activePeers.map(async (peer) => {
-        const items = await peer.searchByImdbId(imdbId)
-        return items
-          .map(item => jellyfinItemToTorznab(item, peer.id, peer.name, this.jackConfig.baseUrl))
-          .filter((item): item is TorznabItem => item != null)
-      }),
-    )
-    return results.flat()
+    return this.fanOut(peer => peer.searchByImdbId(imdbId))
   }
 
   async searchTv(tvdbId: string, season?: number, episode?: number): Promise<TorznabItem[]> {
-    const activePeers = this.peers.filter(p => p.isInitialized)
-    const results = await Promise.all(
-      activePeers.map(async (peer) => {
-        const items = await peer.searchByTvdbId(tvdbId, season, episode)
-        return items
-          .map(item => jellyfinItemToTorznab(item, peer.id, peer.name, this.jackConfig.baseUrl))
-          .filter((item): item is TorznabItem => item != null)
-      }),
-    )
-    return results.flat()
+    return this.fanOut(peer => peer.searchByTvdbId(tvdbId, season, episode))
   }
 }

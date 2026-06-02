@@ -1,7 +1,9 @@
-import type { DestinationServerType } from '../../config'
+import type { AutoRegisterConfig, ServerType } from '../../config'
+import type { Release } from '../../release'
 import z from 'zod'
 import { logger } from '../../../logger'
 import { requireInitialization } from '../../decorators/require-initialization'
+import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
 import { ServerConnector } from '../base'
 
 export const DestinationServerHealthIssue = z.array(
@@ -24,13 +26,46 @@ export const DestinationServerHealthIssue = z.array(
   }),
 )
 
-export class DestinationServerConnector extends ServerConnector {
+export type ReleaseKind = 'movie' | 'episode'
+
+export function basename(path: string): string {
+  return path.split(/[/\\]/).pop() ?? path
+}
+
+export function stripExtension(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(0, dot) : name
+}
+
+/**
+ * A single connector for a Radarr/Sonarr server. It can act as a **source** (its
+ * library is exposed to peers) and/or a **destination** (jack registers itself
+ * there and triggers imports), gated by the `source`/`destination` config flags.
+ * Role-specific methods are guarded by `@requiresSource` / `@requiresDestination`.
+ *
+ * Subclasses implement the *arr-specific query logic (movie vs series/episode)
+ * via the `do*` methods; the public methods here centralize the guards.
+ */
+export abstract class ArrServerConnector extends ServerConnector {
+  public readonly canSource: boolean
+  public readonly canDestination: boolean
+  public readonly autoRegister: AutoRegisterConfig
   protected readonly expectedAppName: string
 
-  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string, expectedAppName: string }, config: { type: DestinationServerType, url: string, apiKey: string, name?: string }) {
+  constructor(
+    connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, expectedAppName: string },
+    config: { type: ServerType, url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig },
+  ) {
     super(connectorConfig, config)
     this.expectedAppName = connectorConfig.expectedAppName
+    this.canSource = config.source
+    this.canDestination = config.destination
+    this.autoRegister = config.autoregister
   }
+
+  // Category id reported to *arr (2000 movies / 5000 tv).
+  abstract get categories(): number[]
+  protected abstract get importCommandName(): string
 
   override init(): void {
     this._initialization = Promise.withResolvers()
@@ -38,13 +73,14 @@ export class DestinationServerConnector extends ServerConnector {
     this.ping(z.object({ appName: z.string(), version: z.string() }))
       .then((apiInfo) => {
         if (apiInfo.appName !== this.expectedAppName) {
-          this._initialization?.reject(new Error(`Invalid appName "${apiInfo.appName}" found for server type ${this.type}. Expected ${this.expectedAppName}`))
+          this._initializationError = `Invalid appName "${apiInfo.appName}" found for server type ${this.type}. Expected ${this.expectedAppName}`
+          this._initialization?.reject(new Error(this._initializationError))
           return
         }
-        
+
         logger.debug({ apiInfo }, `Found ${apiInfo.appName} ${apiInfo.version}`)
-        this._initialization?.resolve()
         this._isInitialized = true
+        this._initialization?.resolve()
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err)
@@ -53,11 +89,72 @@ export class DestinationServerConnector extends ServerConnector {
       })
   }
 
+  /** GET an *arr endpoint and return the parsed JSON, typed by the caller. */
+  protected async arrGet<T>(path: string, query?: Record<string, string>): Promise<T> {
+    return (await this.fetch(path, { method: 'GET', query })) as T
+  }
+
+  /** `${connectorId}:${kind}:${entityId}` — globally identifies a release. */
+  protected buildId(kind: ReleaseKind, entityId: number | string): string {
+    return `${this.id}:${kind}:${entityId}`
+  }
+
+  /** Parse the entity id out of a release id, or null if it isn't ours. */
+  protected parseId(id: string): { kind: ReleaseKind, entityId: string } | null {
+    const [connectorId, kind, ...rest] = id.split(':')
+    if (connectorId !== this.id || (kind !== 'movie' && kind !== 'episode') || rest.length === 0) {
+      return null
+    }
+    return { kind, entityId: rest.join(':') }
+  }
+
+  // ---- Source role ----
+
+  @requiresSource
+  @requireInitialization
+  async searchItems(term: string): Promise<Release[]> {
+    return this.doSearchItems(term)
+  }
+
+  @requiresSource
+  @requireInitialization
+  async searchByImdbId(imdbId: string): Promise<Release[]> {
+    return this.doSearchByImdbId(imdbId)
+  }
+
+  @requiresSource
+  @requireInitialization
+  async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
+    return this.doSearchByTvdbId(tvdbId, season, episode)
+  }
+
+  @requiresSource
+  @requireInitialization
+  async getRelease(id: string): Promise<Release | null> {
+    return this.doGetRelease(id)
+  }
+
+  @requiresSource
+  @requireInitialization
+  async getFilePath(id: string): Promise<string | null> {
+    return this.doGetFilePath(id)
+  }
+
+  protected abstract doSearchItems(term: string): Promise<Release[]>
+  protected abstract doSearchByImdbId(imdbId: string): Promise<Release[]>
+  protected abstract doSearchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]>
+  protected abstract doGetRelease(id: string): Promise<Release | null>
+  protected abstract doGetFilePath(id: string): Promise<string | null>
+
+  // ---- Destination role ----
+
+  @requiresDestination
   @requireInitialization
   async getHealthIssues() {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
   }
 
+  @requiresDestination
   @requireInitialization
   async triggerImport(downloadPath: string) {
     await this.fetch('/api/v3/command', {
@@ -67,14 +164,11 @@ export class DestinationServerConnector extends ServerConnector {
     } as any)
   }
 
-  protected get importCommandName(): string {
-    return 'DownloadedMoviesScan'
-  }
-
+  @requiresDestination
   @requireInitialization
   async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[] }) {
-    const existingIndexers = await this.fetch<any>('/api/v3/indexer', { method: 'GET' })
-    const existing = Array.isArray(existingIndexers)
+    const existingIndexers = await this.arrGet<any[]>('/api/v3/indexer')
+    const existing: any = Array.isArray(existingIndexers)
       ? existingIndexers.find((idx: any) =>
         idx.fields?.some((f: any) => f.name === 'baseUrl' && f.value === indexerConfig.baseUrl))
       : null
@@ -117,10 +211,11 @@ export class DestinationServerConnector extends ServerConnector {
     }
   }
 
+  @requiresDestination
   @requireInitialization
   async registerDownloadClient(clientConfig: { name: string, watchPath: string, completedPath: string, priority: number }) {
-    const existingClients = await this.fetch<any>('/api/v3/downloadclient', { method: 'GET' })
-    const existing = Array.isArray(existingClients)
+    const existingClients = await this.arrGet<any[]>('/api/v3/downloadclient')
+    const existing: any = Array.isArray(existingClients)
       ? existingClients.find((client: any) =>
         client.fields?.some((f: any) => f.name === 'torrentFolder' && f.value === clientConfig.watchPath))
       : null
