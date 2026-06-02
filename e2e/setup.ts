@@ -19,7 +19,8 @@ async function extractApiKey(service: 'Radarr' | 'Sonarr', url: string): Promise
   const result = await Bun.$`docker compose -f ${join(import.meta.dir, 'docker-compose.yml')} exec ${service.toLowerCase()} cat /config/config.xml`.text()
   const match = result.match(/<ApiKey>([^<]+)<\/ApiKey>/)
   const apiKey = match?.[1]
-  if (!apiKey) throw new Error(`Could not extract API key from ${service}`)
+  if (!apiKey)
+    throw new Error(`Could not extract API key from ${service}`)
 
   console.log(`✅ ${service} API key extracted`)
   return apiKey
@@ -50,7 +51,8 @@ async function seedRadarrMovie(apiKey: string) {
   // folder ("Root folder ... does not exist"), so we must not swallow this.
   await retry(async () => {
     const folders = await fetchJson<Array<{ path: string }>>(`${RADARR_URL}/api/v3/rootfolder`, { headers })
-    if (folders.some(f => f.path === '/media/movies')) return
+    if (folders.some(f => f.path === '/media/movies'))
+      return
     const res = await fetch(`${RADARR_URL}/api/v3/rootfolder`, {
       method: 'POST',
       headers,
@@ -94,7 +96,8 @@ async function seedRadarrMovie(apiKey: string) {
   console.log('⏳ Waiting for Radarr to detect the movie file...')
   await retry(async () => {
     const movie = await fetchJson<{ hasFile: boolean }>(`${RADARR_URL}/api/v3/movie/${movieId}`, { headers })
-    if (!movie.hasFile) throw new Error('movie file not detected yet')
+    if (!movie.hasFile)
+      throw new Error('movie file not detected yet')
   }, { retries: 30, delay: 2_000 })
 
   console.log('✅ Radarr library seeded')

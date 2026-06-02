@@ -1,5 +1,6 @@
+import type { TestEnv } from '../helpers'
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { getTestEnv, type TestEnv } from '../helpers'
+import { getTestEnv } from '../helpers'
 
 let env: TestEnv
 

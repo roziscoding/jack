@@ -1,7 +1,7 @@
 import z from 'zod'
+import { logger } from '../../logger'
 import { FetchError } from '../errors/FetchError'
 import { Release } from '../release'
-import { logger } from '../../logger'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({ items: z.array(Release) })
@@ -52,8 +52,10 @@ export class PeerConnector extends ServerConnector {
 
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     const query: Record<string, string> = { tvdbId }
-    if (season != null) query.season = String(season)
-    if (episode != null) query.episode = String(episode)
+    if (season != null)
+      query.season = String(season)
+    if (episode != null)
+      query.episode = String(episode)
     const { items } = await this.fetch('/peer/search', { method: 'GET', query, schema: PeerSearchResponse })
     return items
   }

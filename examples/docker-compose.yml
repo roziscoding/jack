@@ -5,7 +5,7 @@ services:
     container_name: jack
     restart: unless-stopped
     ports:
-      - "${JACK_PORT:-5225}:5225"
+      - '${JACK_PORT:-5225}:5225'
     environment:
       # production turns off pino-pretty and structured-logs JSON
       ENVIRONMENT: production

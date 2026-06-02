@@ -24,7 +24,8 @@ export class RadarrServerConnector extends ArrServerConnector {
 
   private toRelease(movie: MovieResource): Release | null {
     const file = movie.movieFile
-    if (!movie.id || !movie.hasFile || !file) return null
+    if (!movie.id || !movie.hasFile || !file)
+      return null
 
     const path = file.path ?? file.relativePath ?? null
     const title = file.sceneName ?? (path ? stripExtension(basename(path)) : movie.title ?? 'Unknown')
@@ -82,7 +83,8 @@ export class RadarrServerConnector extends ArrServerConnector {
 
   private async getMovie(id: string): Promise<MovieResource | null> {
     const parsed = this.parseId(id)
-    if (!parsed || parsed.kind !== 'movie') return null
+    if (!parsed || parsed.kind !== 'movie')
+      return null
     return this.arrGet<MovieResource>(`/api/v3/movie/${parsed.entityId}`)
   }
 

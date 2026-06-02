@@ -99,7 +99,7 @@ The compose file mounts three host paths — adjust them for your setup:
 > Radarr/Sonarr container*. Mount your media into jack at that **same path** (you
 > may need to mirror more than one, e.g. `/movies` and `/tv`). The `/data/media`
 > in the example is just a placeholder — replace it with whatever paths your
-> *arr use. **Migrating from the Jellyfin-based version?** This path likely
+>*arr use. **Migrating from the Jellyfin-based version?** This path likely
 > changed: it's now the *arr path, not Jellyfin's library path.
 
 ## How it works
@@ -162,7 +162,7 @@ sequenceDiagram
 
 1. You grab a release. Your *arr's download client is a **Torrent Blackhole**
    client pointed at jack's `downloads.watchPath` (jack registers this client
-   for you on startup), so *arr fetches the `.torrent` from jack and drops it
+   for you on startup), so*arr fetches the `.torrent` from jack and drops it
    there.
 2. That `.torrent` is a **stub** — bencoded data that just encodes the
    `peerId` and `itemId`. No trackers, no pieces.
@@ -246,28 +246,28 @@ you're doing.
   // This instance's identity. Needed to expose a Torznab indexer and to be
   // reachable by peers.
   "jack": {
-    "baseUrl": "http://jack:5225",   // URL your *arr apps / peers reach you at
+    "baseUrl": "http://jack:5225", // URL your *arr apps / peers reach you at
     "apiKey": "a-long-random-string" // openssl rand -hex 32 — see "The API key"
   },
 
   // Blackhole watcher. Needed to *consume* (download) from peers.
   // Paths are inside the container; jack creates them if missing.
   "downloads": {
-    "watchPath": "/data/torrents/watch",        // *arr drops stub .torrents here
+    "watchPath": "/data/torrents/watch", // *arr drops stub .torrents here
     "completedPath": "/data/torrents/completed" // jack writes finished files here
   },
 
   // Your Radarr/Sonarr servers. Each can be a source, a destination, or both.
   "servers": [
     {
-      "type": "radarr",                 // "radarr" | "sonarr"
+      "type": "radarr", // "radarr" | "sonarr"
       "url": "http://radarr:7878",
-      "apiKey": "<32 hex chars>",       // *arr API key (Settings → General)
-      "source": true,                   // share this library with peers
-      "destination": true,              // register jack here + import grabs
-      "autoregister": {                 // indexer/client registration (destinations)
-        "enable": true,                 // set false to register it yourself
-        "priority": 1                   // indexer priority in *arr (lower = preferred)
+      "apiKey": "<32 hex chars>", // *arr API key (Settings → General)
+      "source": true, // share this library with peers
+      "destination": true, // register jack here + import grabs
+      "autoregister": { // indexer/client registration (destinations)
+        "enable": true, // set false to register it yourself
+        "priority": 1 // indexer priority in *arr (lower = preferred)
       }
     },
     { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "<32 hex chars>" }
@@ -406,7 +406,7 @@ Two gotchas:
   the linuxserver.io *arr images default to, so files jack writes are owned by
   the same user that imports them. Make sure the watch/completed folders (and the
   `/config` mount) are readable/writable by uid 1000 — `chown -R 1000:1000` them
-  if your *arr uses a different `PUID`, set it to match.
+  if your*arr uses a different `PUID`, set it to match.
 
 ### No indexer or download client registered
 
@@ -444,8 +444,8 @@ healthy:
 ```yaml
 # jack
 depends_on:
-  radarr:   { condition: service_healthy }
-  sonarr:   { condition: service_healthy }
+  radarr: {condition: service_healthy}
+  sonarr: {condition: service_healthy}
 ```
 
 (This needs `healthcheck` blocks on those services — the linuxserver.io images
@@ -456,7 +456,7 @@ ship with them.)
 Set `LOG_LEVEL=trace` to log every HTTP request (method, path, status,
 duration). Registration failures always log the raw *arr response body at
 `error` level, which carries the real validation message — read that body, it
-usually tells you exactly what *arr is unhappy about.
+usually tells you exactly what*arr is unhappy about.
 
 ## Development
 

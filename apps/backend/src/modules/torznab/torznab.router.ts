@@ -1,6 +1,6 @@
 import type { TorznabController } from './torznab.controller'
 import { Hono } from 'hono'
-import { buildCapsXml, buildSearchResultXml, buildErrorXml } from './torznab.xml'
+import { buildCapsXml, buildErrorXml, buildSearchResultXml } from './torznab.xml'
 
 export function getTorznabRouter(controller: TorznabController, apiKey: string) {
   const app = new Hono()

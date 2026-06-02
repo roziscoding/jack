@@ -1,7 +1,7 @@
 import type { PeerController } from './peer.controller'
 import { Hono } from 'hono'
-import z from 'zod'
 import { validator as zValidator } from 'hono-openapi'
+import z from 'zod'
 
 export function getPeerRouter(controller: PeerController, apiKey: string) {
   const app = new Hono()

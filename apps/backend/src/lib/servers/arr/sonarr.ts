@@ -25,7 +25,8 @@ export class SonarrServerConnector extends ArrServerConnector {
   }
 
   private buildRelease(episode: EpisodeResource, series: SeriesResource | undefined, file: EpisodeFileResource | undefined): Release | null {
-    if (!episode.id || !episode.hasFile || !file) return null
+    if (!episode.id || !episode.hasFile || !file)
+      return null
 
     const path = file.path ?? file.relativePath ?? null
     const title = file.sceneName ?? (path ? stripExtension(basename(path)) : (series?.title ?? episode.title ?? 'Unknown'))
@@ -94,8 +95,10 @@ export class SonarrServerConnector extends ArrServerConnector {
   protected override async doSearchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     const series = await this.listSeries({ tvdbId })
     const perSeries = await Promise.all(series.map(s => this.releasesForSeries(s, (e) => {
-      if (season != null && e.seasonNumber !== season) return false
-      if (episode != null && e.episodeNumber !== episode) return false
+      if (season != null && e.seasonNumber !== season)
+        return false
+      if (episode != null && e.episodeNumber !== episode)
+        return false
       return true
     })))
     return perSeries.flat()
@@ -103,10 +106,12 @@ export class SonarrServerConnector extends ArrServerConnector {
 
   private async fetchEpisodeBundle(id: string): Promise<{ episode: EpisodeResource, series?: SeriesResource, file?: EpisodeFileResource } | null> {
     const parsed = this.parseId(id)
-    if (!parsed || parsed.kind !== 'episode') return null
+    if (!parsed || parsed.kind !== 'episode')
+      return null
 
     const episode = await this.arrGet<EpisodeResource>(`/api/v3/episode/${parsed.entityId}`)
-    if (!episode?.id) return null
+    if (!episode?.id)
+      return null
 
     const [series, file] = await Promise.all([
       episode.seriesId != null

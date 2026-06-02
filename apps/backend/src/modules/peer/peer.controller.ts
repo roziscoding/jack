@@ -1,5 +1,5 @@
-import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { Release } from '../../lib/release'
+import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import { logger } from '../../logger'
 
 /**
@@ -18,11 +18,14 @@ export class PeerController {
 
   async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
     const sources = this.activeSources
-    if (sources.length === 0) return []
+    if (sources.length === 0)
+      return []
 
     const results = await Promise.all(sources.map((source) => {
-      if (params.imdbId) return source.searchByImdbId(params.imdbId)
-      if (params.tvdbId) return source.searchByTvdbId(params.tvdbId, params.season, params.episode)
+      if (params.imdbId)
+        return source.searchByImdbId(params.imdbId)
+      if (params.tvdbId)
+        return source.searchByTvdbId(params.tvdbId, params.season, params.episode)
       return source.searchItems(params.q ?? '')
     }))
 
@@ -31,7 +34,8 @@ export class PeerController {
 
   async getItem(id: string): Promise<Release | null> {
     const source = this.findSource(id)
-    if (!source) return null
+    if (!source)
+      return null
     return source.getRelease(id)
   }
 
@@ -44,10 +48,12 @@ export class PeerController {
 
   async streamFile(id: string): Promise<{ stream: ReadableStream, size: number, filename: string } | null> {
     const source = this.findSource(id)
-    if (!source) return null
+    if (!source)
+      return null
 
     const filePath = await source.getFilePath(id)
-    if (!filePath) return null
+    if (!filePath)
+      return null
 
     const file = Bun.file(filePath)
     if (!await file.exists()) {

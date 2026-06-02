@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
-import { join } from 'node:path'
+import type { TestEnv } from '../helpers'
 import { readdir } from 'node:fs/promises'
-import { getTestEnv, retry, type TestEnv } from '../helpers'
+import { join } from 'node:path'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { getTestEnv, retry } from '../helpers'
 
 let env: TestEnv
 
@@ -48,7 +49,8 @@ describe('Download flow (e2e)', () => {
     const completedFiles = await retry(async () => {
       const files = await readdir(BLACKHOLE_COMPLETED)
       const mediaFiles = files.filter(f => !f.endsWith('.torrent'))
-      if (mediaFiles.length === 0) throw new Error('No completed files yet')
+      if (mediaFiles.length === 0)
+        throw new Error('No completed files yet')
       return mediaFiles
     }, { retries: 30, delay: 2_000 })
 

@@ -22,7 +22,8 @@ export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1
   return z
     .union([z.string(), z.object({ env: z.string().min(1) })])
     .transform((input, ctx) => {
-      if (typeof input === 'string') return input
+      if (typeof input === 'string')
+        return input
 
       const resolved = process.env[input.env]
 
@@ -141,7 +142,8 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
     await createDefaultAppConfig(APP_CONFIG_PATH)
 
     const defaultConfig = AppConfig.safeParse(DEFAULT_APP_CONFIG)
-    if (defaultConfig.success) return defaultConfig.data
+    if (defaultConfig.success)
+      return defaultConfig.data
 
     logger.warn('Default config references environment variables that are not set. Starting with an empty config until they are provided.')
     return EMPTY_APP_CONFIG

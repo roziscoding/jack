@@ -1,11 +1,15 @@
 import process from 'node:process'
 import { getApp } from './app'
+// Initializes the OpenTelemetry SDK as a side effect. Like every static import
+// it's evaluated (and `sdk.start()` runs) before this module's body below, so
+// the tracer provider is registered before the server handles any request.
+import { shutdownTelemetry } from './instrumentation'
 import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
 import { FetchError } from './lib/errors/FetchError'
 import { initializeConnectors } from './lib/servers'
-import { BlackholeWatcher } from './modules/downloads/blackhole'
 import { logger } from './logger'
+import { BlackholeWatcher } from './modules/downloads/blackhole'
 
 // Surface the *arr response body (which carries the actual validation message)
 // instead of just "Bad Request" — registration failures are almost always a
@@ -48,7 +52,8 @@ if (config.jack) {
   // an indexer whose test query returns no results — so skip registration entirely.
   if (connectors.peers.length === 0) {
     logger.info('No peers configured; skipping indexer and download client registration (nothing to search or grab yet).')
-  } else {
+  }
+  else {
     const jackConfig = config.jack
     const downloads = config.downloads
 
@@ -67,7 +72,8 @@ if (config.jack) {
           categories: dest.categories,
         })
         logger.info({ destination: dest.name, categories: dest.categories }, 'Registered Jack as Torznab indexer')
-      } catch (err) {
+      }
+      catch (err) {
         logRegistrationFailure('indexer', dest.name, err)
       }
 
@@ -80,7 +86,8 @@ if (config.jack) {
             priority: dest.autoRegister.priority,
           })
           logger.info({ destination: dest.name }, 'Registered Jack as Torrent Blackhole download client')
-        } catch (err) {
+        }
+        catch (err) {
           logRegistrationFailure('download client', dest.name, err)
         }
       }
@@ -95,16 +102,18 @@ if (config.downloads) {
   await blackhole.start()
 }
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
   blackhole?.stop()
   server.stop()
+  await shutdownTelemetry()
   process.exit(0)
 })
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
   blackhole?.stop()
   server.stop()
+  await shutdownTelemetry()
   process.exit(0)
 })

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
 import type { Release } from '../lib/release'
+import { describe, expect, test } from 'bun:test'
 import { buildCapsXml, buildErrorXml, buildSearchResultXml, releaseToTorznab } from '../modules/torznab/torznab.xml'
 
 const movieRelease: Release = {

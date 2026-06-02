@@ -1,9 +1,9 @@
+import type { AppConfig } from '../lib/config'
+import type { Release } from '../lib/release'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { getApp } from '../app'
-import type { AppConfig } from '../lib/config'
-import type { Release } from '../lib/release'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { PeerConnector } from '../lib/servers/peer'
 
@@ -56,7 +56,8 @@ const handlers = [
     return HttpResponse.json(movies)
   }),
   http.get(`${RADARR_URL}/api/v3/movie/:id`, ({ params }) => {
-    if (String(params.id) !== String(mockMovie.id)) return HttpResponse.json({}, { status: 404 })
+    if (String(params.id) !== String(mockMovie.id))
+      return HttpResponse.json({}, { status: 404 })
     return HttpResponse.json(mockMovie)
   }),
   http.get(`${RADARR_URL}/api/v3/indexer`, () => HttpResponse.json([])),
@@ -72,8 +73,10 @@ const handlers = [
     const q = url.searchParams.get('q')
     const imdbId = url.searchParams.get('imdbId')
     let items = [peerRelease]
-    if (q) items = items.filter(r => r.title.toLowerCase().includes(q.toLowerCase()))
-    if (imdbId) items = items.filter(r => r.imdbId === imdbId)
+    if (q)
+      items = items.filter(r => r.title.toLowerCase().includes(q.toLowerCase()))
+    if (imdbId)
+      items = items.filter(r => r.imdbId === imdbId)
     return HttpResponse.json({ items })
   }),
   http.get(`${PEER_JACK_URL}/peer/items/:itemId`, () => HttpResponse.json(peerRelease)),

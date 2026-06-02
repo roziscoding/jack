@@ -1,6 +1,7 @@
-import type { PeerConnector } from '../../lib/servers/peer'
 import type { AppConfig } from '../../lib/config'
-import { releaseToTorznab, type TorznabItem } from './torznab.xml'
+import type { PeerConnector } from '../../lib/servers/peer'
+import type { TorznabItem } from './torznab.xml'
+import { releaseToTorznab } from './torznab.xml'
 
 export class TorznabController {
   constructor(

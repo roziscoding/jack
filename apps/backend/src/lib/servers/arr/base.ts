@@ -170,7 +170,7 @@ export abstract class ArrServerConnector extends ServerConnector {
     const existingIndexers = await this.arrGet<any[]>('/api/v3/indexer')
     const existing: any = Array.isArray(existingIndexers)
       ? existingIndexers.find((idx: any) =>
-        idx.fields?.some((f: any) => f.name === 'baseUrl' && f.value === indexerConfig.baseUrl))
+          idx.fields?.some((f: any) => f.name === 'baseUrl' && f.value === indexerConfig.baseUrl))
       : null
 
     const body = {
@@ -201,7 +201,8 @@ export abstract class ArrServerConnector extends ServerConnector {
         body: JSON.stringify({ ...body, id: existing.id }),
         query: { forceSave: 'false' },
       } as any)
-    } else {
+    }
+    else {
       await this.fetch('/api/v3/indexer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -217,7 +218,7 @@ export abstract class ArrServerConnector extends ServerConnector {
     const existingClients = await this.arrGet<any[]>('/api/v3/downloadclient')
     const existing: any = Array.isArray(existingClients)
       ? existingClients.find((client: any) =>
-        client.fields?.some((f: any) => f.name === 'torrentFolder' && f.value === clientConfig.watchPath))
+          client.fields?.some((f: any) => f.name === 'torrentFolder' && f.value === clientConfig.watchPath))
       : null
 
     const body = {
@@ -249,7 +250,8 @@ export abstract class ArrServerConnector extends ServerConnector {
         body: JSON.stringify({ ...body, id: existing.id }),
         query: { forceSave: 'false' },
       } as any)
-    } else {
+    }
+    else {
       await this.fetch('/api/v3/downloadclient', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

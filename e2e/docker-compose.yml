@@ -2,7 +2,7 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     ports:
-      - "17878:7878"
+      - '17878:7878'
     environment:
       - PUID=1000
       - PGID=1000
@@ -12,7 +12,7 @@ services:
       - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7878/ping"]
+      test: [CMD, curl, -f, 'http://localhost:7878/ping']
       interval: 5s
       timeout: 3s
       retries: 30
@@ -21,7 +21,7 @@ services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     ports:
-      - "18989:8989"
+      - '18989:8989'
     environment:
       - PUID=1000
       - PGID=1000
@@ -31,7 +31,7 @@ services:
       - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8989/ping"]
+      test: [CMD, curl, -f, 'http://localhost:8989/ping']
       interval: 5s
       timeout: 3s
       retries: 30
@@ -42,7 +42,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     ports:
-      - "13000:3000"
+      - '13000:3000'
     environment:
       - APP_CONFIG_PATH=/config/jack-alpha.jsonc
       - LOG_LEVEL=debug
@@ -56,7 +56,7 @@ services:
       sonarr:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/servers"]
+      test: [CMD, wget, -q, --spider, 'http://localhost:3000/servers']
       interval: 3s
       timeout: 2s
       retries: 30
@@ -67,7 +67,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     ports:
-      - "13001:3000"
+      - '13001:3000'
     environment:
       - APP_CONFIG_PATH=/config/jack-beta.jsonc
       - LOG_LEVEL=debug
@@ -81,7 +81,7 @@ services:
       jack-alpha:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/servers"]
+      test: [CMD, wget, -q, --spider, 'http://localhost:3000/servers']
       interval: 3s
       timeout: 2s
       retries: 30

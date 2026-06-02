@@ -25,8 +25,10 @@ export async function waitForUrl(url: string, opts?: { timeout?: number, interva
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url)
-      if (res.ok) return
-    } catch {
+      if (res.ok)
+        return
+    }
+    catch {
       // not ready yet
     }
     await Bun.sleep(interval)
@@ -43,9 +45,11 @@ export async function retry<T>(fn: () => Promise<T>, opts?: { retries?: number, 
   for (let i = 0; i < retries; i++) {
     try {
       return await fn()
-    } catch (err) {
+    }
+    catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
-      if (i < retries - 1) await Bun.sleep(delay)
+      if (i < retries - 1)
+        await Bun.sleep(delay)
     }
   }
 
