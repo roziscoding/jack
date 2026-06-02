@@ -31,13 +31,16 @@ async function extractApiKey(service: 'Radarr' | 'Sonarr', url: string): Promise
 async function seedRadarrMovie(apiKey: string) {
   const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
 
-  // `/ping` comes up before the API has finished migrating; until then the v3
-  // endpoints return 400/503. Poll the authenticated status endpoint first.
+  // `/ping` — and even `/api/v3/system/status` — come up before the DB-backed
+  // endpoints finish migrating; until then those return 400 ("Radarr is starting
+  // up"). Poll the exact endpoint we need (`/api/v3/movie`) until it's a real 200,
+  // which doubles as fetching the existing movie list.
   console.log('⏳ Waiting for Radarr API to be ready...')
-  await retry(async () => {
-    const res = await fetch(`${RADARR_URL}/api/v3/system/status`, { headers })
+  const existing = await retry(async () => {
+    const res = await fetch(`${RADARR_URL}/api/v3/movie`, { headers })
     if (!res.ok) throw new Error(`Radarr API not ready: ${res.status}`)
-  }, { retries: 30, delay: 2_000 })
+    return res.json() as Promise<Array<{ tmdbId: number, id: number }>>
+  }, { retries: 45, delay: 2_000 })
 
   await fetch(`${RADARR_URL}/api/v3/rootfolder`, {
     method: 'POST',
@@ -48,7 +51,6 @@ async function seedRadarrMovie(apiKey: string) {
   const profiles = await fetchJson<Array<{ id: number }>>(`${RADARR_URL}/api/v3/qualityprofile`, { headers })
   const qualityProfileId = profiles[0]?.id ?? 1
 
-  const existing = await fetchJson<Array<{ tmdbId: number, id: number }>>(`${RADARR_URL}/api/v3/movie`, { headers })
   let movieId = existing.find(m => m.tmdbId === BIG_BUCK_TMDB_ID)?.id
 
   if (!movieId) {
