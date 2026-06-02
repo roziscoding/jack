@@ -4,10 +4,15 @@
 # and points jack at it over OTLP. You get request traces AND logs, correlated,
 # in one UI at http://localhost:5080.
 #
+# Secrets are NOT committed here — put them in a .env file next to this compose
+# (copy .env.example). You need O2_PASS and OTLP_AUTH; generate OTLP_AUTH with:
+#   printf 'EMAIL:PASSWORD' | base64 -w0
+#   # -> OTLP_AUTH=Authorization=Basic%20<that output>   (must match O2_USER/O2_PASS)
+#
 #   docker compose -f compose-with-otel.yml up -d
 #
-# Then open http://localhost:5080 (login = O2_USER / O2_PASS below) and look at
-# the "Logs" and "Traces" sections, stream "default".
+# Then open http://localhost:5080 (login = O2_USER / O2_PASS) and look at the
+# "Logs" and "Traces" sections, stream "default".
 services:
   # Observability backend. OTLP in, UI out — everything in a single container.
   openobserve:
@@ -18,7 +23,8 @@ services:
       - '${O2_PORT:-5080}:5080'
     environment:
       ZO_ROOT_USER_EMAIL: ${O2_USER:-root@example.com}
-      ZO_ROOT_USER_PASSWORD: ${O2_PASS:-Complexpass#123}
+      # Required — set in .env (no default, so no password is baked into the repo).
+      ZO_ROOT_USER_PASSWORD: ${O2_PASS:?set O2_PASS in a .env file (see .env.example)}
       ZO_DATA_DIR: /data
     volumes:
       # Traces/logs persist here across restarts.
@@ -46,11 +52,10 @@ services:
       # appends /v1/traces and /v1/logs to this base. "default" is the org.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve:5080/api/default
       OTEL_SERVICE_NAME: jack-backend
-      # OpenObserve's OTLP endpoint needs basic auth: base64("email:password"),
-      # which MUST match O2_USER/O2_PASS above. The %20 is the space after
-      # "Basic". Regenerate after changing creds:
-      #   printf 'EMAIL:PASSWORD' | base64 -w0
-      OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=Basic%20REMOVED_EXAMPLE_CREDENTIAL'
+      # Required — set in .env. OpenObserve's OTLP endpoint uses basic auth:
+      # base64("email:password"), which MUST match O2_USER/O2_PASS. The value
+      # looks like:  Authorization=Basic%20<base64>   (%20 is the space).
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTLP_AUTH:?set OTLP_AUTH in a .env file (see .env.example)}
     volumes:
       # App config. Drop your config.jsonc in a ./config dir next to this file
       # (start from the config.jsonc template in this examples/ folder).
