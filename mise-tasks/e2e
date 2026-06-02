@@ -10,6 +10,10 @@ rm -f "$E2E_DIR/config/jack-alpha.jsonc" "$E2E_DIR/config/jack-beta.jsonc" "$E2E
 rm -rf "$E2E_DIR/volumes"
 mkdir -p "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
 mkdir -p "$E2E_DIR/config"
+# jack and the *arr containers run as uid 1000; the CI runner that creates these
+# dirs may be a different uid. Make them world-writable so both can read/write
+# the blackhole watch/completed folders.
+chmod 777 "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
 
 cleanup() {
   echo ""

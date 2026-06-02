@@ -16,7 +16,9 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 - [The API key](#the-api-key)
 - [Configuration](#configuration)
 - [Environment variables](#environment-variables)
+- [Health check](#health-check)
 - [Running without Docker](#running-without-docker)
+- [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Project layout](#project-layout)
 
@@ -62,7 +64,8 @@ docker compose logs -f
 ```
 
 You should see `Server listening` and, if you configured destinations,
-`Registered Jack as Torznab indexer` lines.
+`Registered Jack as Torznab indexer` and `Registered Jack as Torrent Blackhole
+download client` lines.
 
 The compose file mounts three host paths — adjust them for your setup:
 
@@ -75,7 +78,16 @@ The compose file mounts three host paths — adjust them for your setup:
 > **Networking:** if Jellyfin/Radarr/Sonarr run in their own Docker network,
 > uncomment the `networks:` block in the compose file so jack can reach them by
 > container name (and set `jack.baseUrl` to something they can resolve, e.g.
-> `http://jack:3000`). Otherwise use the host IP.
+> `http://jack:5225`). Otherwise use the host IP.
+
+> ⚠️ **Mount the blackhole folder into Radarr/Sonarr too.** jack registers the
+> Torrent Blackhole download client using the **literal** `downloads.watchPath`
+> and `downloads.completedPath`, and your Radarr/Sonarr resolve those paths in
+> *their own* filesystem. So the same blackhole watch/completed folder must be
+> mounted into your **Radarr and Sonarr** containers at the **exact same paths**
+> jack uses (e.g. `/data/torrents/watch` and `/data/torrents/completed`).
+> If they don't line up, *arr can't drop the stub `.torrent` or import the
+> finished file, and every grab fails.
 
 ## How it works
 
@@ -102,8 +114,10 @@ sequenceDiagram
 ```
 
 1. On startup jack **registers itself as a Torznab indexer** in each of your
-   `destinations` (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`. (Auto,
-   unless you set `indexer.autoRegister: false`.)
+   `destinations` (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`, and
+   **registers a Torrent Blackhole download client** pointed at your
+   `downloads` paths (only if `downloads` is configured). (Auto, unless you set
+   `indexer.autoRegister: false`.)
 2. When you search or monitor something, Radarr/Sonarr query jack's `/torznab`
    endpoint with that API key.
 3. jack **fans the query out to every `peer`** you've configured, calling their
@@ -133,8 +147,9 @@ sequenceDiagram
 ```
 
 1. You grab a release. Your *arr's download client is a **Torrent Blackhole**
-   client pointed at jack's `downloads.watchPath`, so *arr fetches the
-   `.torrent` from jack and drops it there.
+   client pointed at jack's `downloads.watchPath` (jack registers this client
+   for you on startup), so *arr fetches the `.torrent` from jack and drops it
+   there.
 2. That `.torrent` is a **stub** — bencoded data that just encodes the
    `peerId` and `itemId`. No trackers, no pieces.
 3. jack's **blackhole watcher** notices the new file, parses the stub, and finds
@@ -217,14 +232,15 @@ need for what you're doing.
   // This instance's identity. Needed to expose a Torznab indexer and to be
   // reachable by peers.
   "jack": {
-    "baseUrl": "http://jack:3000",   // URL your *arr apps / peers reach you at
+    "baseUrl": "http://jack:5225",   // URL your *arr apps / peers reach you at
     "apiKey": "a-long-random-string" // openssl rand -hex 32 — see "The API key"
   },
 
-  // How jack registers itself in Radarr/Sonarr. Optional.
+  // How jack registers itself in Radarr/Sonarr (indexer + download client).
+  // Optional.
   "indexer": {
     "priority": 1,        // indexer priority in *arr (lower = preferred)
-    "autoRegister": true  // set false to register the indexer yourself
+    "autoRegister": true  // set false to register the indexer/client yourself
   },
 
   // Blackhole watcher. Needed to *consume* (download) from peers.
@@ -265,15 +281,56 @@ Field notes:
 - **`servers.destinations[].apiKey`** is the Radarr/Sonarr API key — **exactly
   32 hex characters** (Settings → General).
 - **`servers.sources[].apiKey`** is the Jellyfin API key.
+- **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
+  your **Radarr and Sonarr** containers at the **same paths** — jack registers
+  the Torrent Blackhole client with these literal paths and *arr resolves them in
+  its own filesystem (see the callout in [Quick start](#quick-start-docker-compose)).
+
+### Secrets from environment variables
+
+Any `apiKey` can be given either as a plain string or as a reference to an
+environment variable, so secrets can stay out of the config file:
+
+```jsonc
+{
+  "jack": {
+    "baseUrl": "http://jack:5225",
+    "apiKey": { "env": "JACK_API_KEY" } // resolved from $JACK_API_KEY at startup
+  }
+}
+```
+
+Both forms are interchangeable everywhere an `apiKey` appears (`jack`, `sources`,
+`peers`, `destinations`), and the plain-string form keeps working unchanged. If a
+referenced variable is unset or empty at startup, jack reports which one and
+refuses to load that config. The default config jack writes on first boot uses
+this env form for `jack.apiKey` (reading `JACK_API_KEY`).
 
 ## Environment variables
 
 | Var | Default | Description |
 | --- | --- | --- |
-| `PORT` | `3000` | HTTP port |
+| `PORT` | `5225` | HTTP port |
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
+
+> Set `LOG_LEVEL=trace` to log every HTTP request — method, path, response
+> status, and duration — as it completes.
+
+## Health check
+
+jack exposes an unauthenticated `GET /ping` that returns `{ "status": "OK" }`
+with a `200`, handy for uptime monitors and orchestrators:
+
+```bash
+curl http://localhost:5225/ping
+# {"status":"OK"}
+```
+
+The Docker image wires this endpoint up as a built-in `HEALTHCHECK`, so
+`docker ps` and Compose report the container's health automatically — no extra
+configuration needed.
 
 ## Running without Docker
 
@@ -282,7 +339,7 @@ bun install
 
 APP_CONFIG_PATH=./config/config.jsonc \
 ENVIRONMENT=production \
-PORT=3000 \
+PORT=5225 \
 bun apps/backend/src/index.ts
 ```
 
@@ -291,6 +348,104 @@ For local development with hot reload:
 ```bash
 mise run dev     # bun --cwd apps/backend --hot src/index.ts
 ```
+
+## Troubleshooting
+
+Registration runs on every startup and logs the *arr response body, so check
+`docker compose logs jack` first. The common failures:
+
+### `Failed to register download client` — "Folder does not exist" (`TorrentFolder` / `WatchFolder`)
+
+```json
+{ "propertyName": "TorrentFolder", "errorMessage": "Folder does not exist", … }
+```
+
+jack registers the Torrent Blackhole client using the **literal**
+`downloads.watchPath` / `downloads.completedPath`, and Radarr/Sonarr resolve
+those paths in **their own** filesystem. This error means those paths don't
+exist *inside the Radarr/Sonarr containers* — almost always because the
+blackhole folders are only mounted into jack, not into *arr.
+
+**Fix:** mount the **same host folders** into Radarr **and** Sonarr at the
+**same container paths** jack uses. If jack has:
+
+```yaml
+# jack
+volumes:
+  - /srv/media/jack-watch:/data/torrents/watch
+  - /srv/media/jack-completed:/data/torrents/completed
+```
+
+then Radarr and Sonarr each need:
+
+```yaml
+# radarr AND sonarr
+volumes:
+  - /srv/media/jack-watch:/data/torrents/watch
+  - /srv/media/jack-completed:/data/torrents/completed
+```
+
+Two gotchas:
+
+- **Use a dedicated completed folder.** Don't point `completedPath` at a folder
+  another download client (e.g. qBittorrent's `/downloads`) already writes to,
+  or *arr's blackhole client will try to import unrelated files.
+- **Watch permissions.** jack runs as **uid/gid 1000**, matching the `PUID/PGID`
+  the linuxserver.io *arr images default to, so files jack writes are owned by
+  the same user that imports them. Make sure the watch/completed folders (and the
+  `/config` mount) are readable/writable by uid 1000 — `chown -R 1000:1000` them
+  if your *arr uses a different `PUID`, set it to match.
+
+### No indexer or download client registered
+
+```
+No peers configured; skipping indexer and download client registration (nothing to search or grab yet).
+```
+
+jack only registers itself in Radarr/Sonarr when you have at least one `peer` —
+without peers there's nothing to search and nothing to grab, and Radarr/Sonarr
+reject an indexer whose test query returns no results anyway. So with **no
+`peers` configured** jack deliberately skips registration (look for `"peers":0`
+in the `Server listening` log line).
+
+**Fix:** configure at least one entry under `servers.peers`. The indexer and
+download client are registered on the next startup once there's a peer behind
+them.
+
+If you *do* have peers but registration still fails with
+`Failed to register indexer` / *"no results in the configured categories"*, it
+means the test query returned nothing — check that the peer is reachable and its
+library actually contains matching items.
+
+### `ConnectionRefused` / "Jellyfin Server is loading" on startup
+
+```
+Failed to initialize connector radarr: Unable to connect. Is the computer able to access the url?
+```
+
+jack connects to your servers **once at boot**. If it starts before
+Jellyfin/Radarr/Sonarr are ready, those connectors fail and you'll see
+`sources:0` / `destinations:0` in the `Server listening` line. It usually fixes
+itself on the next restart, but to make it deterministic, wait for the
+dependencies to be healthy:
+
+```yaml
+# jack
+depends_on:
+  jellyfin: { condition: service_healthy }
+  radarr:   { condition: service_healthy }
+  sonarr:   { condition: service_healthy }
+```
+
+(This needs `healthcheck` blocks on those services — the linuxserver.io images
+ship with them.)
+
+### Seeing what jack is doing
+
+Set `LOG_LEVEL=trace` to log every HTTP request (method, path, status,
+duration). Registration failures always log the raw *arr response body at
+`error` level, which carries the real validation message — read that body, it
+usually tells you exactly what *arr is unhappy about.
 
 ## Development
 

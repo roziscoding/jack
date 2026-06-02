@@ -22,7 +22,8 @@ services:
       - PGID=1000
     volumes:
       - radarr-config:/config
-      - ./volumes/blackhole-completed:/downloads
+      - ./volumes/blackhole-watch:/downloads/watch
+      - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7878/ping"]
       interval: 5s
@@ -39,7 +40,8 @@ services:
       - PGID=1000
     volumes:
       - sonarr-config:/config
-      - ./volumes/blackhole-completed:/downloads
+      - ./volumes/blackhole-watch:/downloads/watch
+      - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8989/ping"]
       interval: 5s

@@ -6,6 +6,7 @@ import type { JellyfinServerConnector } from './lib/servers/sources/jellyfin'
 import { Hono } from 'hono'
 import { AppError } from './lib/errors/AppError'
 import { FetchError } from './lib/errors/FetchError'
+import { logger } from './logger'
 import { ItemsController } from './modules/items/items.controller'
 import { getItemsRouter } from './modules/items/items.router'
 import { ServersController } from './modules/servers/servers.controllers'
@@ -25,6 +26,18 @@ interface Connectors {
 export function getApp(config: AppConfig, connectors: Connectors) {
   const app = new Hono()
 
+  // Log every request at trace level once it's done: method, path, status, and
+  // duration.
+  app.use('*', async (c, next) => {
+    const start = performance.now()
+    await next()
+    const durationMs = Math.round((performance.now() - start) * 100) / 100
+    logger.trace({ method: c.req.method, path: c.req.path, status: c.res.status, durationMs }, 'Request completed')
+  })
+
+  // Health check — unauthenticated, used by Docker/orchestrators.
+  app.get('/ping', c => c.json({ status: 'OK' }, 200))
+
   const serversController = new ServersController(connectors)
   const itemsController = new ItemsController(connectors)
 
@@ -34,19 +47,17 @@ export function getApp(config: AppConfig, connectors: Connectors) {
   if (config.jack) {
     const jackConfig = config.jack
 
-    // Peer API — other Jacks talk to us
+    // Peer API — other Jacks talk to us. Always mounted; serves empty results
+    // when there's no local source to read from.
     const localJellyfin = connectors.sources.find(s => s.type === 'jellyfin') as JellyfinServerConnector | undefined
-    if (localJellyfin) {
-      const peerController = new PeerController(localJellyfin, jackConfig)
-      app.route('/peer', getPeerRouter(peerController, jackConfig.apiKey))
-    }
+    const peerController = new PeerController(localJellyfin, jackConfig)
+    app.route('/peer', getPeerRouter(peerController, jackConfig.apiKey))
 
-    // Torznab API — Radarr/Sonarr search through us
-    if (connectors.peers.length > 0) {
-      const torznabController = new TorznabController(connectors.peers, jackConfig)
-      app.route('/torznab', getTorznabRouter(torznabController, jackConfig.apiKey))
-      app.route('/torznab', getDownloadRouter(connectors.peers, jackConfig.apiKey))
-    }
+    // Torznab API — Radarr/Sonarr search through us. Always mounted; returns
+    // empty results when there are no peers to fan out to.
+    const torznabController = new TorznabController(connectors.peers, jackConfig)
+    app.route('/torznab', getTorznabRouter(torznabController, jackConfig.apiKey))
+    app.route('/torznab', getDownloadRouter(connectors.peers, jackConfig.apiKey))
   }
 
   app.onError((err, c) => {

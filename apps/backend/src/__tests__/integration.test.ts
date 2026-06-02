@@ -94,6 +94,16 @@ const handlers = [
     return HttpResponse.json({ id: 1, name: 'Jack' })
   }),
 
+  // Radarr download client list
+  http.get(`${RADARR_URL}/api/v3/downloadclient`, () => {
+    return HttpResponse.json([])
+  }),
+
+  // Radarr download client create
+  http.post(`${RADARR_URL}/api/v3/downloadclient`, () => {
+    return HttpResponse.json({ id: 1, name: 'Jack' })
+  }),
+
   // Radarr command
   http.post(`${RADARR_URL}/api/v3/command`, () => {
     return HttpResponse.json({ id: 1 })
@@ -243,5 +253,109 @@ describe('Auto-registration', () => {
       categories: [2000],
     })
     // If it doesn't throw, the API call worked
+  })
+
+  test('registerIndexer fails (does not register) when Radarr rejects with 400', async () => {
+    server.use(
+      http.post(`${RADARR_URL}/api/v3/indexer`, () => {
+        return HttpResponse.json({ message: 'Unable to connect to indexer' }, { status: 400 })
+      }),
+    )
+
+    const radarr = new RadarrServerConnector({ url: RADARR_URL, apiKey: 'a'.repeat(32), name: 'My Radarr' })
+    radarr._isInitialized = true
+
+    await expect(radarr.registerIndexer({
+      name: 'Jack',
+      baseUrl: 'http://localhost:3000/torznab',
+      apiKey: 'test-api-key',
+      priority: 1,
+      categories: [2000],
+    })).rejects.toThrow()
+  })
+
+  test('registerDownloadClient registers a Torrent Blackhole client', async () => {
+    let createdBody: any = null
+    server.use(
+      http.post(`${RADARR_URL}/api/v3/downloadclient`, async ({ request }) => {
+        createdBody = await request.json()
+        return HttpResponse.json({ id: 1, name: 'Jack' })
+      }),
+    )
+
+    const radarr = new RadarrServerConnector({ url: RADARR_URL, apiKey: 'a'.repeat(32), name: 'My Radarr' })
+    radarr._isInitialized = true
+
+    await radarr.registerDownloadClient({
+      name: 'Jack',
+      watchPath: '/data/torrents/watch',
+      completedPath: '/data/torrents/completed',
+      priority: 1,
+    })
+
+    expect(createdBody).toMatchObject({
+      name: 'Jack',
+      enable: true,
+      protocol: 'torrent',
+      implementation: 'TorrentBlackhole',
+      configContract: 'TorrentBlackholeSettings',
+    })
+    expect(createdBody.fields).toContainEqual({ name: 'torrentFolder', value: '/data/torrents/watch' })
+    expect(createdBody.fields).toContainEqual({ name: 'watchFolder', value: '/data/torrents/completed' })
+  })
+
+  test('registerDownloadClient updates an existing Jack client instead of duplicating', async () => {
+    let putCalled = false
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/downloadclient`, () => {
+        return HttpResponse.json([
+          { id: 7, name: 'Jack', fields: [{ name: 'torrentFolder', value: '/data/torrents/watch' }] },
+        ])
+      }),
+      http.put(`${RADARR_URL}/api/v3/downloadclient/7`, () => {
+        putCalled = true
+        return HttpResponse.json({ id: 7, name: 'Jack' })
+      }),
+    )
+
+    const radarr = new RadarrServerConnector({ url: RADARR_URL, apiKey: 'a'.repeat(32), name: 'My Radarr' })
+    radarr._isInitialized = true
+
+    await radarr.registerDownloadClient({
+      name: 'Jack',
+      watchPath: '/data/torrents/watch',
+      completedPath: '/data/torrents/completed',
+      priority: 1,
+    })
+
+    expect(putCalled).toBe(true)
+  })
+})
+
+describe('Routes mount without peers or sources', () => {
+  function createBareApp() {
+    return getApp(config, { sources: [], peers: [], destinations: [] })
+  }
+
+  test('Torznab caps works with no peers', async () => {
+    const app = createBareApp()
+    const res = await app.request('/torznab/api?t=caps&apikey=test-api-key')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<caps>')
+  })
+
+  test('Torznab search returns an empty feed with no peers', async () => {
+    const app = createBareApp()
+    const res = await app.request('/torznab/api?t=search&q=anything&apikey=test-api-key')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<rss version="2.0"')
+  })
+
+  test('Peer search returns empty items with no source', async () => {
+    const app = createBareApp()
+    const res = await app.request('/peer/search?q=anything&apikey=test-api-key')
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.items).toEqual([])
   })
 })

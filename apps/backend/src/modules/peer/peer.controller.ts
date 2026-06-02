@@ -4,11 +4,13 @@ import { logger } from '../../logger'
 
 export class PeerController {
   constructor(
-    private readonly jellyfin: JellyfinServerConnector,
+    private readonly jellyfin: JellyfinServerConnector | undefined,
     private readonly jackConfig: NonNullable<AppConfig['jack']>,
   ) {}
 
   async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }) {
+    if (!this.jellyfin) return []
+
     if (params.imdbId) {
       return this.jellyfin.searchByImdbId(params.imdbId)
     }
@@ -21,10 +23,12 @@ export class PeerController {
   }
 
   async getItem(itemId: string) {
+    if (!this.jellyfin) return null
     return this.jellyfin.getItemById(itemId)
   }
 
   async getFilePath(itemId: string): Promise<string | null> {
+    if (!this.jellyfin) return null
     const filePath = await this.jellyfin.getItemFilePath(itemId)
     if (!filePath) return null
     return filePath
