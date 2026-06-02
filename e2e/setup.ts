@@ -31,6 +31,14 @@ async function extractApiKey(service: 'Radarr' | 'Sonarr', url: string): Promise
 async function seedRadarrMovie(apiKey: string) {
   const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
 
+  // `/ping` comes up before the API has finished migrating; until then the v3
+  // endpoints return 400/503. Poll the authenticated status endpoint first.
+  console.log('⏳ Waiting for Radarr API to be ready...')
+  await retry(async () => {
+    const res = await fetch(`${RADARR_URL}/api/v3/system/status`, { headers })
+    if (!res.ok) throw new Error(`Radarr API not ready: ${res.status}`)
+  }, { retries: 30, delay: 2_000 })
+
   await fetch(`${RADARR_URL}/api/v3/rootfolder`, {
     method: 'POST',
     headers,
