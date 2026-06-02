@@ -23,6 +23,7 @@ export abstract class ServerConnector {
   protected _isInitialized: boolean = false
   protected _initialization: ReturnType<typeof Promise.withResolvers<void>> | null = null
   protected _initializationError: string | null = null
+  protected _initState: 'idle' | 'pending' | 'initialized' | 'failed' = 'idle'
 
   constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ConnectorType, url: string, apiKey: string, name: string }) {
     this.pingPath = connectorConfig.pingPath
@@ -107,21 +108,50 @@ export abstract class ServerConnector {
     return await this.fetch(this.pingPath, { method: this.pingMethod, schema })
   }
 
+  /**
+   * Connect to the server (a connectivity/identity check). Idempotent and
+   * retry-aware: it (re)runs the check only when we've never tried, or the last
+   * attempt FAILED. While an attempt is in flight, or once it has succeeded, this
+   * is a no-op — so callers can call it freely (e.g. `@requireInitialization`
+   * does on every guarded call) without re-pinging a healthy or in-progress
+   * connector. A connector that was down at boot is therefore re-tried the next
+   * time it's used, and rejoins once it's back.
+   */
   init() {
-    if (this.initialization) {
+    if (this._initState === 'pending' || this._initState === 'initialized') {
       return
     }
 
-    this._initialization = Promise.withResolvers()
-    this.ping()
+    if (this._initState === 'failed') {
+      logger.info({ connector: this.name, url: this.url, previousError: this._initializationError }, `Retrying connector "${this.name}" that previously failed to initialize`)
+    }
+
+    this._initState = 'pending'
+    this._isInitialized = false
+    this._initializationError = null
+    this._initialization = Promise.withResolvers<void>()
+    // Keep an always-present handler so a rejected retry that nobody awaits
+    // doesn't surface as an unhandled promise rejection.
+    this._initialization.promise.catch(() => {})
+
+    this.runInit()
       .then(() => {
-        this._initialization?.resolve()
         this._isInitialized = true
+        this._initState = 'initialized'
+        this._initialization?.resolve()
       })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        this._initializationError = message
-        this._initialization?.reject()
+      .catch((err: unknown) => {
+        this._initializationError = err instanceof Error ? err.message : String(err)
+        this._initState = 'failed'
+        this._initialization?.reject(err)
       })
+  }
+
+  /**
+   * The actual connectivity/identity check run by `init()`. Subclasses override
+   * to validate the server (e.g. an *arr `appName`); throw to fail initialization.
+   */
+  protected async runInit(): Promise<void> {
+    await this.ping()
   }
 }

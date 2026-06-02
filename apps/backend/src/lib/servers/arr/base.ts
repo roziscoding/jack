@@ -67,26 +67,12 @@ export abstract class ArrServerConnector extends ServerConnector {
   abstract get categories(): number[]
   protected abstract get importCommandName(): string
 
-  override init(): void {
-    this._initialization = Promise.withResolvers()
-
-    this.ping(z.object({ appName: z.string(), version: z.string() }))
-      .then((apiInfo) => {
-        if (apiInfo.appName !== this.expectedAppName) {
-          this._initializationError = `Invalid appName "${apiInfo.appName}" found for server type ${this.type}. Expected ${this.expectedAppName}`
-          this._initialization?.reject(new Error(this._initializationError))
-          return
-        }
-
-        logger.debug({ apiInfo }, `Found ${apiInfo.appName} ${apiInfo.version}`)
-        this._isInitialized = true
-        this._initialization?.resolve()
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        this._initializationError = message
-        this._initialization?.reject(err)
-      })
+  protected override async runInit(): Promise<void> {
+    const apiInfo = await this.ping(z.object({ appName: z.string(), version: z.string() }))
+    if (apiInfo.appName !== this.expectedAppName) {
+      throw new Error(`Invalid appName "${apiInfo.appName}" found for server type ${this.type}. Expected ${this.expectedAppName}`)
+    }
+    logger.debug({ apiInfo }, `Found ${apiInfo.appName} ${apiInfo.version}`)
   }
 
   /** GET an *arr endpoint and return the parsed JSON, typed by the caller. */

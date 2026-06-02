@@ -11,25 +11,28 @@ export class TorznabController {
   ) {}
 
   private async fanOut(label: string, search: (peer: PeerConnector) => Promise<Awaited<ReturnType<PeerConnector['searchItems']>>>): Promise<TorznabItem[]> {
-    const activePeers = this.peers.filter(p => p.isInitialized)
-    const skipped = this.peers.filter(p => !p.isInitialized).map(p => p.name)
-    logger.debug({ search: label, totalPeers: this.peers.length, activePeers: activePeers.length, skippedPeers: skipped }, 'Fanning out search to peers')
+    // We fan out to ALL peers — no isInitialized pre-filter. A peer that failed
+    // to connect at boot gets re-initialized lazily by @requireInitialization on
+    // the call below, so a peer that came back online rejoins searches without a
+    // restart. Each peer is isolated: if it fails (still down, or errors), we log
+    // and treat it as zero results instead of failing the whole search.
+    logger.debug({ search: label, peers: this.peers.length }, 'Fanning out search to peers')
 
-    if (activePeers.length === 0) {
-      logger.warn({ search: label, totalPeers: this.peers.length }, 'No active (initialized) peers to search — returning no results')
+    if (this.peers.length === 0) {
+      logger.warn({ search: label }, 'No peers configured — returning no results')
       return []
     }
 
     const results = await Promise.all(
-      activePeers.map(async (peer) => {
+      this.peers.map(async (peer) => {
         try {
           const releases = await search(peer)
           logger.debug({ search: label, peer: peer.name, count: releases.length }, 'Peer returned releases')
           return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl))
         }
         catch (err) {
-          logger.error({ search: label, peer: peer.name, err }, 'Peer search failed')
-          throw err
+          logger.error({ search: label, peer: peer.name, err }, 'Peer search failed — skipping this peer')
+          return []
         }
       }),
     )

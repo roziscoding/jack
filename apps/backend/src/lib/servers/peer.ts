@@ -24,20 +24,9 @@ export class PeerConnector extends ServerConnector {
     return this.apiKey
   }
 
-  override init() {
-    this._initialization = Promise.withResolvers()
-
-    this.ping()
-      .then(() => {
-        logger.debug(`Connected to Jack peer ${this.name}`)
-        this._isInitialized = true
-        this._initialization?.resolve()
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        this._initializationError = message
-        this._initialization?.reject(err)
-      })
+  protected override async runInit(): Promise<void> {
+    await this.ping()
+    logger.debug(`Connected to Jack peer ${this.name}`)
   }
 
   async searchItems(term: string): Promise<Release[]> {
