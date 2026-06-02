@@ -50,3 +50,14 @@ export const Release = z.object({
 })
 
 export type Release = z.infer<typeof Release>
+
+const IMDB_TT_PREFIX = /^tt/i
+
+/**
+ * Normalize an IMDb id for comparison. Radarr/Sonarr store ids with the `tt`
+ * prefix (`tt0133093`), but torznab/newznab clients query without it
+ * (`imdbid=0133093`). Strip the prefix so both forms compare equal.
+ */
+export function normalizeImdbId(id: string): string {
+  return id.replace(IMDB_TT_PREFIX, '')
+}

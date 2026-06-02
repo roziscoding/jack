@@ -2,7 +2,7 @@ import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/type
 import type { AutoRegisterConfig } from '../../config'
 import type { Release } from '../../release'
 import { logger } from '../../../logger'
-import { ReleaseCategory } from '../../release'
+import { normalizeImdbId, ReleaseCategory } from '../../release'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
 export class RadarrServerConnector extends ArrServerConnector {
@@ -72,9 +72,12 @@ export class RadarrServerConnector extends ArrServerConnector {
   }
 
   protected override async doSearchByImdbId(imdbId: string): Promise<Release[]> {
+    // Compare without the `tt` prefix: *arr stores `tt0133093`, torznab clients
+    // (Radarr) query `imdbid=0133093`. Without this, the search never matches.
+    const target = normalizeImdbId(imdbId)
     const movies = await this.listMovies()
     const releases = movies
-      .filter(m => m.hasFile && m.imdbId === imdbId)
+      .filter(m => m.hasFile && m.imdbId != null && normalizeImdbId(m.imdbId) === target)
       .map(m => this.toRelease(m))
       .filter((r): r is Release => r != null)
     logger.debug({ source: this.name, imdbId, totalMovies: movies.length, withFile: movies.filter(m => m.hasFile).length, matched: releases.length }, 'Radarr imdb search')
