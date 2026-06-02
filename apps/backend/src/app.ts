@@ -38,8 +38,8 @@ export function getApp(config: AppConfig, connectors: Connectors) {
     app.use('*', (c, next) => (c.req.path === HEALTHCHECK_PATH ? next() : otel(c, next)))
   }
 
-  // Log every request at trace level once it's done: method, path, status, and
-  // duration.
+  // Log every request at trace level once it's done: method, path, status,
+  // duration, and (trace only) the response body.
   app.use('*', async (c, next) => {
     if (c.req.path === HEALTHCHECK_PATH)
       return next()
@@ -47,7 +47,19 @@ export function getApp(config: AppConfig, connectors: Connectors) {
     const start = performance.now()
     await next()
     const durationMs = Math.round((performance.now() - start) * 100) / 100
-    logger.trace({ method: c.req.method, path: c.req.path, status: c.res.status, durationMs }, 'Request completed')
+
+    // Only read the body when trace is on: it clones the response, which we skip
+    // for binary/streamed responses (e.g. peer file downloads) so we never buffer
+    // a whole file into memory just to log it.
+    let responseBody: string | undefined
+    if (logger.isLevelEnabled('trace')) {
+      const contentType = c.res.headers.get('content-type') ?? ''
+      responseBody = contentType.includes('application/octet-stream')
+        ? '[binary stream omitted]'
+        : await c.res.clone().text().then(t => (t.length > 4000 ? `${t.slice(0, 4000)}… (${t.length} bytes total)` : t)).catch(() => '[unreadable]')
+    }
+
+    logger.trace({ method: c.req.method, path: c.req.path, status: c.res.status, durationMs, responseBody }, 'Request completed')
   })
 
   // Health check — unauthenticated, used by Docker/orchestrators.

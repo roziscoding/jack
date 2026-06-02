@@ -18,18 +18,27 @@ export class PeerController {
 
   async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
     const sources = this.activeSources
-    if (sources.length === 0)
-      return []
+    const skipped = this.sources.filter(s => !(s.isInitialized && s.canSource)).map(s => ({ name: s.name, initialized: s.isInitialized, canSource: s.canSource }))
+    logger.debug({ params, totalSources: this.sources.length, activeSources: sources.length, skippedSources: skipped }, 'Peer search request received')
 
-    const results = await Promise.all(sources.map((source) => {
-      if (params.imdbId)
-        return source.searchByImdbId(params.imdbId)
-      if (params.tvdbId)
-        return source.searchByTvdbId(params.tvdbId, params.season, params.episode)
-      return source.searchItems(params.q ?? '')
+    if (sources.length === 0) {
+      logger.warn({ params, skippedSources: skipped }, 'Peer search: no active sources — returning empty result')
+      return []
+    }
+
+    const results = await Promise.all(sources.map(async (source) => {
+      const items = params.imdbId
+        ? await source.searchByImdbId(params.imdbId)
+        : params.tvdbId
+          ? await source.searchByTvdbId(params.tvdbId, params.season, params.episode)
+          : await source.searchItems(params.q ?? '')
+      logger.debug({ source: source.name, type: source.type, params, count: items.length }, 'Source returned releases for peer search')
+      return items
     }))
 
-    return results.flat()
+    const flat = results.flat()
+    logger.debug({ params, total: flat.length }, 'Peer search complete')
+    return flat
   }
 
   async getItem(id: string): Promise<Release | null> {

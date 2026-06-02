@@ -1,6 +1,7 @@
 import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/types'
 import type { AutoRegisterConfig } from '../../config'
 import type { Release } from '../../release'
+import { logger } from '../../../logger'
 import { ReleaseCategory } from '../../release'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
@@ -62,18 +63,24 @@ export class RadarrServerConnector extends ArrServerConnector {
   protected override async doSearchItems(term: string): Promise<Release[]> {
     const needle = term.trim().toLowerCase()
     const movies = await this.listMovies()
-    return movies
+    const releases = movies
       .filter(m => m.hasFile && (!needle || (m.title ?? '').toLowerCase().includes(needle)))
       .map(m => this.toRelease(m))
       .filter((r): r is Release => r != null)
+    logger.debug({ source: this.name, term, totalMovies: movies.length, withFile: movies.filter(m => m.hasFile).length, matched: releases.length }, 'Radarr term search')
+    return releases
   }
 
   protected override async doSearchByImdbId(imdbId: string): Promise<Release[]> {
     const movies = await this.listMovies()
-    return movies
+    const releases = movies
       .filter(m => m.hasFile && m.imdbId === imdbId)
       .map(m => this.toRelease(m))
       .filter((r): r is Release => r != null)
+    logger.debug({ source: this.name, imdbId, totalMovies: movies.length, withFile: movies.filter(m => m.hasFile).length, matched: releases.length }, 'Radarr imdb search')
+    if (releases.length === 0)
+      logger.trace({ source: this.name, imdbId, sampleImdbIds: movies.filter(m => m.hasFile).map(m => m.imdbId).slice(0, 10) }, 'Radarr imdb search found nothing — sample of available imdbIds')
+    return releases
   }
 
   protected override async doSearchByTvdbId(): Promise<Release[]> {

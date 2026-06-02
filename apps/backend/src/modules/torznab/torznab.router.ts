@@ -1,5 +1,6 @@
 import type { TorznabController } from './torznab.controller'
 import { Hono } from 'hono'
+import { logger } from '../../logger'
 import { buildCapsXml, buildErrorXml, buildSearchResultXml } from './torznab.xml'
 
 export function getTorznabRouter(controller: TorznabController, apiKey: string) {
@@ -10,16 +11,28 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
     const key = c.req.query('apikey')
 
     if (key !== apiKey) {
+      logger.warn('Torznab request rejected: incorrect API key')
       return c.body(buildErrorXml(100, 'Incorrect API Key'), 403, {
         'Content-Type': 'application/xml',
       })
     }
 
     if (!t) {
+      logger.warn('Torznab request rejected: missing parameter "t"')
       return c.body(buildErrorXml(200, 'Missing parameter: t'), 400, {
         'Content-Type': 'application/xml',
       })
     }
+
+    logger.debug({
+      t,
+      q: c.req.query('q'),
+      imdbid: c.req.query('imdbid'),
+      tvdbid: c.req.query('tvdbid'),
+      season: c.req.query('season'),
+      ep: c.req.query('ep'),
+      cat: c.req.query('cat'),
+    }, 'Torznab request received')
 
     switch (t) {
       case 'caps': {

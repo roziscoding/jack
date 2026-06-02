@@ -1,5 +1,6 @@
 import type { ConnectorType } from '../config'
 import z from 'zod'
+import { logger } from '../../logger'
 import { FetchError } from '../errors/FetchError'
 
 function generateId(url: string): string {
@@ -74,14 +75,20 @@ export abstract class ServerConnector {
         url.searchParams.append(key, value)
       }
     }
+
+    const method = init.method ?? 'GET'
+    logger.debug({ connector: this.name, type: this.type, method, url: url.toString() }, 'Outgoing request')
     const response = await fetch(url, initWithAuth)
+    logger.debug({ connector: this.name, method, url: url.toString(), status: response.status }, 'Response received')
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'Could not fetch body')
+      logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body }, 'Request failed (non-2xx)')
       throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
     }
 
     const body = await response.json()
+    logger.trace({ connector: this.name, method, url: url.pathname, body }, 'Response body')
     if (!init.schema) {
       return body as z.infer<TResponseSchema>
     }
@@ -89,6 +96,7 @@ export abstract class ServerConnector {
     const { success, error, data } = init.schema.safeParse(body)
 
     if (!success) {
+      logger.warn({ connector: this.name, method, url: url.pathname, error: z.prettifyError(error) }, 'Response failed schema validation')
       throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${z.prettifyError(error)}`, response, { body: JSON.stringify(body), method: init.method })
     }
 

@@ -1,6 +1,7 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
 import type { AutoRegisterConfig } from '../../config'
 import type { Release } from '../../release'
+import { logger } from '../../../logger'
 import { ReleaseCategory } from '../../release'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
@@ -84,7 +85,9 @@ export class SonarrServerConnector extends ArrServerConnector {
     const series = await this.listSeries()
     const matching = series.filter(s => !needle || (s.title ?? '').toLowerCase().includes(needle))
     const perSeries = await Promise.all(matching.map(s => this.releasesForSeries(s)))
-    return perSeries.flat()
+    const releases = perSeries.flat()
+    logger.debug({ source: this.name, term, totalSeries: series.length, matchingSeries: matching.length, releases: releases.length }, 'Sonarr term search')
+    return releases
   }
 
   protected override async doSearchByImdbId(): Promise<Release[]> {
@@ -101,7 +104,9 @@ export class SonarrServerConnector extends ArrServerConnector {
         return false
       return true
     })))
-    return perSeries.flat()
+    const releases = perSeries.flat()
+    logger.debug({ source: this.name, tvdbId, season, episode, matchingSeries: series.length, releases: releases.length }, 'Sonarr tvdb search')
+    return releases
   }
 
   private async fetchEpisodeBundle(id: string): Promise<{ episode: EpisodeResource, series?: SeriesResource, file?: EpisodeFileResource } | null> {

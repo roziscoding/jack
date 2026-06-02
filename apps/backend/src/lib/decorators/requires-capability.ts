@@ -1,3 +1,4 @@
+import { logger } from '../../logger'
 import { AppError } from '../errors/AppError'
 
 /**
@@ -18,6 +19,7 @@ export function requiresSource(
 ) {
   return async function (this: any, ...args: any[]) {
     if (!this.canSource) {
+      logger.warn({ connector: this.name }, `Blocked call: server "${this.name}" is not configured as a source`)
       throw new AppError(`Server "${this.name}" is not configured as a source`, 'NOT_A_SOURCE')
     }
     return target.apply(this, args)

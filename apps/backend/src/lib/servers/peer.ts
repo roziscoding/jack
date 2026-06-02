@@ -41,12 +41,16 @@ export class PeerConnector extends ServerConnector {
   }
 
   async searchItems(term: string): Promise<Release[]> {
+    logger.debug({ peer: this.name, term }, 'Asking peer for items by term')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { q: term }, schema: PeerSearchResponse })
+    logger.debug({ peer: this.name, term, count: items.length }, 'Peer answered (term search)')
     return items
   }
 
   async searchByImdbId(imdbId: string): Promise<Release[]> {
+    logger.debug({ peer: this.name, imdbId }, 'Asking peer for items by imdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
+    logger.debug({ peer: this.name, imdbId, count: items.length }, 'Peer answered (imdb search)')
     return items
   }
 
@@ -56,7 +60,9 @@ export class PeerConnector extends ServerConnector {
       query.season = String(season)
     if (episode != null)
       query.episode = String(episode)
+    logger.debug({ peer: this.name, tvdbId, season, episode }, 'Asking peer for items by tvdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query, schema: PeerSearchResponse })
+    logger.debug({ peer: this.name, tvdbId, season, episode, count: items.length }, 'Peer answered (tvdb search)')
     return items
   }
 
