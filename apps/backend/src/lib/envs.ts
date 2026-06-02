@@ -5,6 +5,9 @@ export const Envs = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   ENVIRONMENT: z.enum(['development', 'production']).default('development'),
   APP_CONFIG_PATH: z.string().default('/config/config.jsonc'),
+  // Default timeout (ms) for every outgoing HTTP request to a connector (*arr or
+  // peer). Bounds a hung host so it can't stall a search indefinitely.
+  HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   // OpenTelemetry tracing. There's no on/off flag: tracing is enabled as soon as
   // an OTLP/HTTP endpoint is configured (see `isOtelEnabled`). Either the generic
   // endpoint or the traces-specific one works — both are the standard OTEL vars

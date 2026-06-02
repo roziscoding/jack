@@ -1,7 +1,10 @@
 import type { ConnectorType } from '../config'
 import z from 'zod'
 import { logger } from '../../logger'
+import { getAppEnvs } from '../envs'
 import { FetchError } from '../errors/FetchError'
+
+const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
 
 function generateId(url: string): string {
   const hash = new Bun.CryptoHasher('sha256').update(url).digest('hex')
@@ -61,9 +64,13 @@ export abstract class ServerConnector {
     return `${this.authHeaderPrefix}${this.apiKey}`
   }
 
-  protected async fetch<TResponseSchema extends z.ZodType = z.ZodUnknown>(path: string, init: RequestInit & { schema?: TResponseSchema, query?: Record<string, string> } = { method: 'GET' }): Promise<z.infer<TResponseSchema>> {
+  protected async fetch<TResponseSchema extends z.ZodType = z.ZodUnknown>(path: string, init: RequestInit & { schema?: TResponseSchema, query?: Record<string, string>, timeoutMs?: number } = { method: 'GET' }): Promise<z.infer<TResponseSchema>> {
+    const timeoutMs = init.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS
     const initWithAuth = {
       ...init,
+      // Bound every request so a hung connector can't stall the caller forever.
+      // A caller-supplied signal takes precedence over the default timeout.
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
       headers: {
         ...this.authHeaders,
         ...init?.headers,
@@ -78,8 +85,18 @@ export abstract class ServerConnector {
     }
 
     const method = init.method ?? 'GET'
-    logger.debug({ connector: this.name, type: this.type, method, url: url.toString() }, 'Outgoing request')
-    const response = await fetch(url, initWithAuth)
+    logger.debug({ connector: this.name, type: this.type, method, url: url.toString(), timeoutMs }, 'Outgoing request')
+
+    let response: Response
+    try {
+      response = await fetch(url, initWithAuth)
+    }
+    catch (err) {
+      const timedOut = err instanceof DOMException && err.name === 'TimeoutError'
+      logger.warn({ connector: this.name, method, url: url.toString(), timeoutMs, timedOut, err }, timedOut ? `Request timed out after ${timeoutMs}ms` : 'Request failed (network error)')
+      throw err
+    }
+
     logger.debug({ connector: this.name, method, url: url.toString(), status: response.status }, 'Response received')
 
     if (!response.ok) {

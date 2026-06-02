@@ -151,3 +151,24 @@ describe('search resilience + lazy retry', () => {
     expect(flaky.isInitialized).toBe(true)
   })
 })
+
+describe('fetch timeout', () => {
+  test('aborts a hung request after the configured timeout', async () => {
+    server.use(
+      http.get('http://hung.test/api/v3/system/status', async () => {
+        await new Promise(r => setTimeout(r, 2000))
+        return HttpResponse.json({ appName: 'Radarr', version: '5.0' })
+      }),
+    )
+    const radarr = makeRadarr('http://hung.test')
+
+    const start = Date.now()
+    // Reach the protected fetch with a short per-call timeout.
+    const call = (radarr as unknown as { fetch: (p: string, i: object) => Promise<unknown> })
+      .fetch('/api/v3/system/status', { method: 'GET', timeoutMs: 100 })
+
+    await expect(call).rejects.toThrow()
+    // It must give up around the timeout, well before the 2s the server waits.
+    expect(Date.now() - start).toBeLessThan(1000)
+  })
+})
