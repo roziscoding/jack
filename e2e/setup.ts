@@ -45,11 +45,22 @@ async function seedRadarrMovie(apiKey: string) {
     return res.json() as Promise<Array<{ tmdbId: number, id: number }>>
   }, { retries: 45, delay: 2_000 })
 
-  await fetch(`${RADARR_URL}/api/v3/rootfolder`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ path: '/media/movies' }),
-  }).catch(() => {})
+  // Register the fixtures root folder and confirm it actually persisted. Radarr
+  // rejects adding a movie whose rootFolderPath isn't a known, accessible root
+  // folder ("Root folder ... does not exist"), so we must not swallow this.
+  await retry(async () => {
+    const folders = await fetchJson<Array<{ path: string }>>(`${RADARR_URL}/api/v3/rootfolder`, { headers })
+    if (folders.some(f => f.path === '/media/movies')) return
+    const res = await fetch(`${RADARR_URL}/api/v3/rootfolder`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ path: '/media/movies' }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Could not add root folder /media/movies: ${res.status} — ${body.slice(0, 400)}`)
+    }
+  }, { retries: 10, delay: 2_000 })
 
   const profiles = await fetchJson<Array<{ id: number }>>(`${RADARR_URL}/api/v3/qualityprofile`, { headers })
   const qualityProfileId = profiles[0]?.id ?? 1

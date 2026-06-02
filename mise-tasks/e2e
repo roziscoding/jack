@@ -14,6 +14,9 @@ mkdir -p "$E2E_DIR/config"
 # dirs may be a different uid. Make them world-writable so both can read/write
 # the blackhole watch/completed folders.
 chmod 777 "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
+# Same uid mismatch applies to the media fixtures: Radarr (uid 1000) must be able
+# to traverse/read them, or its root-folder validation fails ("does not exist").
+chmod -R a+rX "$E2E_DIR/fixtures"
 
 cleanup() {
   echo ""
