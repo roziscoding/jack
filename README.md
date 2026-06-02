@@ -93,6 +93,15 @@ The compose file mounts three host paths — adjust them for your setup:
 > If they don't line up, *arr can't drop the stub `.torrent` or import the
 > finished file, and every grab fails.
 
+> ⚠️ **Mount your media at the same path Radarr/Sonarr report.** jack streams
+> files straight from disk using the absolute path each *arr stores for the file
+> (`movieFile.path` / `episodeFile.path`) — i.e. the path *inside the
+> Radarr/Sonarr container*. Mount your media into jack at that **same path** (you
+> may need to mirror more than one, e.g. `/movies` and `/tv`). The `/data/media`
+> in the example is just a placeholder — replace it with whatever paths your
+> *arr use. **Migrating from the Jellyfin-based version?** This path likely
+> changed: it's now the *arr path, not Jellyfin's library path.
+
 ## How it works
 
 There are two flows: **searching** for media (Torznab) and **downloading** it
