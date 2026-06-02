@@ -54,6 +54,9 @@ export async function retry<T>(fn: () => Promise<T>, opts?: { retries?: number, 
 
 export async function fetchJson<T = unknown>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, opts)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${url}`)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`${res.status} ${res.statusText}: ${url}${body ? ` — ${body.slice(0, 500)}` : ''}`)
+  }
   return res.json() as Promise<T>
 }

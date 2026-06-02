@@ -38,7 +38,10 @@ async function seedRadarrMovie(apiKey: string) {
   console.log('⏳ Waiting for Radarr API to be ready...')
   const existing = await retry(async () => {
     const res = await fetch(`${RADARR_URL}/api/v3/movie`, { headers })
-    if (!res.ok) throw new Error(`Radarr API not ready: ${res.status}`)
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Radarr API not ready: ${res.status} ${res.statusText} — ${body.slice(0, 500)}`)
+    }
     return res.json() as Promise<Array<{ tmdbId: number, id: number }>>
   }, { retries: 45, delay: 2_000 })
 
