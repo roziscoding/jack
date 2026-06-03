@@ -4,13 +4,17 @@
   "peerDependencies": {
     "typescript": "^5"
   },
-  "devDependencies": {
-    "@antfu/eslint-config": "^7.7.3",
-    "@types/bun": "latest",
-    "eslint": "10.1.0"
-  },
   "workspaces": [
     "packages/*",
     "apps/*"
-  ]
+  ],
+  "dependencies": {
+    "xmlbuilder2": "^4.0.3"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^7.7.3",
+    "@types/bencode": "^2.0.4",
+    "@types/bun": "latest",
+    "eslint": "10.1.0"
+  }
 }

@@ -6,6 +6,8 @@ import { requireInitialization } from '../../decorators/require-initialization'
 import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
 import { ServerConnector } from '../base'
 
+const BASENAME_SEPARATOR_REGEX = /[/\\]/
+
 export const DestinationServerHealthIssue = z.array(
   z.object({
     id: z.number().int().optional(),
@@ -29,7 +31,7 @@ export const DestinationServerHealthIssue = z.array(
 export type ReleaseKind = 'movie' | 'episode'
 
 export function basename(path: string): string {
-  return path.split(/[/\\]/).pop() ?? path
+  return path.split(BASENAME_SEPARATOR_REGEX).pop() ?? path
 }
 
 export function stripExtension(name: string): string {

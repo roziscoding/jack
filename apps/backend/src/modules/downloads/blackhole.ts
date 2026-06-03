@@ -1,6 +1,7 @@
 import type { AppConfig } from '../../lib/config'
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
+import { Buffer } from 'node:buffer'
 import { watch } from 'node:fs'
 import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'

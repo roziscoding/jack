@@ -24,9 +24,9 @@ const PINO_LEVEL_TO_SEVERITY: Record<number, SeverityNumber> = {
 function traceContextMixin() {
   const span = trace.getActiveSpan()
   if (!span)
-    return {}
+    return { environment: envs.ENVIRONMENT }
   const { traceId, spanId, traceFlags } = span.spanContext()
-  return { trace_id: traceId, span_id: spanId, trace_flags: traceFlags.toString(16) }
+  return { environment: envs.ENVIRONMENT, trace_id: traceId, span_id: spanId, trace_flags: traceFlags.toString(16) }
 }
 
 // In-process bridge from pino to the OpenTelemetry Logs API. Each finished pino
@@ -67,17 +67,10 @@ const otelLogStream = {
 // in-process multistream — no worker thread, which `thread-stream` transports
 // don't survive under Bun. With tracing off, keep the original path:
 // pretty-printed in dev, plain synchronous stdout in production.
-export const logger = otelEnabled
-  ? pino(
-      { level: envs.LOG_LEVEL, mixin: traceContextMixin },
-      // Each stream needs the level too: multistream defaults entries to `info`
-      // and would otherwise drop everything below it (e.g. our request traces).
-      multistream([
-        { stream: process.stdout, level: envs.LOG_LEVEL },
-        { stream: otelLogStream, level: envs.LOG_LEVEL },
-      ]),
-    )
-  : pino({
+function getLogger() {
+  if (!otelEnabled) {
+    return pino({
+      enabled: envs.ENABLE_LOGS,
       level: envs.LOG_LEVEL,
       mixin: traceContextMixin,
       transport: envs.ENVIRONMENT !== 'production'
@@ -91,3 +84,19 @@ export const logger = otelEnabled
           }
         : undefined,
     })
+  }
+
+  return pino(
+    {
+      enabled: envs.ENABLE_LOGS,
+      level: envs.LOG_LEVEL,
+      mixin: traceContextMixin,
+    },
+    multistream([
+      { stream: process.stdout, level: envs.LOG_LEVEL },
+      { stream: otelLogStream, level: envs.LOG_LEVEL },
+    ]),
+  )
+}
+
+export const logger = getLogger()

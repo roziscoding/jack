@@ -54,10 +54,10 @@ describe('configSecret', () => {
   })
 
   test('exposes string | { env } as input and string as output', () => {
-    const secret = ConfigSecret()
-    const _in1: z.input<typeof secret> = 'literal'
-    const _in2: z.input<typeof secret> = { env: 'X' }
-    const _out: z.output<typeof secret> = 'a-string'
+    const _secret = ConfigSecret()
+    const _in1: z.input<typeof _secret> = 'literal'
+    const _in2: z.input<typeof _secret> = { env: 'X' }
+    const _out: z.output<typeof _secret> = 'a-string'
     expect([_in1, _in2, _out]).toBeDefined()
   })
 })

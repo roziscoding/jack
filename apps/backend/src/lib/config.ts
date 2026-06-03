@@ -1,5 +1,6 @@
 import type { Envs } from './envs'
 import fs from 'node:fs/promises'
+import process from 'node:process'
 import { jsonc } from 'jsonc'
 import z from 'zod'
 import { logger } from '../logger'

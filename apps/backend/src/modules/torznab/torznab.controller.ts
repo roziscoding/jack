@@ -1,9 +1,43 @@
 import type { AppConfig } from '../../lib/config'
 import type { Release } from '../../lib/release'
 import type { PeerConnector } from '../../lib/servers/peer'
-import type { TorznabItem } from './torznab.xml'
 import { logger } from '../../logger'
-import { releaseToTorznab } from './torznab.xml'
+
+export interface TorznabItem {
+  title: string
+  guid: string
+  size: number
+  downloadUrl: string
+  category: number
+  imdbId?: string
+  tmdbId?: number
+  tvdbId?: number
+  season?: number
+  episode?: number
+  publishDate?: string
+  peerId: string
+  peerName?: string
+}
+
+export function releaseToTorznab(release: Release, peerId: string, peerName: string | undefined, baseUrl: string): TorznabItem {
+  const guid = `${peerId}:${release.id}`
+
+  return {
+    title: release.title,
+    guid,
+    size: release.size,
+    downloadUrl: `${baseUrl}/torznab/download/${encodeURIComponent(guid)}.torrent`,
+    category: release.category,
+    imdbId: release.imdbId,
+    tmdbId: release.tmdbId,
+    tvdbId: release.tvdbId,
+    season: release.season,
+    episode: release.episode,
+    publishDate: release.publishDate,
+    peerId,
+    peerName,
+  }
+}
 
 export class TorznabController {
   constructor(

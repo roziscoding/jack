@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import bencode from 'bencode'
 import { describe, expect, test } from 'bun:test'
 import { createTorrentStub, parseTorrentStub } from '../modules/torznab/torrent'

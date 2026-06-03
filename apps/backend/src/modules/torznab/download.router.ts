@@ -2,16 +2,13 @@ import type { PeerConnector } from '../../lib/servers/peer'
 import { Hono } from 'hono'
 import { createTorrentStub } from './torrent'
 
-export function getDownloadRouter(peers: PeerConnector[], apiKey: string) {
+const TORRENT_EXTENSION_REGEX = /\.torrent$/
+
+export function getDownloadRouter(peers: PeerConnector[]) {
   const app = new Hono()
 
   app.get('/download/:id', async (c) => {
-    const key = c.req.query('apikey')
-    if (key !== apiKey) {
-      return c.json({ error: 'Unauthorized' }, 401)
-    }
-
-    const rawId = c.req.param('id').replace(/\.torrent$/, '')
+    const rawId = c.req.param('id').replace(TORRENT_EXTENSION_REGEX, '')
     const [peerId, ...itemParts] = rawId.split(':')
     const itemId = itemParts.join(':')
 
