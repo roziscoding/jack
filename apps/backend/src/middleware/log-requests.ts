@@ -1,15 +1,105 @@
+import type { AttributeValue, Span } from '@opentelemetry/api'
 import type { Context } from 'hono'
+import { trace } from '@opentelemetry/api'
 import { createMiddleware } from 'hono/factory'
 import { logger } from '../logger'
 
-const MAX_BODY_BYTES = 500
+const MAX_CAPTURED_BODY_BYTES = 8 * 1024
+const REDACTED = '[redacted]'
+const OMITTED_BINARY_BODY = '[binary body omitted]'
+const UNREADABLE_BODY = '[unreadable]'
 
-async function readResponseBody(ctx: Context, maxBytes: number = MAX_BODY_BYTES) {
-  const stream = ctx.res.clone().body
-  const size = ctx.res.headers.get('content-length') ?? 'unknown'
+const SENSITIVE_FIELD_NAME = /(?:^|[-_.])(?:api[-_.]?key|authorization|cookie|password|secret|token)(?:$|[-_.])/i
+const FLATTENED_HEADER_FIELDS = new Set([
+  'accept',
+  'content-length',
+  'content-type',
+  'host',
+  'user-agent',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+])
+const FLATTENED_QUERY_FIELDS = new Set([
+  'cat',
+  'ep',
+  'extended',
+  'imdbid',
+  'limit',
+  'offset',
+  'q',
+  'season',
+  't',
+  'tmdbid',
+  'tvdbid',
+])
 
-  if (!stream)
-    return { text: '', truncated: false }
+interface CapturedBody {
+  text: string
+  truncated: boolean
+  readable: boolean
+  omitted: boolean
+  size: string
+}
+
+function isSensitiveField(name: string) {
+  return SENSITIVE_FIELD_NAME.test(name)
+}
+
+function redactRecord(record: Record<string, string | string[]>): Record<string, string | string[]> {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, isSensitiveField(key) ? REDACTED : value]),
+  )
+}
+
+function headersToRecord(headers: Headers): Record<string, string> {
+  return Object.fromEntries(headers.entries())
+}
+
+function queryToRecord(url: string): Record<string, string | string[]> {
+  const params = new URL(url).searchParams
+  const record: Record<string, string | string[]> = {}
+
+  for (const key of params.keys()) {
+    const values = params.getAll(key)
+    record[key] = values.length > 1 ? values : values[0] ?? ''
+  }
+
+  return record
+}
+
+function isTextualContentType(contentType: string) {
+  const normalized = contentType.toLowerCase()
+  return normalized.startsWith('text/')
+    || normalized.includes('json')
+    || normalized.includes('xml')
+    || normalized.includes('form-urlencoded')
+}
+
+function jsonAttribute(value: unknown): string {
+  return JSON.stringify(value)
+}
+
+function flattenedAttributes(prefix: string, record: Record<string, string | string[]>, allowedFields: Set<string>): Record<string, AttributeValue> {
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([key]) => allowedFields.has(key.toLowerCase()))
+      .map(([key, value]) => [`${prefix}.${key.toLowerCase()}`, isSensitiveField(key) ? REDACTED : value]),
+  )
+}
+
+function emptyBody(size: string): CapturedBody {
+  return { text: '', truncated: false, readable: true, omitted: false, size }
+}
+
+function omittedBody(size: string): CapturedBody {
+  return { text: OMITTED_BINARY_BODY, truncated: false, readable: true, omitted: true, size }
+}
+
+async function readBody(stream: ReadableStream<Uint8Array> | null, size: string, maxBytes = MAX_CAPTURED_BODY_BYTES): Promise<CapturedBody> {
+  if (!stream) {
+    return emptyBody(size)
+  }
 
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
@@ -38,68 +128,128 @@ async function readResponseBody(ctx: Context, maxBytes: number = MAX_BODY_BYTES)
   }
 
   const text = new TextDecoder().decode(buf.subarray(0, maxBytes))
-  const finalText = !done ? `${text}... (${size} bytes total)` : text
 
   return {
-    text: finalText,
+    text,
     truncated: !done, // stopped on the cap, not EOF
+    readable: true,
+    omitted: false,
+    size,
   }
 }
 
-async function getResponseBody(ctx: Context) {
+async function captureBody(body: ReadableStream<Uint8Array> | null, contentType: string, size: string): Promise<CapturedBody> {
+  if (!body) {
+    return emptyBody(size)
+  }
+
+  if (contentType && !isTextualContentType(contentType)) {
+    return omittedBody(size)
+  }
+
+  return readBody(body, size)
+    .catch(() => ({ text: UNREADABLE_BODY, truncated: false, readable: false, omitted: false, size }))
+}
+
+async function captureRequestBody(ctx: Context): Promise<CapturedBody | undefined> {
+  if (!ctx.req.header('content-length') && !ctx.req.header('transfer-encoding')) {
+    return undefined
+  }
+
+  const contentType = ctx.req.header('content-type') ?? ''
+  const size = ctx.req.header('content-length') ?? 'unknown'
+  if (contentType && !isTextualContentType(contentType)) {
+    return omittedBody(size)
+  }
+
+  return captureBody(
+    ctx.req.raw.clone().body,
+    contentType,
+    size,
+  )
+}
+
+async function captureResponseBody(ctx: Context): Promise<CapturedBody> {
   const contentType = ctx.res.headers.get('content-type') ?? ''
-  if (contentType.includes('application/octet-stream')) {
-    return '[binary stream ommited]'
+  const size = ctx.res.headers.get('content-length') ?? 'unknown'
+  if (contentType && !isTextualContentType(contentType)) {
+    return omittedBody(size)
   }
 
-  const { text, truncated } = await readResponseBody(ctx)
-    .catch(() => ({ text: null, truncated: false }))
+  return captureBody(
+    ctx.res.clone().body,
+    contentType,
+    size,
+  )
+}
 
-  if (text === null) {
-    return '[unreadable]'
+function bodyAttributes(prefix: string, body: CapturedBody | undefined): Record<string, AttributeValue> {
+  if (!body) {
+    return {}
   }
 
-  // Only attempt to parse JSON when we have the whole body — a truncated
-  // body isn't valid JSON.
-  if (!truncated && contentType.includes('application/json')) {
-    try {
-      return JSON.parse(text)
-    }
-    catch (err) {
-      logger.trace({ err }, 'Failed to parse response body as JSON. Logging as plain text')
-    }
+  return {
+    [`${prefix}.body`]: body.text,
+    [`${prefix}.body.truncated`]: body.truncated,
+    [`${prefix}.body.readable`]: body.readable,
+    [`${prefix}.body.omitted`]: body.omitted,
+    [`${prefix}.body.size`]: body.size,
   }
+}
 
-  return text
+async function addHttpSpanAttributes(span: Span, ctx: Context, durationMs: number, requestBody: CapturedBody | undefined) {
+  const url = new URL(ctx.req.url)
+  const responseBody = await captureResponseBody(ctx)
+  const requestHeaders = redactRecord(ctx.req.header())
+  const requestQuery = redactRecord(queryToRecord(ctx.req.url))
+  const responseHeaders = redactRecord(headersToRecord(ctx.res.headers))
+
+  span.setAttributes({
+    'http.request.method': ctx.req.method,
+    'http.request.path': ctx.req.path,
+    'http.request.url': ctx.req.url,
+    'http.request.query': jsonAttribute(requestQuery),
+    'http.request.headers': jsonAttribute(requestHeaders),
+    'http.request.content_type': ctx.req.header('content-type') ?? '',
+    'http.request.content_length': ctx.req.header('content-length') ?? '',
+    'http.response.status_code': ctx.res.status,
+    'http.response.headers': jsonAttribute(responseHeaders),
+    'http.response.content_type': ctx.res.headers.get('content-type') ?? '',
+    'http.response.content_length': ctx.res.headers.get('content-length') ?? '',
+    'http.server.duration_ms': durationMs,
+    'url.path': url.pathname,
+    'url.query': jsonAttribute(requestQuery),
+    ...flattenedAttributes('http.request.header', requestHeaders, FLATTENED_HEADER_FIELDS),
+    ...flattenedAttributes('http.request.query', requestQuery, FLATTENED_QUERY_FIELDS),
+    ...flattenedAttributes('http.response.header', responseHeaders, FLATTENED_HEADER_FIELDS),
+    ...bodyAttributes('http.request', requestBody),
+    ...bodyAttributes('http.response', responseBody),
+  })
 }
 
 export const logRequests = createMiddleware(async (ctx, next) => {
-  const isTracingEnabled = logger.isLevelEnabled('trace')
-
+  const span = trace.getActiveSpan()
   const start = performance.now()
+  const requestBody = span ? await captureRequestBody(ctx) : undefined
   await next()
   const durationMs = Math.round((performance.now() - start) * 100) / 100
 
-  const body = isTracingEnabled ? await getResponseBody(ctx) : undefined
+  if (span) {
+    await addHttpSpanAttributes(span, ctx, durationMs, requestBody)
+  }
+
   const logObject = {
     http: {
       request: {
-        query: ctx.req.query(),
-        headers: ctx.req.header(),
         method: ctx.req.method,
         path: ctx.req.path,
       },
       response: {
         status: ctx.res.status,
-        body,
       },
     },
     durationMs,
   }
 
-  if (isTracingEnabled) {
-    return logger.trace(logObject)
-  }
-
-  logger.debug(logObject)
+  logger.debug(logObject, 'Request completed')
 })

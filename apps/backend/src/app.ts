@@ -50,8 +50,8 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors) {
     app.use('*', httpInstrumentationMiddleware())
   }
 
-  // Log every request at trace level once it's done: method, path, duration and response status.
-  // Also logs request query and headers, and response body
+  // Enrich the active request span with HTTP details, then emit a compact
+  // request-completed log without headers, query params, or bodies.
   app.use('*', logRequests)
   app.use('*', requireApiKey(config.jack?.apiKey ?? ''))
 
