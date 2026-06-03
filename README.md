@@ -217,9 +217,11 @@ Peering is symmetric — you each run jack and exchange two things: your
   `peers` in *their* config:
 
   ```jsonc
-  "peers": [
-    { "name": "you", "url": "https://your-jack.example.com", "apiKey": "<your jack.apiKey>" }
-  ]
+  {
+    "peers": [
+      { "name": "you", "url": "https://your-jack.example.com", "apiKey": "<your jack.apiKey>" }
+    ]
+  }
   ```
 
 - **They give you** theirs, and you add them the same way in your config.
@@ -368,8 +370,11 @@ Registration runs on every startup and logs the *arr response body, so check
 
 ### `Failed to register download client` — "Folder does not exist" (`TorrentFolder` / `WatchFolder`)
 
-```json
-{ "propertyName": "TorrentFolder", "errorMessage": "Folder does not exist", … }
+```jsonc
+{
+  "propertyName": "TorrentFolder", "errorMessage": "Folder does not exist"
+  // …
+}
 ```
 
 jack registers the Torrent Blackhole client using the **literal**
