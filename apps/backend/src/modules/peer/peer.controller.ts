@@ -20,7 +20,7 @@ export class PeerController {
     return this.sources.filter(s => s.canSource)
   }
 
-  async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
+  async search(params: { imdbId?: string, tmdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
     const sources = this.sourceServers
     logger.debug({ params, totalSources: this.sources.length, sourceServers: sources.length }, 'Peer search request received')
 
@@ -29,15 +29,19 @@ export class PeerController {
       return []
     }
 
-    // Each source is isolated: a failure (still down, or errors) is logged and
-    // treated as zero results, so one bad source doesn't fail the whole search.
+    // Id-based lookup (precise, often server-side); with no id we return the
+    // full catalog (used by the torznab RSS feed). No free-text matching — *arr
+    // always searches by id, so the catalog + id lookups cover every case.
+    // Each source is isolated: a failure is logged and treated as zero results.
     const results = await Promise.all(sources.map(async (source) => {
       try {
-        const items = params.imdbId
-          ? await source.searchByImdbId(params.imdbId)
-          : params.tvdbId
-            ? await source.searchByTvdbId(params.tvdbId, params.season, params.episode)
-            : await source.searchItems(params.q ?? '')
+        const items = params.tmdbId
+          ? await source.searchByTmdbId(params.tmdbId)
+          : params.imdbId
+            ? await source.searchByImdbId(params.imdbId)
+            : params.tvdbId
+              ? await source.searchByTvdbId(params.tvdbId, params.season, params.episode)
+              : await source.listReleases()
         logger.debug({ source: source.name, type: source.type, params, count: items.length }, 'Source returned releases for peer search')
         return items
       }

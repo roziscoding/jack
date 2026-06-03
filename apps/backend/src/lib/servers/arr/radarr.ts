@@ -86,9 +86,29 @@ export class RadarrServerConnector extends ArrServerConnector {
     return releases
   }
 
+  protected override async doSearchByTmdbId(tmdbId: string): Promise<Release[]> {
+    // Radarr filters /movie by tmdbId server-side, so this is a targeted lookup
+    // (one movie) instead of listing the whole library.
+    const movies = await this.arrGet<MovieResource[]>('/api/v3/movie', { tmdbId })
+    const releases = (Array.isArray(movies) ? movies : [])
+      .filter(m => m.hasFile)
+      .map(m => this.toRelease(m))
+      .filter((r): r is Release => r != null)
+    logger.debug({ source: this.name, tmdbId, matched: releases.length }, 'Radarr tmdb search (server-side)')
+    return releases
+  }
+
   protected override async doSearchByTvdbId(): Promise<Release[]> {
     // Radarr only tracks movies; tvdb searches never match here.
     return []
+  }
+
+  protected override async doListReleases(): Promise<Release[]> {
+    const movies = await this.listMovies()
+    return movies
+      .filter(m => m.hasFile)
+      .map(m => this.toRelease(m))
+      .filter((r): r is Release => r != null)
   }
 
   private async getMovie(id: string): Promise<MovieResource | null> {

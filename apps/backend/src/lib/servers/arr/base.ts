@@ -110,8 +110,21 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresSource
   @requireInitialization
+  async searchByTmdbId(tmdbId: string): Promise<Release[]> {
+    return this.doSearchByTmdbId(tmdbId)
+  }
+
+  @requiresSource
+  @requireInitialization
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     return this.doSearchByTvdbId(tvdbId, season, episode)
+  }
+
+  /** All releases this source can serve — used for the torznab RSS/catalog feed. */
+  @requiresSource
+  @requireInitialization
+  async listReleases(): Promise<Release[]> {
+    return this.doListReleases()
   }
 
   @requiresSource
@@ -128,7 +141,9 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   protected abstract doSearchItems(term: string): Promise<Release[]>
   protected abstract doSearchByImdbId(imdbId: string): Promise<Release[]>
+  protected abstract doSearchByTmdbId(tmdbId: string): Promise<Release[]>
   protected abstract doSearchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]>
+  protected abstract doListReleases(): Promise<Release[]>
   protected abstract doGetRelease(id: string): Promise<Release | null>
   protected abstract doGetFilePath(id: string): Promise<string | null>
 

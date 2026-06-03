@@ -1,4 +1,5 @@
 import type { TorznabController } from './torznab.controller'
+import type { TorznabItem } from './torznab.xml'
 import { Hono } from 'hono'
 import { logger } from '../../logger'
 import { buildCapsXml, buildErrorXml, buildSearchResultXml } from './torznab.xml'
@@ -41,24 +42,27 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
         })
       }
 
+      // Text (q) searches are NOT fanned out: *arr always searches by id, and a
+      // term would mean listing every peer's whole library. So a term returns
+      // empty; a no-term query returns the catalog (powers RSS + the indexer
+      // self-test, which *arr requires to return results).
       case 'search': {
-        const q = c.req.query('q') ?? ''
-        const items = await controller.search(q)
+        const q = c.req.query('q')?.trim()
+        const items = q ? [] : await controller.catalog()
         return c.body(buildSearchResultXml(items), 200, {
           'Content-Type': 'application/xml',
         })
       }
 
       case 'movie': {
+        const tmdbId = c.req.query('tmdbid')
         const imdbId = c.req.query('imdbid')
-        if (!imdbId) {
-          const q = c.req.query('q') ?? ''
-          const items = await controller.search(q)
-          return c.body(buildSearchResultXml(items), 200, {
-            'Content-Type': 'application/xml',
-          })
-        }
-        const items = await controller.searchMovie(imdbId)
+        const q = c.req.query('q')?.trim()
+        let items: TorznabItem[]
+        if (tmdbId || imdbId)
+          items = await controller.searchMovie({ tmdbId, imdbId })
+        else
+          items = q ? [] : await controller.catalog()
         return c.body(buildSearchResultXml(items), 200, {
           'Content-Type': 'application/xml',
         })
@@ -66,22 +70,20 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
 
       case 'tvsearch': {
         const tvdbId = c.req.query('tvdbid')
-        const season = c.req.query('season')
-        const ep = c.req.query('ep')
-
-        if (!tvdbId) {
-          const q = c.req.query('q') ?? ''
-          const items = await controller.search(q)
-          return c.body(buildSearchResultXml(items), 200, {
-            'Content-Type': 'application/xml',
-          })
+        const q = c.req.query('q')?.trim()
+        let items: TorznabItem[]
+        if (tvdbId) {
+          const season = c.req.query('season')
+          const ep = c.req.query('ep')
+          items = await controller.searchTv(
+            tvdbId,
+            season ? Number(season) : undefined,
+            ep ? Number(ep) : undefined,
+          )
         }
-
-        const items = await controller.searchTv(
-          tvdbId,
-          season ? Number(season) : undefined,
-          ep ? Number(ep) : undefined,
-        )
+        else {
+          items = q ? [] : await controller.catalog()
+        }
         return c.body(buildSearchResultXml(items), 200, {
           'Content-Type': 'application/xml',
         })

@@ -16,8 +16,8 @@ export function buildCapsXml(): string {
   <limits max="100" default="50" />
   <searching>
     <search available="yes" supportedParams="q" />
-    <tv-search available="yes" supportedParams="q,tvdbid,season,ep" />
-    <movie-search available="yes" supportedParams="q,imdbid,tmdbid" />
+    <tv-search available="yes" supportedParams="tvdbid,season,ep" />
+    <movie-search available="yes" supportedParams="imdbid,tmdbid" />
   </searching>
   <categories>
     <category id="2000" name="Movies" />

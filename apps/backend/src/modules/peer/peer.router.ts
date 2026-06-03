@@ -17,8 +17,8 @@ export function getPeerRouter(controller: PeerController, apiKey: string) {
   app.get(
     '/search',
     zValidator('query', z.object({
-      q: z.string().optional(),
       imdbId: z.string().optional(),
+      tmdbId: z.string().optional(),
       tvdbId: z.string().optional(),
       season: z.coerce.number().int().optional(),
       episode: z.coerce.number().int().optional(),

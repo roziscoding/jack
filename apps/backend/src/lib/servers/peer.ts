@@ -29,17 +29,25 @@ export class PeerConnector extends ServerConnector {
     logger.debug(`Connected to Jack peer ${this.name}`)
   }
 
-  async searchItems(term: string): Promise<Release[]> {
-    logger.debug({ peer: this.name, term }, 'Asking peer for items by term')
-    const { items } = await this.fetch('/peer/search', { method: 'GET', query: { q: term }, schema: PeerSearchResponse })
-    logger.debug({ peer: this.name, term, count: items.length }, 'Peer answered (term search)')
-    return items
-  }
-
   async searchByImdbId(imdbId: string): Promise<Release[]> {
     logger.debug({ peer: this.name, imdbId }, 'Asking peer for items by imdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
     logger.debug({ peer: this.name, imdbId, count: items.length }, 'Peer answered (imdb search)')
+    return items
+  }
+
+  async searchByTmdbId(tmdbId: string): Promise<Release[]> {
+    logger.debug({ peer: this.name, tmdbId }, 'Asking peer for items by tmdbId')
+    const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
+    logger.debug({ peer: this.name, tmdbId, count: items.length }, 'Peer answered (tmdb search)')
+    return items
+  }
+
+  /** Full catalog of the peer's releases (no filter) — used for the RSS feed. */
+  async listReleases(): Promise<Release[]> {
+    logger.debug({ peer: this.name }, 'Asking peer for its full catalog')
+    const { items } = await this.fetch('/peer/search', { method: 'GET', schema: PeerSearchResponse })
+    logger.debug({ peer: this.name, count: items.length }, 'Peer answered (catalog)')
     return items
   }
 

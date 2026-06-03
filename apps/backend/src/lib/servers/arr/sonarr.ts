@@ -95,6 +95,17 @@ export class SonarrServerConnector extends ArrServerConnector {
     return []
   }
 
+  protected override async doSearchByTmdbId(): Promise<Release[]> {
+    // tmdb (movie) searches map to Radarr; Sonarr is queried by tvdb.
+    return []
+  }
+
+  protected override async doListReleases(): Promise<Release[]> {
+    const series = await this.listSeries()
+    const perSeries = await Promise.all(series.map(s => this.releasesForSeries(s)))
+    return perSeries.flat()
+  }
+
   protected override async doSearchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     const series = await this.listSeries({ tvdbId })
     const perSeries = await Promise.all(series.map(s => this.releasesForSeries(s, (e) => {

@@ -1,4 +1,5 @@
 import type { AppConfig } from '../../lib/config'
+import type { Release } from '../../lib/release'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { TorznabItem } from './torznab.xml'
 import { logger } from '../../logger'
@@ -10,7 +11,7 @@ export class TorznabController {
     private readonly jackConfig: NonNullable<AppConfig['jack']>,
   ) {}
 
-  private async fanOut(label: string, search: (peer: PeerConnector) => Promise<Awaited<ReturnType<PeerConnector['searchItems']>>>): Promise<TorznabItem[]> {
+  private async fanOut(label: string, search: (peer: PeerConnector) => Promise<Release[]>): Promise<TorznabItem[]> {
     // We fan out to ALL peers — no isInitialized pre-filter. A peer that failed
     // to connect at boot gets re-initialized lazily by @requireInitialization on
     // the call below, so a peer that came back online rejoins searches without a
@@ -42,15 +43,23 @@ export class TorznabController {
     return items
   }
 
-  async search(query: string): Promise<TorznabItem[]> {
-    return this.fanOut(`q:"${query}"`, peer => peer.searchItems(query))
-  }
-
-  async searchMovie(imdbId: string): Promise<TorznabItem[]> {
-    return this.fanOut(`imdb:${imdbId}`, peer => peer.searchByImdbId(imdbId))
+  async searchMovie(ids: { tmdbId?: string, imdbId?: string }): Promise<TorznabItem[]> {
+    const { tmdbId, imdbId } = ids
+    // Prefer tmdbid: Radarr filters by it server-side (a targeted lookup), and it
+    // doesn't depend on the tt-prefix quirk. imdbid is the fallback.
+    if (tmdbId)
+      return this.fanOut(`tmdb:${tmdbId}`, peer => peer.searchByTmdbId(tmdbId))
+    if (imdbId)
+      return this.fanOut(`imdb:${imdbId}`, peer => peer.searchByImdbId(imdbId))
+    return []
   }
 
   async searchTv(tvdbId: string, season?: number, episode?: number): Promise<TorznabItem[]> {
     return this.fanOut(`tvdb:${tvdbId} s:${season ?? '-'} e:${episode ?? '-'}`, peer => peer.searchByTvdbId(tvdbId, season, episode))
+  }
+
+  /** Full catalog of every peer's releases — backs the torznab RSS/test query. */
+  async catalog(): Promise<TorznabItem[]> {
+    return this.fanOut('catalog', peer => peer.listReleases())
   }
 }

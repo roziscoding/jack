@@ -106,7 +106,7 @@ describe('search resilience + lazy retry', () => {
     )
     const controller = new PeerController([makeRadarr('http://good.test'), makeRadarr('http://broken.test')])
 
-    const results = await controller.search({ q: '' })
+    const results = await controller.search({})
 
     expect(results).toHaveLength(1)
     expect(results[0]?.imdbId).toBe('tt0133093')
@@ -123,7 +123,7 @@ describe('search resilience + lazy retry', () => {
     // Neither has been initialized — the old code would filter both out.
     const controller = new PeerController([up, down])
 
-    const results = await controller.search({ q: '' })
+    const results = await controller.search({})
 
     expect(results).toHaveLength(1)
     expect(down.isInitialized).toBe(false)
@@ -142,12 +142,12 @@ describe('search resilience + lazy retry', () => {
     const controller = new PeerController([flaky])
 
     // Down at boot → first search gets nothing.
-    expect(await controller.search({ q: '' })).toHaveLength(0)
+    expect(await controller.search({})).toHaveLength(0)
     expect(flaky.isInitialized).toBe(false)
 
     // Server comes back → next search re-initializes lazily and returns results.
     healthy = true
-    expect(await controller.search({ q: '' })).toHaveLength(1)
+    expect(await controller.search({})).toHaveLength(1)
     expect(flaky.isInitialized).toBe(true)
   })
 })

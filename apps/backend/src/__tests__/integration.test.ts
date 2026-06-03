@@ -70,13 +70,14 @@ const handlers = [
   // ---- Peer jack ----
   http.get(`${PEER_JACK_URL}/peer/search`, ({ request }) => {
     const url = new URL(request.url)
-    const q = url.searchParams.get('q')
     const imdbId = url.searchParams.get('imdbId')
+    const tmdbId = url.searchParams.get('tmdbId')
     let items = [peerRelease]
-    if (q)
-      items = items.filter(r => r.title.toLowerCase().includes(q.toLowerCase()))
+    // No params = catalog (return everything); ids filter.
     if (imdbId)
       items = items.filter(r => r.imdbId === imdbId)
+    if (tmdbId)
+      items = items.filter(r => String(r.tmdbId) === tmdbId)
     return HttpResponse.json({ items })
   }),
   http.get(`${PEER_JACK_URL}/peer/items/:itemId`, () => HttpResponse.json(peerRelease)),
@@ -161,14 +162,22 @@ describe('Torznab API', () => {
     expect(xml).toContain('category id="5000"')
   })
 
-  test('GET /torznab/api?t=search returns RSS results from peers', async () => {
+  test('GET /torznab/api?t=search (no term) returns the catalog from peers', async () => {
     const { app } = createTestApp()
-    const res = await app.request('/torznab/api?t=search&q=Matrix&apikey=test-api-key')
+    const res = await app.request('/torznab/api?t=search&apikey=test-api-key')
     expect(res.status).toBe(200)
     const xml = await res.text()
     expect(xml).toContain('<rss version="2.0"')
     expect(xml).toContain(peerRelease.title)
     expect(xml).toContain('application/x-bittorrent')
+  })
+
+  test('GET /torznab/api?t=search with a term is NOT fanned out (empty)', async () => {
+    const { app } = createTestApp()
+    const res = await app.request('/torznab/api?t=search&q=Matrix&apikey=test-api-key')
+    expect(res.status).toBe(200)
+    const xml = await res.text()
+    expect(xml).not.toContain(peerRelease.title)
   })
 
   test('GET /torznab/api?t=movie&imdbid=tt0133093 searches by IMDB', async () => {
@@ -178,6 +187,14 @@ describe('Torznab API', () => {
     const xml = await res.text()
     expect(xml).toContain(peerRelease.title)
     expect(xml).toContain('name="imdbid" value="tt0133093"')
+  })
+
+  test('GET /torznab/api?t=movie&tmdbid=603 searches by TMDB', async () => {
+    const { app } = createTestApp()
+    const res = await app.request('/torznab/api?t=movie&tmdbid=603&apikey=test-api-key')
+    expect(res.status).toBe(200)
+    const xml = await res.text()
+    expect(xml).toContain(peerRelease.title)
   })
 
   test('Torznab rejects wrong apikey', async () => {
