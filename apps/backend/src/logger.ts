@@ -18,6 +18,12 @@ const PINO_LEVEL_TO_SEVERITY: Record<number, SeverityNumber> = {
   60: SeverityNumber.FATAL,
 }
 
+const logFormatters = {
+  level(label: string, level: number) {
+    return { level, severity: label }
+  },
+}
+
 // Tie logs to traces: stamp each log with the active span's ids. Runs in the
 // main thread on every log, so the request span (set by the @hono/otel
 // middleware) is current. Returns nothing when there's no active span.
@@ -50,14 +56,20 @@ const otelLogStream = {
     // Everything that isn't a standard pino field becomes a log attribute. The
     // trace ids are dropped — the active span is attached natively below.
     const attributes = { ...record }
-    for (const key of ['time', 'level', 'msg', 'hostname', 'pid', 'trace_id', 'span_id', 'trace_flags'])
+    for (const key of ['time', 'level', 'severity', 'message', 'msg', 'hostname', 'pid', 'trace_id', 'span_id', 'trace_flags'])
       delete attributes[key]
+
+    const body = typeof record.message === 'string'
+      ? record.message
+      : typeof record.msg === 'string'
+        ? record.msg
+        : undefined
 
     logs.getLogger(envs.OTEL_SERVICE_NAME).emit({
       timestamp: typeof record.time === 'number' ? record.time : undefined,
       severityNumber: PINO_LEVEL_TO_SEVERITY[level] ?? SeverityNumber.UNSPECIFIED,
       severityText: levels.labels[level],
-      body: typeof record.msg === 'string' ? record.msg : undefined,
+      body,
       attributes: attributes as LogAttributes,
     })
   },
@@ -72,6 +84,8 @@ function getLogger() {
     return pino({
       enabled: envs.ENABLE_LOGS,
       level: envs.LOG_LEVEL,
+      messageKey: 'message',
+      formatters: logFormatters,
       mixin: traceContextMixin,
       transport: envs.ENVIRONMENT !== 'production'
         ? {
@@ -79,7 +93,8 @@ function getLogger() {
             options: {
               colorize: true,
               singleLine: true,
-              ignore: 'pid,hostname',
+              messageKey: 'message',
+              ignore: 'pid,hostname,severity',
             },
           }
         : undefined,
@@ -90,6 +105,8 @@ function getLogger() {
     {
       enabled: envs.ENABLE_LOGS,
       level: envs.LOG_LEVEL,
+      messageKey: 'message',
+      formatters: logFormatters,
       mixin: traceContextMixin,
     },
     multistream([
