@@ -164,7 +164,7 @@ async function cmdPeerSearch(args: string[]) {
   await request('GET', buildUrl('/peer/search', query), {})
 }
 
-// cli torznab search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>]
+// cli torznab search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>] [--cat <id>]
 // Hits /torznab/api the way Radarr/Sonarr do: apikey in the query, returns XML.
 async function cmdTorznabSearch(args: string[]) {
   const flags = parseFlags(args)
@@ -195,6 +195,8 @@ async function cmdTorznabSearch(args: string[]) {
     query.season = flags.season
   if (flags.episode != null)
     query.ep = flags.episode
+  if (flags.cat != null)
+    query.cat = flags.cat
 
   await request('GET', buildUrl('/torznab/api', query), {})
 }
@@ -204,7 +206,7 @@ const USAGE = `jack cli — talk to a running jack
 usage:
   cli api [METHOD] <path> [items...]   httpie-style request (key==query, key=body, key:=rawjson, Header:value)
   cli peer search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>]
-  cli torznab search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>]   (returns XML)
+  cli torznab search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>] [--cat <id>]   (returns XML)
 
 env:
   JACK_URL       base URL (default ${BASE_URL})
@@ -232,7 +234,7 @@ async function main() {
         await cmdTorznabSearch(rest.slice(1))
       }
       else {
-        process.stderr.write('usage: cli torznab search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>]\n')
+        process.stderr.write('usage: cli torznab search [--imdbId <id>] [--tmdbId <id>] [--tvdbId <id>] [--season <n>] [--episode <n>] [--cat <id>]\n')
         process.exit(2)
       }
       break
