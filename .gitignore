@@ -34,3 +34,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 config.jsonc
+
+# AI working docs (research, scratch design notes)
+ai_docs
