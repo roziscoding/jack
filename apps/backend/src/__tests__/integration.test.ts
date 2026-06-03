@@ -210,6 +210,14 @@ describe('Torznab API', () => {
     expect(xml).not.toContain('Some.Other.Movie')
   })
 
+  test('cat filters the feed: cat=5000 drops movies, cat=2000 keeps them', async () => {
+    const { app } = createTestApp()
+    const tv = await (await app.request('/torznab/api?t=search&cat=5000&apikey=test-api-key')).text()
+    expect(tv).not.toContain(peerRelease.title) // peerRelease is a movie (2000)
+    const movies = await (await app.request('/torznab/api?t=search&cat=2000&apikey=test-api-key')).text()
+    expect(movies).toContain(peerRelease.title)
+  })
+
   test('Torznab rejects wrong apikey', async () => {
     const { app } = createTestApp()
     const res = await app.request('/torznab/api?t=caps&apikey=wrong')

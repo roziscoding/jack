@@ -2,7 +2,7 @@ import type { TorznabController } from './torznab.controller'
 import type { TorznabItem } from './torznab.xml'
 import { Hono } from 'hono'
 import { logger } from '../../logger'
-import { buildCapsXml, buildErrorXml, buildSearchResultXml } from './torznab.xml'
+import { buildCapsXml, buildErrorXml, buildSearchResultXml, filterByCategory } from './torznab.xml'
 
 export function getTorznabRouter(controller: TorznabController, apiKey: string) {
   const app = new Hono()
@@ -49,7 +49,7 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
       case 'search': {
         const q = c.req.query('q')?.trim()
         const items = q ? [] : await controller.catalog()
-        return c.body(buildSearchResultXml(items), 200, {
+        return c.body(buildSearchResultXml(filterByCategory(items, c.req.query('cat'))), 200, {
           'Content-Type': 'application/xml',
         })
       }
@@ -63,7 +63,7 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
           items = await controller.searchMovie({ tmdbId, imdbId })
         else
           items = q ? [] : await controller.catalog()
-        return c.body(buildSearchResultXml(items), 200, {
+        return c.body(buildSearchResultXml(filterByCategory(items, c.req.query('cat'))), 200, {
           'Content-Type': 'application/xml',
         })
       }
@@ -84,7 +84,7 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
         else {
           items = q ? [] : await controller.catalog()
         }
-        return c.body(buildSearchResultXml(items), 200, {
+        return c.body(buildSearchResultXml(filterByCategory(items, c.req.query('cat'))), 200, {
           'Content-Type': 'application/xml',
         })
       }

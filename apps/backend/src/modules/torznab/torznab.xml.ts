@@ -62,6 +62,25 @@ export function releaseToTorznab(release: Release, peerId: string, peerName: str
   }
 }
 
+/**
+ * Filter items by the torznab `cat` param (comma-separated category ids). Each
+ * requested id is rolled up to its top-level bucket (2010 -> 2000), so a movie
+ * (2000) matches `cat=2000` or any 2xxx subcategory, and TV (5000) matches 5xxx.
+ * No `cat` (or an unparseable one) means no filtering.
+ */
+export function filterByCategory(items: TorznabItem[], cat?: string): TorznabItem[] {
+  if (!cat)
+    return items
+  const buckets = new Set(
+    cat.split(',')
+      .map(c => Math.floor(Number(c.trim()) / 1000) * 1000)
+      .filter(b => Number.isFinite(b) && b > 0),
+  )
+  if (buckets.size === 0)
+    return items
+  return items.filter(item => buckets.has(item.category))
+}
+
 export function buildSearchResultXml(items: TorznabItem[]): string {
   const itemsXml = items.map((item) => {
     const attrs: string[] = []
