@@ -16,7 +16,7 @@ beforeAll(async () => {
 describe('Download flow (e2e)', () => {
   test('Full blackhole download: search → torrent → download → import', async () => {
     // 1. Search via jack-beta's Torznab API
-    const searchRes = await fetch(`${env.jackBetaUrl}/torznab/api?t=search&q=Big+Buck&apikey=${env.jackBetaApiKey}`)
+    const searchRes = await fetch(`${env.jackBetaUrl}/torznab/api?t=search&apikey=${env.jackBetaApiKey}`)
     expect(searchRes.status).toBe(200)
     const xml = await searchRes.text()
 

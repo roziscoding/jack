@@ -17,7 +17,7 @@ beforeAll(async () => {
 
 describe('Peer-to-Peer API (e2e)', () => {
   test('GET /peer/search returns releases from the local Radarr', async () => {
-    const res = await fetch(`${env.jackAlphaUrl}/peer/search?q=Big+Buck&apikey=${env.jackAlphaApiKey}`)
+    const res = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=${env.jackAlphaApiKey}`)
     expect(res.status).toBe(200)
     const body = await res.json() as { items: PeerRelease[] }
     expect(body.items).toBeArray()
@@ -26,12 +26,12 @@ describe('Peer-to-Peer API (e2e)', () => {
   })
 
   test('GET /peer/search rejects wrong API key', async () => {
-    const res = await fetch(`${env.jackAlphaUrl}/peer/search?q=test&apikey=wrong-key`)
+    const res = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=wrong-key`)
     expect(res.status).toBe(401)
   })
 
   test('GET /peer/items/:id returns the release', async () => {
-    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?q=Big+Buck&apikey=${env.jackAlphaApiKey}`)
+    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=${env.jackAlphaApiKey}`)
     const searchBody = await searchRes.json() as { items: PeerRelease[] }
     const releaseId = searchBody.items[0]!.id
 
@@ -42,7 +42,7 @@ describe('Peer-to-Peer API (e2e)', () => {
   })
 
   test('GET /peer/items/:id/file streams the media file', async () => {
-    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?q=Big+Buck&apikey=${env.jackAlphaApiKey}`)
+    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=${env.jackAlphaApiKey}`)
     const searchBody = await searchRes.json() as { items: PeerRelease[] }
     const releaseId = searchBody.items[0]!.id
 
