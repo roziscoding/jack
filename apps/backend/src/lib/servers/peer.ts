@@ -1,5 +1,6 @@
 import z from 'zod'
 import { logger } from '../../logger'
+import { requireInitialization } from '../decorators/require-initialization'
 import { FetchError } from '../errors/FetchError'
 import { normalizeImdbId, Release } from '../release'
 import { ServerConnector } from './base'
@@ -29,6 +30,7 @@ export class PeerConnector extends ServerConnector {
     logger.debug(`Connected to Jack peer ${this.name}`)
   }
 
+  @requireInitialization
   async searchByImdbId(imdbId: string): Promise<Release[]> {
     logger.debug({ peer: this.name, imdbId }, 'Asking peer for items by imdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
@@ -40,6 +42,7 @@ export class PeerConnector extends ServerConnector {
     return matched
   }
 
+  @requireInitialization
   async searchByTmdbId(tmdbId: string): Promise<Release[]> {
     logger.debug({ peer: this.name, tmdbId }, 'Asking peer for items by tmdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
@@ -49,6 +52,7 @@ export class PeerConnector extends ServerConnector {
   }
 
   /** Full catalog of the peer's releases (no filter) — used for the RSS feed. */
+  @requireInitialization
   async listReleases(): Promise<Release[]> {
     logger.debug({ peer: this.name }, 'Asking peer for its full catalog')
     const { items } = await this.fetch('/peer/search', { method: 'GET', schema: PeerSearchResponse })
@@ -56,6 +60,7 @@ export class PeerConnector extends ServerConnector {
     return items
   }
 
+  @requireInitialization
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     const query: Record<string, string> = { tvdbId }
     if (season != null)
@@ -72,10 +77,12 @@ export class PeerConnector extends ServerConnector {
     return matched
   }
 
+  @requireInitialization
   async getRelease(id: string): Promise<Release> {
     return this.fetch(`/peer/items/${encodeURIComponent(id)}`, { method: 'GET', schema: Release })
   }
 
+  @requireInitialization
   async downloadFile(id: string, destPath: string, timeoutMs = 30 * 60 * 1000): Promise<void> {
     const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
     const response = await fetch(url, {

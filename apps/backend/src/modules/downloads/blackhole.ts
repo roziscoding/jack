@@ -96,10 +96,13 @@ export class BlackholeWatcher {
       }
 
       const { peerId, itemId } = stub
-      const peer = this.peers.find(p => p.id === peerId && p.isInitialized)
+      // No isInitialized pre-filter: the peer methods are guarded by
+      // @requireInitialization, so a peer that was down at boot gets
+      // re-initialized lazily on the getRelease/downloadFile calls below.
+      const peer = this.peers.find(p => p.id === peerId)
 
       if (!peer) {
-        logger.error({ peerId, filename }, 'Peer not found or not initialized')
+        logger.error({ peerId, filename }, 'Peer not found')
         return
       }
 
