@@ -197,6 +197,19 @@ describe('Torznab API', () => {
     expect(xml).toContain(peerRelease.title)
   })
 
+  test('an over-eager peer (returns its whole catalog) is filtered to the searched id', async () => {
+    const { app } = createTestApp()
+    const otherRelease: Release = { ...peerRelease, id: 'remote1:movie:2', title: 'Some.Other.Movie.2020.1080p', imdbId: 'tt9999999', tmdbId: 111 }
+    // Simulate an old/over-eager peer that ignores the id and returns everything.
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/search`, () => HttpResponse.json({ items: [peerRelease, otherRelease] })),
+    )
+    const res = await app.request('/torznab/api?t=movie&tmdbid=603&apikey=test-api-key')
+    const xml = await res.text()
+    expect(xml).toContain(peerRelease.title)
+    expect(xml).not.toContain('Some.Other.Movie')
+  })
+
   test('Torznab rejects wrong apikey', async () => {
     const { app } = createTestApp()
     const res = await app.request('/torznab/api?t=caps&apikey=wrong')

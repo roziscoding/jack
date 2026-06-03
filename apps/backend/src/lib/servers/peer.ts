@@ -1,7 +1,7 @@
 import z from 'zod'
 import { logger } from '../../logger'
 import { FetchError } from '../errors/FetchError'
-import { Release } from '../release'
+import { normalizeImdbId, Release } from '../release'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({ items: z.array(Release) })
@@ -32,15 +32,20 @@ export class PeerConnector extends ServerConnector {
   async searchByImdbId(imdbId: string): Promise<Release[]> {
     logger.debug({ peer: this.name, imdbId }, 'Asking peer for items by imdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
-    logger.debug({ peer: this.name, imdbId, count: items.length }, 'Peer answered (imdb search)')
-    return items
+    // Defensive: an older/over-eager peer may return more than asked (e.g. its
+    // whole catalog), so keep only the releases that actually match the id.
+    const target = normalizeImdbId(imdbId)
+    const matched = items.filter(r => r.imdbId != null && normalizeImdbId(r.imdbId) === target)
+    logger.debug({ peer: this.name, imdbId, returned: items.length, matched: matched.length }, 'Peer answered (imdb search)')
+    return matched
   }
 
   async searchByTmdbId(tmdbId: string): Promise<Release[]> {
     logger.debug({ peer: this.name, tmdbId }, 'Asking peer for items by tmdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
-    logger.debug({ peer: this.name, tmdbId, count: items.length }, 'Peer answered (tmdb search)')
-    return items
+    const matched = items.filter(r => r.tmdbId != null && String(r.tmdbId) === tmdbId)
+    logger.debug({ peer: this.name, tmdbId, returned: items.length, matched: matched.length }, 'Peer answered (tmdb search)')
+    return matched
   }
 
   /** Full catalog of the peer's releases (no filter) — used for the RSS feed. */
@@ -59,8 +64,12 @@ export class PeerConnector extends ServerConnector {
       query.episode = String(episode)
     logger.debug({ peer: this.name, tvdbId, season, episode }, 'Asking peer for items by tvdbId')
     const { items } = await this.fetch('/peer/search', { method: 'GET', query, schema: PeerSearchResponse })
-    logger.debug({ peer: this.name, tvdbId, season, episode, count: items.length }, 'Peer answered (tvdb search)')
-    return items
+    const matched = items.filter(r =>
+      r.tvdbId != null && String(r.tvdbId) === tvdbId
+      && (season == null || r.season === season)
+      && (episode == null || r.episode === episode))
+    logger.debug({ peer: this.name, tvdbId, season, episode, returned: items.length, matched: matched.length }, 'Peer answered (tvdb search)')
+    return matched
   }
 
   async getRelease(id: string): Promise<Release> {
