@@ -16,6 +16,23 @@ describe('Torrent stub', () => {
     expect(data.length).toBeGreaterThan(0)
   })
 
+  test('createTorrentStub emits one SHA1 hash per advertised piece', () => {
+    const pieceLength = 16 * 1024 * 1024
+    const size = pieceLength * 4 + 1
+    const data = createTorrentStub({
+      name: 'Large Movie.mkv',
+      size,
+      peerId: 'abc12345',
+      itemId: 'item-uuid-123',
+    })
+
+    const torrent = bencode.decode(data) as any
+    const pieces = torrent.info.pieces as Uint8Array
+
+    expect(torrent.info['piece length']).toBe(pieceLength)
+    expect(pieces.byteLength).toBe(Math.ceil(size / pieceLength) * 20)
+  })
+
   test('parseTorrentStub extracts peer and item IDs', () => {
     const data = createTorrentStub({
       name: 'Test Movie.mkv',
