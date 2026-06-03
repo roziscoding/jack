@@ -36,6 +36,10 @@ test('hello world', () => {
 })
 ```
 
+## Git
+
+- Use Conventional Commits for commit messages, e.g. `feat: add peer search spans` or `fix: handle missing torrent files`.
+
 ## Frontend
 
 Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
