@@ -1,3 +1,4 @@
+import { rename, unlink } from 'node:fs/promises'
 import z from 'zod'
 import { logger } from '../../logger'
 import { requireInitialization } from '../decorators/require-initialization'
@@ -6,6 +7,14 @@ import { normalizeImdbId, Release } from '../release'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({ items: z.array(Release) })
+const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
+const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
+const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
+
+export interface PeerDownloadOptions {
+  timeoutMs?: number
+  torrentFilename?: string
+}
 
 /**
  * A connector to another jack instance (a "peer"). Sources only: we fan out
@@ -83,8 +92,11 @@ export class PeerConnector extends ServerConnector {
   }
 
   @requireInitialization
-  async downloadFile(id: string, destPath: string, timeoutMs = 30 * 60 * 1000): Promise<void> {
+  async downloadFile(id: string, destPath: string, options: PeerDownloadOptions = {}): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000
+    const torrentFilename = options.torrentFilename
     const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
+    const partPath = `${destPath}.part`
     const response = await fetch(url, {
       headers: { 'X-Api-Key': this.apiKey },
       signal: AbortSignal.timeout(timeoutMs),
@@ -94,13 +106,77 @@ export class PeerConnector extends ServerConnector {
       throw new FetchError(`Failed to download file from peer: ${response.statusText}`, response)
     }
 
-    const contentLength = Number(response.headers.get('Content-Length') || 0)
-    const maxSize = 100 * 1024 * 1024 * 1024 // 100GB
-    if (contentLength > maxSize) {
-      throw new Error(`File too large: ${contentLength} bytes exceeds ${maxSize} byte limit`)
+    if (!response.body) {
+      throw new Error('Peer returned a file response without a body')
     }
 
-    await Bun.write(destPath, response)
-    logger.info({ id, destPath, size: contentLength, peer: this.name }, 'Downloaded file from peer')
+    const contentLength = Number(response.headers.get('Content-Length') || 0)
+    if (contentLength > MAX_DOWNLOAD_BYTES) {
+      throw new Error(`File too large: ${contentLength} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
+    }
+
+    logger.info({ id, torrentFilename, destPath, partPath, expectedBytes: contentLength, peer: this.name }, 'Download response received from peer')
+
+    const reader = response.body.getReader()
+    const writer = Bun.file(partPath).writer()
+    let downloadedBytes = 0
+    let lastLoggedAt = Date.now()
+    let lastLoggedBytes = 0
+    let writerEnded = false
+
+    const endWriter = () => {
+      if (writerEnded)
+        return
+      writer.end()
+      writerEnded = true
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done)
+          break
+        if (!value)
+          continue
+
+        downloadedBytes += value.byteLength
+        if (downloadedBytes > MAX_DOWNLOAD_BYTES) {
+          throw new Error(`File too large: downloaded ${downloadedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
+        }
+
+        writer.write(value)
+
+        const now = Date.now()
+        const shouldLogProgress = downloadedBytes - lastLoggedBytes >= DOWNLOAD_PROGRESS_BYTES || now - lastLoggedAt >= DOWNLOAD_PROGRESS_INTERVAL_MS
+        if (lastLoggedBytes === 0 || shouldLogProgress) {
+          await writer.flush()
+          logger.info({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes: contentLength, peer: this.name }, 'Download progress from peer')
+          lastLoggedAt = now
+          lastLoggedBytes = downloadedBytes
+        }
+      }
+
+      endWriter()
+      reader.releaseLock()
+
+      if (contentLength > 0 && downloadedBytes !== contentLength) {
+        throw new Error(`Incomplete file download: got ${downloadedBytes} bytes, expected ${contentLength}`)
+      }
+
+      await rename(partPath, destPath)
+      logger.info({ id, torrentFilename, destPath, size: downloadedBytes, peer: this.name }, 'Downloaded file from peer')
+    }
+    catch (err) {
+      try {
+        endWriter()
+      }
+      catch {}
+      try {
+        reader.releaseLock()
+      }
+      catch {}
+      await unlink(partPath).catch(() => {})
+      throw err
+    }
   }
 }

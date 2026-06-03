@@ -34,6 +34,7 @@ export class BlackholeWatcher {
         return
 
       const filePath = join(watchPath, filename)
+      logger.info({ torrentFilename: filename, filePath, watchPath }, 'Torrent file detected in watch folder')
       if (!await this.waitForStableFile(filePath))
         return
       await this.processTorrent(filePath, filename)
@@ -64,16 +65,24 @@ export class BlackholeWatcher {
   }
 
   private async scanExisting() {
+    logger.info({ watchPath: this.config.watchPath }, 'Starting watch folder scan')
+
     try {
       const files = await readdir(this.config.watchPath)
-      for (const file of files) {
-        if (file.endsWith('.torrent')) {
-          await this.processTorrent(join(this.config.watchPath, file), file)
-        }
+      const torrentFiles = files.filter(file => file.endsWith('.torrent'))
+
+      logger.info({ watchPath: this.config.watchPath, filesFound: torrentFiles.length }, 'Watch folder scan complete')
+
+      for (const file of torrentFiles) {
+        const filePath = join(this.config.watchPath, file)
+        logger.info({ torrentFilename: file, filePath, watchPath: this.config.watchPath }, 'Torrent file found in watch folder scan')
+        await this.processTorrent(filePath, file)
       }
     }
-    catch {
+    catch (err) {
       // Directory might not exist yet
+      const message = err instanceof Error ? err.message : String(err)
+      logger.warn({ watchPath: this.config.watchPath, error: message }, 'Watch folder scan failed')
     }
   }
 
@@ -91,7 +100,7 @@ export class BlackholeWatcher {
       const stub = parseTorrentStub(data)
 
       if (!stub) {
-        logger.warn({ filename }, 'Could not parse torrent stub, skipping')
+        logger.warn({ torrentFilename: filename, filename }, 'Could not parse torrent stub, skipping')
         return
       }
 
@@ -102,42 +111,45 @@ export class BlackholeWatcher {
       const peer = this.peers.find(p => p.id === peerId)
 
       if (!peer) {
-        logger.error({ peerId, filename }, 'Peer not found')
+        logger.error({ torrentFilename: filename, peerId, filename }, 'Peer not found')
         return
       }
 
-      logger.info({ peerId, itemId, peer: peer.name ?? peer.url }, 'Downloading from peer')
+      logger.info({ torrentFilename: filename, peerId, itemId, peer: peer.name ?? peer.url }, 'Fetching release metadata from peer')
 
       const release = await peer.getRelease(itemId)
       const destPath = join(this.config.completedPath, release.filename)
 
-      await peer.downloadFile(itemId, destPath)
+      logger.info({ torrentFilename: filename, peerId, itemId, filename: release.filename, size: release.size, destPath, peer: peer.name ?? peer.url }, 'Starting file download from peer')
+      await peer.downloadFile(itemId, destPath, { torrentFilename: filename })
 
       // Remove the .torrent stub
       await unlink(filePath)
 
       // Trigger import scan on all destinations
-      await this.triggerImport()
+      await this.triggerImport(filename)
 
-      logger.info({ filename: release.filename, destPath }, 'Download complete, triggered import')
+      logger.info({ torrentFilename: filename, filename: release.filename, destPath }, 'Download complete, triggered import')
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      logger.error({ filename, error: message }, 'Failed to process torrent')
+      logger.error({ torrentFilename: filename, filename, error: message }, 'Failed to process torrent')
     }
     finally {
       this.processing.delete(filename)
     }
   }
 
-  private async triggerImport() {
+  private async triggerImport(torrentFilename: string) {
     for (const dest of this.destinations.filter(d => d.isInitialized && d.canDestination)) {
       try {
+        logger.info({ torrentFilename, destination: dest.name, completedPath: this.config.completedPath }, 'Starting destination import scan')
         await dest.triggerImport(this.config.completedPath)
+        logger.info({ torrentFilename, destination: dest.name, completedPath: this.config.completedPath }, 'Destination import scan queued')
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        logger.error({ destination: dest.name, error: message }, 'Failed to trigger import')
+        logger.error({ torrentFilename, destination: dest.name, error: message }, 'Failed to trigger import')
       }
     }
   }
