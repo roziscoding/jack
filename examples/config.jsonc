@@ -1,5 +1,6 @@
 {
-  // Every "apiKey" below can be written in TWO ways:
+  // Every "apiKey" below, and every value under a "headers" object, can be
+  // written in TWO ways:
   //   1. a plain string:                 "apiKey": "my-secret"
   //   2. a reference to an env variable:  "apiKey": { "env": "MY_SECRET" }
   // The env form keeps secrets out of this file (recommended for deployments).
@@ -37,6 +38,7 @@
     //   "type": "radarr",
     //   "url": "http://radarr:7878",
     //   "apiKey": { "env": "RADARR_API_KEY" },
+    //   "headers": { "X-Forwarded-User": "jack" },
     //   "source": true,
     //   "destination": true,
     //   "autoregister": { "enable": true, "priority": 1 }
@@ -46,6 +48,11 @@
 
   // Other jack instances you search (peer-to-peer). Sources only.
   "peers": [
-    // { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "their-shared-secret" }
+    // {
+    //   "name": "friend",
+    //   "url": "https://their-jack.example.com",
+    //   "apiKey": "their-shared-secret",
+    //   "headers": { "CF-Access-Client-Secret": { "env": "FRIEND_CF_SECRET" } }
+    // }
   ]
 }

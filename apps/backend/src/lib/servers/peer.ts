@@ -1,3 +1,4 @@
+import type { ConnectorHeadersConfig } from '../config'
 import { rename, unlink } from 'node:fs/promises'
 import z from 'zod'
 import { logger } from '../../logger'
@@ -23,7 +24,7 @@ export interface PeerDownloadOptions {
  * `Release`s, just like a local arr source.
  */
 export class PeerConnector extends ServerConnector {
-  constructor(config: { url: string, apiKey: string, name: string }) {
+  constructor(config: { url: string, apiKey: string, name: string, headers?: ConnectorHeadersConfig }) {
     super({
       pingPath: '/peer/search',
       pingMethod: 'GET',
@@ -131,7 +132,7 @@ export class PeerConnector extends ServerConnector {
       })
 
       const response = await fetch(url, {
-        headers: { 'X-Api-Key': this.apiKey },
+        headers: { ...this.headers, 'X-Api-Key': this.apiKey },
         signal: AbortSignal.timeout(timeoutMs),
       })
 

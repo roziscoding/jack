@@ -37,6 +37,35 @@ afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
 describe('connector init() state machine', () => {
+  test('passes custom headers while preserving the connector api key header', async () => {
+    const seenHeaders: Record<string, string | null> = {}
+    server.use(
+      http.get('http://headers.test/api/v3/system/status', ({ request }) => {
+        seenHeaders.custom = request.headers.get('X-Custom-Auth')
+        seenHeaders.apiKey = request.headers.get('X-Api-Key')
+        return HttpResponse.json({ appName: 'Radarr', version: '5.0' })
+      }),
+    )
+    const radarr = new RadarrServerConnector({
+      url: 'http://headers.test',
+      apiKey: HEX_KEY,
+      name: 'radarr@headers',
+      source: true,
+      destination: false,
+      autoregister: { enable: false, priority: 1 },
+      headers: {
+        'X-Custom-Auth': 'custom-secret',
+        'X-Api-Key': 'should-not-override',
+      },
+    })
+
+    radarr.init()
+    await radarr.initialization
+
+    expect(seenHeaders.custom).toBe('custom-secret')
+    expect(seenHeaders.apiKey).toBe(HEX_KEY)
+  })
+
   test('retries after a failed init, then stops pinging once initialized', async () => {
     let pings = 0
     let healthy = false

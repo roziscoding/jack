@@ -1,4 +1,4 @@
-import type { ConnectorType } from '../config'
+import type { ConnectorHeadersConfig, ConnectorType } from '../config'
 import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
@@ -24,6 +24,7 @@ export abstract class ServerConnector {
   public readonly type: ConnectorType
   public readonly url: string
   protected readonly apiKey: string
+  protected readonly headers: ConnectorHeadersConfig
   public readonly name: string
 
   private readonly pingPath: string
@@ -36,7 +37,7 @@ export abstract class ServerConnector {
   protected _initializationError: string | null = null
   protected _initState: 'idle' | 'pending' | 'initialized' | 'failed' = 'idle'
 
-  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ConnectorType, url: string, apiKey: string, name: string }) {
+  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ConnectorType, url: string, apiKey: string, name: string, headers?: ConnectorHeadersConfig }) {
     this.pingPath = connectorConfig.pingPath
     this.pingMethod = connectorConfig.pingMethod
     this.authHeader = connectorConfig.authHeader
@@ -46,6 +47,7 @@ export abstract class ServerConnector {
     this.type = config.type
     this.url = config.url
     this.apiKey = config.apiKey
+    this.headers = config.headers ?? {}
     this.name = config.name
   }
 
@@ -80,6 +82,7 @@ export abstract class ServerConnector {
       // A caller-supplied signal takes precedence over the default timeout.
       signal: init.signal ?? AbortSignal.timeout(timeoutMs),
       headers: {
+        ...this.headers,
         ...this.authHeaders,
         ...init?.headers,
       },

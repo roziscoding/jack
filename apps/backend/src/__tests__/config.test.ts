@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import z from 'zod'
-import { AppConfig, ConfigSecret, JackConfig, ServerConfig } from '../lib/config'
+import { AppConfig, ConfigSecret, JackConfig, PeerConfig, ServerConfig } from '../lib/config'
 
 const HEX_KEY = '0123456789abcdef0123456789abcdef'
 
@@ -66,6 +66,7 @@ describe('appConfig parsing', () => {
   beforeEach(() => {
     process.env.JACK_KEY = 'jack-secret'
     process.env.RADARR_KEY = HEX_KEY
+    process.env.HEADER_SECRET = 'header-secret'
   })
 
   test('parses a servers + peers config', () => {
@@ -79,7 +80,9 @@ describe('appConfig parsing', () => {
 
     expect(parsed.jack?.apiKey).toBe('jack-key')
     expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
+    expect(parsed.servers[0]?.headers).toEqual({})
     expect(parsed.peers[0]?.apiKey).toBe('peer-key')
+    expect(parsed.peers[0]?.headers).toEqual({})
   })
 
   test('defaults source/destination/autoregister', () => {
@@ -128,6 +131,32 @@ describe('appConfig parsing', () => {
     expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
   })
 
+  test('resolves custom server and peer headers', () => {
+    const parsed = AppConfig.parse({
+      servers: [{
+        name: 'radarr',
+        type: 'radarr',
+        url: 'http://radarr:7878',
+        apiKey: HEX_KEY,
+        headers: {
+          'X-Literal': 'literal-header',
+          'X-Secret': { env: 'HEADER_SECRET' },
+        },
+      }],
+      peers: [{
+        name: 'friend',
+        url: 'http://peer:3000',
+        apiKey: 'peer-key',
+        headers: {
+          'X-Peer-Secret': { env: 'HEADER_SECRET' },
+        },
+      }],
+    })
+
+    expect(parsed.servers[0]?.headers).toEqual({ 'X-Literal': 'literal-header', 'X-Secret': 'header-secret' })
+    expect(parsed.peers[0]?.headers).toEqual({ 'X-Peer-Secret': 'header-secret' })
+  })
+
   test('keeps the hex constraint for env-resolved server keys', () => {
     process.env.BAD_HEX = 'too-short'
     const result = ServerConfig.safeParse({
@@ -151,6 +180,17 @@ describe('appConfig parsing', () => {
   test('fails parsing when a referenced env var is missing', () => {
     delete process.env.JACK_KEY
     const result = JackConfig.safeParse({ baseUrl: 'http://jack:3000', apiKey: { env: 'JACK_KEY' } })
+    expect(result.success).toBe(false)
+  })
+
+  test('fails parsing when a referenced header env var is missing', () => {
+    delete process.env.HEADER_SECRET
+    const result = PeerConfig.safeParse({
+      name: 'friend',
+      url: 'http://peer:3000',
+      apiKey: 'peer-key',
+      headers: { 'X-Secret': { env: 'HEADER_SECRET' } },
+    })
     expect(result.success).toBe(false)
   })
 })

@@ -265,6 +265,7 @@ you're doing.
       "type": "radarr", // "radarr" | "sonarr"
       "url": "http://radarr:7878",
       "apiKey": "<32 hex chars>", // *arr API key (Settings → General)
+      "headers": { "X-Forwarded-User": "jack" }, // optional extra outbound headers
       "source": true, // share this library with peers
       "destination": true, // register jack here + import grabs
       "autoregister": { // indexer/client registration (destinations)
@@ -295,6 +296,9 @@ Field notes:
   your own.
 - **`servers[].apiKey`** is the Radarr/Sonarr API key — **exactly 32 hex
   characters** (Settings → General).
+- **`servers[].headers` / `peers[].headers`** are optional extra HTTP headers
+  sent to that server/peer. Header values support the same plain-string or
+  `{ "env": "NAME" }` secret forms as API keys.
 - **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
   your **Radarr and Sonarr** containers at the **same paths** — jack registers
   the Torrent Blackhole client with these literal paths and *arr resolves them in
@@ -315,7 +319,8 @@ environment variable, so secrets can stay out of the config file:
 ```
 
 Both forms are interchangeable everywhere an `apiKey` appears (`jack`, `servers`,
-`peers`), and the plain-string form keeps working unchanged. If a
+`peers`) and for `servers[].headers` / `peers[].headers` values. The
+plain-string form keeps working unchanged. If a
 referenced variable is unset or empty at startup, jack reports which one and
 refuses to load that config. The default config jack writes on first boot uses
 this env form for `jack.apiKey` (reading `JACK_API_KEY`).

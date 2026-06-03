@@ -35,9 +35,12 @@ describe('PeerConnector.downloadFile', () => {
     const firstChunk = new Uint8Array([1, 2, 3])
     const secondChunk = new Uint8Array([4, 5])
     const releaseSecondChunk = Promise.withResolvers<void>()
+    const seenHeaders: Record<string, string | null> = {}
 
     server.use(
-      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
+        seenHeaders.custom = request.headers.get('X-Custom-Auth')
+        seenHeaders.apiKey = request.headers.get('X-Api-Key')
         return new Response(new ReadableStream({
           async start(controller) {
             controller.enqueue(firstChunk)
@@ -51,7 +54,15 @@ describe('PeerConnector.downloadFile', () => {
       }),
     )
 
-    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const peer = markInitialized(new PeerConnector({
+      url: PEER_JACK_URL,
+      apiKey: 'peer-api-key',
+      name: 'Friend Jack',
+      headers: {
+        'X-Custom-Auth': 'custom-secret',
+        'X-Api-Key': 'should-not-override',
+      },
+    }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-peer-download-'))
     const destPath = join(dir, 'Movie.mkv')
     const partPath = `${destPath}.part`
@@ -67,6 +78,8 @@ describe('PeerConnector.downloadFile', () => {
 
       expect(await Bun.file(partPath).exists()).toBe(false)
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
+      expect(seenHeaders.custom).toBe('custom-secret')
+      expect(seenHeaders.apiKey).toBe('peer-api-key')
     }
     finally {
       releaseSecondChunk.resolve()

@@ -1,5 +1,5 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
-import type { AutoRegisterConfig } from '../../config'
+import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
 import { ReleaseCategory } from '../../release'
 import { withSpan } from '../../tracing'
@@ -8,7 +8,7 @@ import { ArrServerConnector, basename, stripExtension } from './base'
 type SeriesWithId = SeriesResource & { id: number }
 
 export class SonarrServerConnector extends ArrServerConnector {
-  constructor(config: { url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig }) {
+  constructor(config: { url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig }) {
     super({
       pingPath: '/api/v3/system/status',
       pingMethod: 'GET',

@@ -52,6 +52,10 @@ export type ServerType = z.infer<typeof ServerType>
 // The connector base also models peers (other jacks), which are sources only.
 export type ConnectorType = ServerType | 'jack'
 
+export const ConnectorHeadersConfig = z.record(z.string(), ConfigSecret()).default({})
+
+export type ConnectorHeadersConfig = z.infer<typeof ConnectorHeadersConfig>
+
 // Auto-registration of jack as a Torznab indexer + Torrent Blackhole download
 // client inside the *arr. `priority` is the indexer/client priority used there.
 export const AutoRegisterConfig = z.object({
@@ -65,6 +69,7 @@ export const ServerConfig = z.object({
   name: z.string(),
   url: z.url(),
   apiKey: ConfigSecret(z.hex().min(32).max(32)),
+  headers: ConnectorHeadersConfig,
   type: ServerType,
   // Expose this server's library to peers (read by /peer/search).
   source: z.boolean().default(true),
@@ -81,6 +86,7 @@ export const PeerConfig = z.object({
   name: z.string(),
   url: z.url(),
   apiKey: ConfigSecret(),
+  headers: ConnectorHeadersConfig,
 })
 
 export type PeerConfig = z.infer<typeof PeerConfig>

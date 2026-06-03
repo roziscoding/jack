@@ -1,4 +1,4 @@
-import type { AutoRegisterConfig, ServerType } from '../../config'
+import type { AutoRegisterConfig, ConnectorHeadersConfig, ServerType } from '../../config'
 import type { Release } from '../../release'
 import z from 'zod'
 import { logger } from '../../../logger'
@@ -56,7 +56,7 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   constructor(
     connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, expectedAppName: string },
-    config: { type: ServerType, url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig },
+    config: { type: ServerType, url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig },
   ) {
     super(connectorConfig, config)
     this.expectedAppName = connectorConfig.expectedAppName
