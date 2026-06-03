@@ -1,45 +1,52 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
-import { getTestEnv, type TestEnv } from '../helpers'
+import type { TestEnv } from '../helpers'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { getTestEnv } from '../helpers'
 
 let env: TestEnv
+
+interface PeerRelease {
+  id: string
+  title: string
+  filename: string
+  category: number
+}
 
 beforeAll(async () => {
   env = await getTestEnv()
 })
 
 describe('Peer-to-Peer API (e2e)', () => {
-  test('GET /peer/search returns items from Jellyfin', async () => {
-    const res = await fetch(`${env.jackAlphaUrl}/peer/search?q=Big+Buck&apikey=${env.jackAlphaApiKey}`)
+  test('GET /peer/search returns releases from the local Radarr', async () => {
+    const res = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=${env.jackAlphaApiKey}`)
     expect(res.status).toBe(200)
-    const body = await res.json() as { items: Array<{ Name: string }> }
+    const body = await res.json() as { items: PeerRelease[] }
     expect(body.items).toBeArray()
     expect(body.items.length).toBeGreaterThan(0)
-    expect(body.items.some(i => i.Name.includes('Big Buck Bunny'))).toBe(true)
+    expect(body.items.some(i => i.title.includes('Big Buck Bunny'))).toBe(true)
   })
 
   test('GET /peer/search rejects wrong API key', async () => {
-    const res = await fetch(`${env.jackAlphaUrl}/peer/search?q=test&apikey=wrong-key`)
+    const res = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=wrong-key`)
     expect(res.status).toBe(401)
   })
 
-  test('GET /peer/items/:id returns item metadata', async () => {
-    // First find an item ID
-    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?q=Big+Buck&apikey=${env.jackAlphaApiKey}`)
-    const searchBody = await searchRes.json() as { items: Array<{ Id: string, Name: string }> }
-    const itemId = searchBody.items[0].Id
+  test('GET /peer/items/:id returns the release', async () => {
+    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=${env.jackAlphaApiKey}`)
+    const searchBody = await searchRes.json() as { items: PeerRelease[] }
+    const releaseId = searchBody.items[0]!.id
 
-    const res = await fetch(`${env.jackAlphaUrl}/peer/items/${itemId}?apikey=${env.jackAlphaApiKey}`)
+    const res = await fetch(`${env.jackAlphaUrl}/peer/items/${encodeURIComponent(releaseId)}?apikey=${env.jackAlphaApiKey}`)
     expect(res.status).toBe(200)
-    const body = await res.json() as { Name: string, Id: string }
-    expect(body.Id).toBe(itemId)
+    const body = await res.json() as PeerRelease
+    expect(body.id).toBe(releaseId)
   })
 
   test('GET /peer/items/:id/file streams the media file', async () => {
-    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?q=Big+Buck&apikey=${env.jackAlphaApiKey}`)
-    const searchBody = await searchRes.json() as { items: Array<{ Id: string }> }
-    const itemId = searchBody.items[0].Id
+    const searchRes = await fetch(`${env.jackAlphaUrl}/peer/search?apikey=${env.jackAlphaApiKey}`)
+    const searchBody = await searchRes.json() as { items: PeerRelease[] }
+    const releaseId = searchBody.items[0]!.id
 
-    const res = await fetch(`${env.jackAlphaUrl}/peer/items/${itemId}/file?apikey=${env.jackAlphaApiKey}`)
+    const res = await fetch(`${env.jackAlphaUrl}/peer/items/${encodeURIComponent(releaseId)}/file?apikey=${env.jackAlphaApiKey}`)
     expect(res.status).toBe(200)
     const data = await res.arrayBuffer()
     expect(data.byteLength).toBeGreaterThan(0)

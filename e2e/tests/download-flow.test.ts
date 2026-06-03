@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
-import { join } from 'node:path'
+import type { TestEnv } from '../helpers'
 import { readdir } from 'node:fs/promises'
-import { getTestEnv, retry, type TestEnv } from '../helpers'
+import { join } from 'node:path'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { getTestEnv, retry } from '../helpers'
 
 let env: TestEnv
 
@@ -15,7 +16,7 @@ beforeAll(async () => {
 describe('Download flow (e2e)', () => {
   test('Full blackhole download: search → torrent → download → import', async () => {
     // 1. Search via jack-beta's Torznab API
-    const searchRes = await fetch(`${env.jackBetaUrl}/torznab/api?t=search&q=Big+Buck&apikey=${env.jackBetaApiKey}`)
+    const searchRes = await fetch(`${env.jackBetaUrl}/torznab/api?t=search&apikey=${env.jackBetaApiKey}`)
     expect(searchRes.status).toBe(200)
     const xml = await searchRes.text()
 
@@ -24,7 +25,7 @@ describe('Download flow (e2e)', () => {
     expect(enclosureMatch).not.toBeNull()
 
     // The URL in the XML will have the docker-internal host, replace with localhost
-    let downloadUrl = enclosureMatch![1]
+    let downloadUrl = enclosureMatch![1]!
       .replace('http://jack-beta:3000', env.jackBetaUrl)
       .replace(/&amp;/g, '&')
 
@@ -48,7 +49,8 @@ describe('Download flow (e2e)', () => {
     const completedFiles = await retry(async () => {
       const files = await readdir(BLACKHOLE_COMPLETED)
       const mediaFiles = files.filter(f => !f.endsWith('.torrent'))
-      if (mediaFiles.length === 0) throw new Error('No completed files yet')
+      if (mediaFiles.length === 0)
+        throw new Error('No completed files yet')
       return mediaFiles
     }, { retries: 30, delay: 2_000 })
 

@@ -1,211 +1,136 @@
 import { join } from 'node:path'
-import { waitForUrl, retry, fetchJson } from './helpers'
+import { fetchJson, retry, waitForUrl } from './helpers'
 
-const JELLYFIN_URL = 'http://localhost:18096'
 const RADARR_URL = 'http://localhost:17878'
 const SONARR_URL = 'http://localhost:18989'
 
 const CONFIG_DIR = join(import.meta.dir, 'config')
 
-async function bootstrapJellyfin(): Promise<string> {
-  console.log('⏳ Waiting for Jellyfin...')
-  await waitForUrl(`${JELLYFIN_URL}/health`)
+// Big Buck Bunny — a real, freely-licensed film present in TMDb, matching the
+// fixture at fixtures/media/movies/Big Buck Bunny (2008)/Big Buck Bunny.mkv.
+const BIG_BUCK_TMDB_ID = 10378
 
-  // Wait for Jellyfin to be fully loaded (not just healthy)
-  await retry(async () => {
-    const info = await fetchJson<{ StartupWizardCompleted: boolean }>(`${JELLYFIN_URL}/System/Info/Public`)
-    if (!info) throw new Error('Jellyfin not ready')
-  }, { retries: 30, delay: 2_000 })
-  console.log('✅ Jellyfin is up')
-
-  // Check if startup wizard is already done
-  const info = await fetchJson<{ StartupWizardCompleted: boolean }>(`${JELLYFIN_URL}/System/Info/Public`)
-
-  if (!info.StartupWizardCompleted) {
-    // Complete startup wizard — each step must succeed before the next
-    await retry(async () => {
-      const res = await fetch(`${JELLYFIN_URL}/Startup/Configuration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          UICulture: 'en-US',
-          MetadataCountryCode: 'US',
-          PreferredMetadataLanguage: 'en',
-        }),
-      })
-      if (!res.ok) throw new Error(`Startup/Configuration: ${res.status}`)
-    }, { retries: 15, delay: 3_000 })
-
-    // Wait for Jellyfin to create its default user before we can update it
-    await retry(async () => {
-      const res = await fetch(`${JELLYFIN_URL}/Startup/User`)
-      if (!res.ok) throw new Error(`GET Startup/User: ${res.status}`)
-      const user = await res.json() as { Name: string }
-      if (!user.Name) throw new Error('Default user not ready')
-      console.log(`  Default user found: ${user.Name}`)
-    }, { retries: 30, delay: 3_000 })
-
-    await retry(async () => {
-      const res = await fetch(`${JELLYFIN_URL}/Startup/User`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ Name: 'admin', Password: 'test1234' }),
-      })
-      if (!res.ok) throw new Error(`Startup/User: ${res.status}`)
-    }, { retries: 15, delay: 3_000 })
-
-    await Bun.sleep(2_000)
-
-    await retry(async () => {
-      const res = await fetch(`${JELLYFIN_URL}/Startup/Complete`, { method: 'POST' })
-      if (!res.ok) throw new Error(`Startup/Complete: ${res.status}`)
-    }, { retries: 15, delay: 3_000 })
-    console.log('✅ Jellyfin startup wizard completed')
-  }
-
-  // Authenticate to get API key
-  const authRes = await retry(() => fetchJson<{ AccessToken: string }>(`${JELLYFIN_URL}/Users/AuthenticateByName`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'MediaBrowser Client="Jack E2E", Device="Test", DeviceId="jack-e2e-test", Version="1.0"',
-    },
-    body: JSON.stringify({ Username: 'admin', Pw: 'test1234' }),
-  }))
-
-  const apiKey = authRes.AccessToken
-  console.log('✅ Jellyfin authenticated')
-
-  // Create movie library
-  const movieParams = new URLSearchParams({
-    name: 'Movies',
-    collectionType: 'movies',
-    refreshLibrary: 'true',
-    api_key: apiKey,
-  })
-  await fetch(`${JELLYFIN_URL}/Library/VirtualFolders?${movieParams}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      LibraryOptions: {
-        PathInfos: [{ Path: '/media/movies' }],
-        EnableRealtimeMonitor: false,
-      },
-    }),
-  })
-
-  // Create TV library
-  const tvParams = new URLSearchParams({
-    name: 'TV',
-    collectionType: 'tvshows',
-    refreshLibrary: 'true',
-    api_key: apiKey,
-  })
-  await fetch(`${JELLYFIN_URL}/Library/VirtualFolders?${tvParams}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      LibraryOptions: {
-        PathInfos: [{ Path: '/media/tv' }],
-        EnableRealtimeMonitor: false,
-      },
-    }),
-  })
-
-  console.log('⏳ Waiting for Jellyfin library scan...')
-  await retry(async () => {
-    const items = await fetchJson<{ TotalRecordCount: number }>(`${JELLYFIN_URL}/Items?recursive=true&api_key=${apiKey}`)
-    if (items.TotalRecordCount < 1) throw new Error(`Library scan incomplete: ${items.TotalRecordCount} items`)
-  }, { retries: 30, delay: 3_000 })
-
-  console.log('✅ Jellyfin libraries ready')
-
-  // Set provider IDs on the movie for IMDB search testing
-  const movieItems = await fetchJson<{ Items: Array<{ Id: string, Name: string }> }>(
-    `${JELLYFIN_URL}/Items?searchTerm=Big%20Buck&recursive=true&api_key=${apiKey}`,
-  )
-  const movie = movieItems.Items.find(i => i.Name.includes('Big Buck Bunny'))
-  if (movie) {
-    await fetch(`${JELLYFIN_URL}/Items/${movie.Id}?api_key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        Id: movie.Id,
-        Name: 'Big Buck Bunny',
-        ProviderIds: { Imdb: 'tt1254207' },
-      }),
-    })
-    console.log('✅ Set IMDB provider ID on movie')
-  }
-
-  return apiKey
-}
-
-async function extractApiKey(service: string, url: string, port: number): Promise<string> {
+async function extractApiKey(service: 'Radarr' | 'Sonarr', url: string): Promise<string> {
   console.log(`⏳ Waiting for ${service}...`)
   await waitForUrl(`${url}/ping`)
   console.log(`✅ ${service} is up`)
 
-  // Extract API key from config.xml inside container
-  const containerName = `e2e-${service.toLowerCase()}-1`
+  // Extract API key from config.xml inside the container.
   const result = await Bun.$`docker compose -f ${join(import.meta.dir, 'docker-compose.yml')} exec ${service.toLowerCase()} cat /config/config.xml`.text()
   const match = result.match(/<ApiKey>([^<]+)<\/ApiKey>/)
-  if (!match) throw new Error(`Could not extract API key from ${service}`)
+  const apiKey = match?.[1]
+  if (!apiKey)
+    throw new Error(`Could not extract API key from ${service}`)
 
   console.log(`✅ ${service} API key extracted`)
-  return match[1]
+  return apiKey
 }
 
-async function writeJackConfigs(jellyfinApiKey: string, radarrApiKey: string, sonarrApiKey: string) {
-  const alphaConfig = {
-    jack: {
-      baseUrl: 'http://jack-alpha:3000',
-      apiKey: 'alpha-test-key',
-      mediaPath: '/media',
-    },
-    indexer: { priority: 1, autoRegister: true },
-    servers: {
-      sources: [
-        { type: 'jellyfin', url: 'http://jellyfin:8096', apiKey: jellyfinApiKey, name: 'Test Jellyfin' },
-      ],
-      peers: [],
-      destinations: [
-        { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr' },
-        { type: 'sonarr', url: 'http://sonarr:8989', apiKey: sonarrApiKey, name: 'Test Sonarr' },
-      ],
-    },
+// Seed Radarr with the fixture movie so jack-alpha has something to share. We
+// add the movie, point it at the mounted fixtures root, then rescan so Radarr
+// detects the existing file and flags it as `hasFile`.
+async function seedRadarrMovie(apiKey: string) {
+  const headers = { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
+
+  // `/ping` — and even `/api/v3/system/status` — come up before the DB-backed
+  // endpoints finish migrating; until then those return 400 ("Radarr is starting
+  // up"). Poll the exact endpoint we need (`/api/v3/movie`) until it's a real 200,
+  // which doubles as fetching the existing movie list.
+  console.log('⏳ Waiting for Radarr API to be ready...')
+  const existing = await retry(async () => {
+    const res = await fetch(`${RADARR_URL}/api/v3/movie`, { headers })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Radarr API not ready: ${res.status} ${res.statusText} — ${body.slice(0, 500)}`)
+    }
+    return res.json() as Promise<Array<{ tmdbId: number, id: number }>>
+  }, { retries: 45, delay: 2_000 })
+
+  // Register the fixtures root folder and confirm it actually persisted. Radarr
+  // rejects adding a movie whose rootFolderPath isn't a known, accessible root
+  // folder ("Root folder ... does not exist"), so we must not swallow this.
+  await retry(async () => {
+    const folders = await fetchJson<Array<{ path: string }>>(`${RADARR_URL}/api/v3/rootfolder`, { headers })
+    if (folders.some(f => f.path === '/media/movies'))
+      return
+    const res = await fetch(`${RADARR_URL}/api/v3/rootfolder`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ path: '/media/movies' }),
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Could not add root folder /media/movies: ${res.status} — ${body.slice(0, 400)}`)
+    }
+  }, { retries: 10, delay: 2_000 })
+
+  const profiles = await fetchJson<Array<{ id: number }>>(`${RADARR_URL}/api/v3/qualityprofile`, { headers })
+  const qualityProfileId = profiles[0]?.id ?? 1
+
+  let movieId = existing.find(m => m.tmdbId === BIG_BUCK_TMDB_ID)?.id
+
+  if (!movieId) {
+    const added = await fetchJson<{ id: number }>(`${RADARR_URL}/api/v3/movie`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        tmdbId: BIG_BUCK_TMDB_ID,
+        title: 'Big Buck Bunny',
+        qualityProfileId,
+        rootFolderPath: '/media/movies',
+        monitored: true,
+        minimumAvailability: 'released',
+        addOptions: { searchForMovie: false },
+      }),
+    })
+    movieId = added.id
+    console.log(`✅ Added Big Buck Bunny to Radarr (movieId=${movieId})`)
   }
 
+  await fetch(`${RADARR_URL}/api/v3/command`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name: 'RescanMovie', movieId }),
+  })
+
+  console.log('⏳ Waiting for Radarr to detect the movie file...')
+  await retry(async () => {
+    const movie = await fetchJson<{ hasFile: boolean }>(`${RADARR_URL}/api/v3/movie/${movieId}`, { headers })
+    if (!movie.hasFile)
+      throw new Error('movie file not detected yet')
+  }, { retries: 30, delay: 2_000 })
+
+  console.log('✅ Radarr library seeded')
+}
+
+async function writeJackConfigs(radarrApiKey: string, sonarrApiKey: string) {
+  // jack-alpha shares its Radarr/Sonarr library with peers (source only).
+  const alphaConfig = {
+    jack: { baseUrl: 'http://jack-alpha:3000', apiKey: 'alpha-test-key' },
+    servers: [
+      { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr', source: true, destination: false },
+      { type: 'sonarr', url: 'http://sonarr:8989', apiKey: sonarrApiKey, name: 'Test Sonarr', source: true, destination: false },
+    ],
+    peers: [],
+  }
+
+  // jack-beta searches jack-alpha and registers itself into its own Radarr.
   const betaConfig = {
-    jack: {
-      baseUrl: 'http://jack-beta:3000',
-      apiKey: 'beta-test-key',
-      mediaPath: '/media',
-    },
-    indexer: { priority: 1, autoRegister: true },
-    downloads: {
-      watchPath: '/downloads/watch',
-      completedPath: '/downloads/completed',
-    },
-    servers: {
-      sources: [],
-      peers: [
-        { url: 'http://jack-alpha:3000', apiKey: 'alpha-test-key', name: 'Jack Alpha' },
-      ],
-      destinations: [
-        { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr' },
-      ],
-    },
+    jack: { baseUrl: 'http://jack-beta:3000', apiKey: 'beta-test-key' },
+    downloads: { watchPath: '/downloads/watch', completedPath: '/downloads/completed' },
+    servers: [
+      { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr', source: false, destination: true },
+    ],
+    peers: [
+      { url: 'http://jack-alpha:3000', apiKey: 'alpha-test-key', name: 'Jack Alpha' },
+    ],
   }
 
   await Bun.write(join(CONFIG_DIR, 'jack-alpha.jsonc'), JSON.stringify(alphaConfig, null, 2))
   await Bun.write(join(CONFIG_DIR, 'jack-beta.jsonc'), JSON.stringify(betaConfig, null, 2))
   console.log('✅ Jack config files written')
 
-  // Write test-env.json for tests to consume
   const testEnv = {
-    jellyfinUrl: JELLYFIN_URL,
-    jellyfinApiKey,
     radarrUrl: RADARR_URL,
     radarrApiKey,
     sonarrUrl: SONARR_URL,
@@ -223,11 +148,11 @@ async function writeJackConfigs(jellyfinApiKey: string, radarrApiKey: string, so
 async function main() {
   console.log('🚀 Setting up e2e environment...\n')
 
-  const jellyfinApiKey = await bootstrapJellyfin()
-  const radarrApiKey = await extractApiKey('Radarr', RADARR_URL, 17878)
-  const sonarrApiKey = await extractApiKey('Sonarr', SONARR_URL, 18989)
+  const radarrApiKey = await extractApiKey('Radarr', RADARR_URL)
+  const sonarrApiKey = await extractApiKey('Sonarr', SONARR_URL)
 
-  await writeJackConfigs(jellyfinApiKey, radarrApiKey, sonarrApiKey)
+  await seedRadarrMovie(radarrApiKey)
+  await writeJackConfigs(radarrApiKey, sonarrApiKey)
 
   console.log('\n✅ Setup complete! Jack instances will start automatically.')
 }

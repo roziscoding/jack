@@ -1,7 +1,8 @@
+import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { ServerConnector } from '../../lib/servers/base'
-import { SonarrServerConnector } from '../../lib/servers/destinations/sonarr'
+import { SonarrServerConnector } from '../../lib/servers/arr/sonarr'
 
-function stringityConnector(c: ServerConnector) {
+function stringifyConnector(c: ServerConnector) {
   return {
     name: c.name,
     url: c.url,
@@ -11,13 +12,24 @@ function stringityConnector(c: ServerConnector) {
   }
 }
 
+function stringifyServer(c: ArrServerConnector) {
+  return {
+    ...stringifyConnector(c),
+    source: c.canSource,
+    destination: c.canDestination,
+  }
+}
+
 export class ServersController {
   constructor(
-    private readonly connectors: { sources: ServerConnector[], destinations: ServerConnector[] },
+    private readonly connectors: { servers: ArrServerConnector[], peers: ServerConnector[] },
   ) {}
 
   async getIssues(serverUrl?: string) {
-    const sonarrConnectors = this.connectors.destinations.filter(c => c instanceof SonarrServerConnector).filter(c => !serverUrl || c.url === serverUrl)
+    const sonarrConnectors = this.connectors.servers
+      .filter(c => c instanceof SonarrServerConnector && c.canDestination)
+      .filter(c => !serverUrl || c.url === serverUrl)
+
     if (sonarrConnectors.length === 0) {
       return { issues: [] }
     }
@@ -37,10 +49,8 @@ export class ServersController {
 
   listServers() {
     return {
-      servers: {
-        source: this.connectors.sources.map(stringityConnector),
-        destination: this.connectors.destinations.map(stringityConnector),
-      },
+      servers: this.connectors.servers.map(stringifyServer),
+      peers: this.connectors.peers.map(stringifyConnector),
     }
   }
 }

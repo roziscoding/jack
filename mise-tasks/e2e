@@ -14,6 +14,10 @@ mkdir -p "$E2E_DIR/config"
 # dirs may be a different uid. Make them world-writable so both can read/write
 # the blackhole watch/completed folders.
 chmod 777 "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
+# Same uid mismatch applies to the media fixtures: Radarr (uid 1000) must be able
+# to read AND write them — its root-folder validation requires the folder to be
+# writable by its user, so read-only isn't enough.
+chmod -R a+rwX "$E2E_DIR/fixtures"
 
 cleanup() {
   echo ""
@@ -22,14 +26,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "🐳 Starting infrastructure (Jellyfin, Radarr, Sonarr)..."
-docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build jellyfin radarr sonarr
+echo "🐳 Starting infrastructure (Radarr, Sonarr)..."
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d radarr sonarr
 
 echo "⚙️  Running setup (bootstrap services, write configs)..."
 bun run "$E2E_DIR/setup.ts"
 
 echo "🚀 Starting Jack instances..."
-docker compose -f "$E2E_DIR/docker-compose.yml" up -d jack-alpha jack-beta
+docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build jack-alpha jack-beta
 
 echo "⏳ Waiting for Jack Alpha..."
 timeout 60 bash -c 'until curl -sf http://localhost:13000/servers > /dev/null 2>&1; do sleep 2; done'

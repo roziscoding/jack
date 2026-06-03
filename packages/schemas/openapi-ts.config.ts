@@ -1,25 +1,17 @@
-import { defineConfig } from '@hey-api/openapi-ts'
-
-export default defineConfig({
-  input: './jellyfin.openapi.json', // sign up at app.heyapi.dev
-  output: {
-    path: './src/generated/jellyfin',
-    entryFile: false,
+// We only generate TypeScript types (no SDK client / zod): the *arr specs carry
+// no operationIds (so generated SDK method names would be awkward) and the
+// backend talks to Radarr/Sonarr through ServerConnector.fetch, which already
+// handles X-Api-Key auth and error wrapping. The generated types let us mirror
+// 100% of the movie/episode file metadata into a Release without hand-writing.
+export default [
+  {
+    plugins: ['@hey-api/typescript'],
+    input: './radarr.openapi.json',
+    output: { path: './src/generated/radarr', entryFile: false },
   },
-  plugins: [
-    {
-      name: 'zod',
-      compatibilityVersion: 4
-    },
-    {
-      name: '@hey-api/sdk',
-      auth: true,
-      operations: {
-        strategy: 'single',
-        nesting: 'operationId',
-      },
-      paramsStructure: 'flat',
-      responseStyle: 'fields',
-    },
-  ],
-})
+  {
+    plugins: ['@hey-api/typescript'],
+    input: './sonarr.openapi.json',
+    output: { path: './src/generated/sonarr', entryFile: false },
+  },
+]

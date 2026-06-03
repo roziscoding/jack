@@ -5,7 +5,7 @@ services:
     container_name: jack
     restart: unless-stopped
     ports:
-      - "${JACK_PORT:-5225}:5225"
+      - '${JACK_PORT:-5225}:5225'
     environment:
       # production turns off pino-pretty and structured-logs JSON
       ENVIRONMENT: production
@@ -16,9 +16,12 @@ services:
       # App config. Drop your config.jsonc in a ./config dir next to this file
       # (start from the config.jsonc template in this examples/ folder).
       - ./config:/config
-      # Media library. jack streams files to peers using the paths your
-      # Jellyfin reports, so it must see those files at the SAME path inside
-      # the container. Mirror your Jellyfin/*arr media mount here.
+      # Media library. jack streams files to peers using the absolute path each
+      # Radarr/Sonarr stores for the file (i.e. the path INSIDE the *arr
+      # container), so jack must see those files at that SAME path. The
+      # `/data/media` target below is a placeholder — change it to match your
+      # *arr's media path(s), and add one mount per path if they use several
+      # (e.g. /movies and /tv).
       - ${MEDIA_PATH:-./data/media}:/data/media
       # Blackhole download dirs — must match `downloads.*` in config.jsonc.
       # IMPORTANT: mount this SAME folder into your Radarr and Sonarr containers
@@ -26,9 +29,9 @@ services:
       # Blackhole client with these literal paths, and *arr resolves them in its
       # own filesystem — if they don't match, *arr can't drop stubs or import.
       - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
-    # If Jellyfin / Radarr / Sonarr run in their own compose network,
-    # attach this service to it so `jack.baseUrl` / server URLs resolve by
-    # container name. Otherwise reach them via host IP.
+    # If Radarr / Sonarr run in their own compose network, attach this service
+    # to it so `jack.baseUrl` / server URLs resolve by container name.
+    # Otherwise reach them via host IP.
     # networks:
     #   - media
 # networks:

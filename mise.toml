@@ -9,4 +9,5 @@ output = "keep-order"
 
 [settings]
 color_theme = "catppuccin"
+
 npm.package_manager = "bun"

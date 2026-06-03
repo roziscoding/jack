@@ -1,8 +1,6 @@
 import { join } from 'node:path'
 
 export interface TestEnv {
-  jellyfinUrl: string
-  jellyfinApiKey: string
   radarrUrl: string
   radarrApiKey: string
   sonarrUrl: string
@@ -27,8 +25,10 @@ export async function waitForUrl(url: string, opts?: { timeout?: number, interva
   while (Date.now() < deadline) {
     try {
       const res = await fetch(url)
-      if (res.ok) return
-    } catch {
+      if (res.ok)
+        return
+    }
+    catch {
       // not ready yet
     }
     await Bun.sleep(interval)
@@ -45,9 +45,11 @@ export async function retry<T>(fn: () => Promise<T>, opts?: { retries?: number, 
   for (let i = 0; i < retries; i++) {
     try {
       return await fn()
-    } catch (err) {
+    }
+    catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
-      if (i < retries - 1) await Bun.sleep(delay)
+      if (i < retries - 1)
+        await Bun.sleep(delay)
     }
   }
 
@@ -56,6 +58,9 @@ export async function retry<T>(fn: () => Promise<T>, opts?: { retries?: number, 
 
 export async function fetchJson<T = unknown>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, opts)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${url}`)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`${res.status} ${res.statusText}: ${url}${body ? ` — ${body.slice(0, 500)}` : ''}`)
+  }
   return res.json() as Promise<T>
 }

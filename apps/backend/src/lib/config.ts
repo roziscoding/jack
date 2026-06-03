@@ -22,7 +22,8 @@ export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1
   return z
     .union([z.string(), z.object({ env: z.string().min(1) })])
     .transform((input, ctx) => {
-      if (typeof input === 'string') return input
+      if (typeof input === 'string')
+        return input
 
       const resolved = process.env[input.env]
 
@@ -40,41 +41,48 @@ export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1
     .pipe(value)
 }
 
-export const DestinationServerType = z.enum(['sonarr', 'radarr'])
+// A jack-managed server is always a Radarr or Sonarr instance: it can act as a
+// source (its library is shared with peers), a destination (jack registers
+// itself there and triggers imports), or both.
+export const ServerType = z.enum(['radarr', 'sonarr'])
 
-export type DestinationServerType = z.infer<typeof DestinationServerType>
+export type ServerType = z.infer<typeof ServerType>
 
-export const DestinationServerConfig = z.object({
-  name: z.string().optional(),
+// The connector base also models peers (other jacks), which are sources only.
+export type ConnectorType = ServerType | 'jack'
+
+// Auto-registration of jack as a Torznab indexer + Torrent Blackhole download
+// client inside the *arr. `priority` is the indexer/client priority used there.
+export const AutoRegisterConfig = z.object({
+  enable: z.boolean().default(true),
+  priority: z.number().int().min(1).default(1),
+})
+
+export type AutoRegisterConfig = z.infer<typeof AutoRegisterConfig>
+
+export const ServerConfig = z.object({
+  name: z.string(),
   url: z.url(),
   apiKey: ConfigSecret(z.hex().min(32).max(32)),
-  type: DestinationServerType,
+  type: ServerType,
+  // Expose this server's library to peers (read by /peer/search).
+  source: z.boolean().default(true),
+  // Register jack into this server and trigger imports there (written to).
+  destination: z.boolean().default(true),
+  autoregister: AutoRegisterConfig.prefault({}),
 })
 
-export type DestinationServerConfig = z.infer<typeof DestinationServerConfig>
+export type ServerConfig = z.infer<typeof ServerConfig>
 
-export const SourceServerType = z.enum(['jellyfin'])
-
-export type SourceServerType = z.infer<typeof SourceServerType>
-
-export const SourceServerConfig = z.object({
-  name: z.string().optional(),
-  url: z.url(),
-  apiKey: ConfigSecret(),
-  type: SourceServerType,
-})
-
-export type SourceServerConfig = z.infer<typeof SourceServerConfig>
-
-export const PeerServerConfig = z.object({
-  name: z.string().optional(),
+// A peer is another jack instance we fan out to over the /peer API. Sources
+// only — the source/destination/autoregister flags don't apply.
+export const PeerConfig = z.object({
+  name: z.string(),
   url: z.url(),
   apiKey: ConfigSecret(),
 })
 
-export type PeerServerConfig = z.infer<typeof PeerServerConfig>
-
-export type ServerType = SourceServerType | DestinationServerType | 'jack'
+export type PeerConfig = z.infer<typeof PeerConfig>
 
 export const JackConfig = z.object({
   baseUrl: z.url(),
@@ -82,13 +90,6 @@ export const JackConfig = z.object({
 })
 
 export type JackConfig = z.infer<typeof JackConfig>
-
-export const IndexerConfig = z.object({
-  priority: z.number().int().min(1).default(1),
-  autoRegister: z.boolean().default(true),
-})
-
-export type IndexerConfig = z.infer<typeof IndexerConfig>
 
 export const DownloadsConfig = z.object({
   watchPath: z.string().min(1),
@@ -99,13 +100,9 @@ export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 
 export const AppConfig = z.object({
   jack: JackConfig.optional(),
-  indexer: IndexerConfig.optional(),
   downloads: DownloadsConfig.optional(),
-  servers: z.object({
-    sources: z.array(SourceServerConfig),
-    peers: z.array(PeerServerConfig).default([]),
-    destinations: z.array(DestinationServerConfig),
-  }),
+  servers: z.array(ServerConfig).default([]),
+  peers: z.array(PeerConfig).default([]),
 })
 
 export type AppConfig = z.infer<typeof AppConfig>
@@ -119,21 +116,15 @@ const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
     baseUrl: 'http://jack:5225',
     apiKey: { env: 'JACK_API_KEY' },
   },
-  servers: {
-    sources: [],
-    peers: [],
-    destinations: [],
-  },
+  servers: [],
+  peers: [],
 }
 
 // Fallback returned on first boot when the default's env references aren't set
 // yet, so the app keeps starting instead of crashing on a fresh install.
 const EMPTY_APP_CONFIG: AppConfig = {
-  servers: {
-    sources: [],
-    peers: [],
-    destinations: [],
-  },
+  servers: [],
+  peers: [],
 }
 
 async function createDefaultAppConfig(path: string) {
@@ -151,7 +142,8 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
     await createDefaultAppConfig(APP_CONFIG_PATH)
 
     const defaultConfig = AppConfig.safeParse(DEFAULT_APP_CONFIG)
-    if (defaultConfig.success) return defaultConfig.data
+    if (defaultConfig.success)
+      return defaultConfig.data
 
     logger.warn('Default config references environment variables that are not set. Starting with an empty config until they are provided.')
     return EMPTY_APP_CONFIG

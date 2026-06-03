@@ -3,19 +3,22 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./jellyfin": "./src/jellyfin.ts",
-    "./jellyfin/types": "./src/generated/jellyfin/types.gen.ts"
+    "./radarr/types": "./src/generated/radarr/types.gen.ts",
+    "./sonarr/types": "./src/generated/sonarr/types.gen.ts"
   },
   "module": "src/index.ts",
+  "scripts": {
+    "fetch-specs": "curl -sSL -o radarr.openapi.json https://raw.githubusercontent.com/Radarr/Radarr/master/src/Radarr.Api.V3/openapi.json && curl -sSL -o sonarr.openapi.json https://raw.githubusercontent.com/Sonarr/Sonarr/main/src/Sonarr.Api.V3/openapi.json",
+    "generate": "openapi-ts"
+  },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.94.4",
     "@types/bun": "latest"
-  },
-  "dependencies": {
-    "ofetch": "1.5.1",
-    "zod": "4.3.6"
   }
 }

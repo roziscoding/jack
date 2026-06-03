@@ -27,15 +27,19 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 jack sits between three kinds of servers. You only need to configure the ones
 relevant to what you want to do (share, consume, or both).
 
-| Concept | What it is | You need it to… |
-| --- | --- | --- |
-| **Source** | A media server jack reads from — currently **Jellyfin**. It's *your* library: jack searches it and streams its files to peers. | **Share** your library with friends. |
-| **Peer** | Another **jack** instance — a friend. You list their URL + API key; jack queries them when your *arr searches. | **Consume** media your friends have. |
-| **Destination** | A **Radarr** or **Sonarr** instance. jack registers itself there as a Torznab indexer and tells it to import finished downloads. | **Consume** — drive everything from your existing *arr UI. |
+jack talks to **Radarr/Sonarr** for everything — there's no separate media
+server. Each server you configure is one entry in `servers`, with two role
+flags (it can be either, or both):
 
-So a typical "both" setup has: a **source** (your Jellyfin, to share), some
-**peers** (friends, to consume from), and **destinations** (your Radarr/Sonarr,
-to search and import).
+| Role | What it does | You need it to… |
+| --- | --- | --- |
+| **`source`** | jack reads your Radarr/Sonarr library and serves it to peers: it searches your movies/episodes that have files and streams those files. | **Share** your library with friends. |
+| **`destination`** | jack registers itself in that Radarr/Sonarr as a Torznab indexer + Torrent Blackhole client and triggers imports of finished downloads. | **Consume** — drive everything from your existing *arr UI. |
+| **Peer** | Another **jack** instance — a friend. You list their URL + API key under `peers`; jack queries them when your *arr searches. | **Consume** media your friends have. |
+
+So a typical "both" setup has your Radarr/Sonarr as `source: true` **and**
+`destination: true` (share your library *and* search your friends'), plus some
+**peers** (friends, to consume from).
 
 > **Torznab** is the search API that indexers speak to Radarr/Sonarr (the same
 > protocol Prowlarr/Jackett expose). jack pretends to be a Torznab indexer so
@@ -72,10 +76,10 @@ The compose file mounts three host paths — adjust them for your setup:
 | Mount | Purpose | Related config |
 | --- | --- | --- |
 | `./config` → `/config` | App config | `APP_CONFIG_PATH` |
-| `${MEDIA_PATH:-./data/media}` → `/data/media` | Your media, so jack can stream it to peers | must match the paths Jellyfin reports |
+| `${MEDIA_PATH:-./data/media}` → `/data/media` | Your media, so jack can stream it to peers | must match the paths Radarr/Sonarr report |
 | `${TORRENTS_PATH:-./data/torrents}` → `/data/torrents` | Blackhole watch/completed dirs | `downloads.watchPath`, `downloads.completedPath` |
 
-> **Networking:** if Jellyfin/Radarr/Sonarr run in their own Docker network,
+> **Networking:** if Radarr/Sonarr run in their own Docker network,
 > uncomment the `networks:` block in the compose file so jack can reach them by
 > container name (and set `jack.baseUrl` to something they can resolve, e.g.
 > `http://jack:5225`). Otherwise use the host IP.
@@ -88,6 +92,15 @@ The compose file mounts three host paths — adjust them for your setup:
 > jack uses (e.g. `/data/torrents/watch` and `/data/torrents/completed`).
 > If they don't line up, *arr can't drop the stub `.torrent` or import the
 > finished file, and every grab fails.
+
+> ⚠️ **Mount your media at the same path Radarr/Sonarr report.** jack streams
+> files straight from disk using the absolute path each *arr stores for the file
+> (`movieFile.path` / `episodeFile.path`) — i.e. the path *inside the
+> Radarr/Sonarr container*. Mount your media into jack at that **same path** (you
+> may need to mirror more than one, e.g. `/movies` and `/tv`). The `/data/media`
+> in the example is just a placeholder — replace it with whatever paths your
+>*arr use. **Migrating from the Jellyfin-based version?** This path likely
+> changed: it's now the *arr path, not Jellyfin's library path.
 
 ## How it works
 
@@ -103,26 +116,27 @@ sequenceDiagram
     participant ARR as Radarr / Sonarr (you)
     participant JACK as jack (you)
     participant FJACK as jack (friend)
-    participant JELLY as Jellyfin (friend)
+    participant FARR as Radarr/Sonarr (friend)
 
     ARR->>JACK: Torznab query /torznab?apikey=…
     JACK->>FJACK: /peer/search (X-Api-Key)
-    FJACK->>JELLY: search library
-    JELLY-->>FJACK: matching items
+    FJACK->>FARR: search library (movies/episodes with files)
+    FARR-->>FJACK: matching releases
     FJACK-->>JACK: results
     JACK-->>ARR: releases (stub .torrent)<br/>link → /torznab/download/{peerId}:{itemId}.torrent
 ```
 
-1. On startup jack **registers itself as a Torznab indexer** in each of your
-   `destinations` (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`, and
+1. On startup jack **registers itself as a Torznab indexer** in each `destination`
+   server (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`, and
    **registers a Torrent Blackhole download client** pointed at your
    `downloads` paths (only if `downloads` is configured). (Auto, unless you set
-   `indexer.autoRegister: false`.)
+   that server's `autoregister.enable: false`.)
 2. When you search or monitor something, Radarr/Sonarr query jack's `/torznab`
    endpoint with that API key.
 3. jack **fans the query out to every `peer`** you've configured, calling their
    `/peer/search` (authenticated with that peer's API key).
-4. Each peer searches **its own Jellyfin** and returns matching items.
+4. Each peer searches **its own Radarr/Sonarr** library (movies/episodes that
+   have files) and returns matching releases, mirroring the *arr file metadata.
 5. jack turns each match into a Torznab "release" whose download link points
    back at itself: `/torznab/download/<peerId>:<itemId>.torrent`.
 6. Radarr/Sonarr show these as grabbable releases — indistinguishable from a
@@ -148,7 +162,7 @@ sequenceDiagram
 
 1. You grab a release. Your *arr's download client is a **Torrent Blackhole**
    client pointed at jack's `downloads.watchPath` (jack registers this client
-   for you on startup), so *arr fetches the `.torrent` from jack and drops it
+   for you on startup), so*arr fetches the `.torrent` from jack and drops it
    there.
 2. That `.torrent` is a **stub** — bencoded data that just encodes the
    `peerId` and `itemId`. No trackers, no pieces.
@@ -164,13 +178,13 @@ sequenceDiagram
 When a friend lists *you* as a peer, their jack calls your `/peer/*` endpoints
 (all guarded by your `jack.apiKey`):
 
-- `/peer/search` — search your Jellyfin.
-- `/peer/items/:id` — item metadata.
+- `/peer/search` — search your Radarr/Sonarr library.
+- `/peer/items/:id` — release metadata.
 - `/peer/items/:id/file` — stream the actual file.
 
-jack streams files straight from disk using the paths your Jellyfin reports, so
-**the jack process must be able to read your media files at those same paths**
-(mount your media into the container the same way Jellyfin sees it).
+jack streams files straight from disk using the paths your Radarr/Sonarr report,
+so **the jack process must be able to read your media files at those same paths**
+(mount your media into the container the same way your *arr apps see it).
 
 ## The API key
 
@@ -200,7 +214,7 @@ Peering is symmetric — you each run jack and exchange two things: your
 **`baseUrl`** and your **`apiKey`**.
 
 - **You give a friend** your `jack.baseUrl` + `jack.apiKey`. They add you under
-  `servers.peers` in *their* config:
+  `peers` in *their* config:
 
   ```jsonc
   "peers": [
@@ -224,51 +238,50 @@ jack reads a [JSONC](https://github.com/microsoft/node-jsonc-parser) file
 the file doesn't exist, jack writes a default one on first boot. Copy
 [`examples/config.jsonc`](examples/config.jsonc) as a starting point.
 
-Every top-level block except `servers` is optional — configure only what you
-need for what you're doing.
+Every top-level block is optional — configure only what you need for what
+you're doing.
 
 ```jsonc
 {
   // This instance's identity. Needed to expose a Torznab indexer and to be
   // reachable by peers.
   "jack": {
-    "baseUrl": "http://jack:5225",   // URL your *arr apps / peers reach you at
+    "baseUrl": "http://jack:5225", // URL your *arr apps / peers reach you at
     "apiKey": "a-long-random-string" // openssl rand -hex 32 — see "The API key"
-  },
-
-  // How jack registers itself in Radarr/Sonarr (indexer + download client).
-  // Optional.
-  "indexer": {
-    "priority": 1,        // indexer priority in *arr (lower = preferred)
-    "autoRegister": true  // set false to register the indexer/client yourself
   },
 
   // Blackhole watcher. Needed to *consume* (download) from peers.
   // Paths are inside the container; jack creates them if missing.
   "downloads": {
-    "watchPath": "/data/torrents/watch",        // *arr drops stub .torrents here
+    "watchPath": "/data/torrents/watch", // *arr drops stub .torrents here
     "completedPath": "/data/torrents/completed" // jack writes finished files here
   },
 
-  "servers": {
-    // Media servers jack reads from — your library, shared with peers.
-    "sources": [
-      { "type": "jellyfin", "url": "http://jellyfin:8096", "apiKey": "..." }
-    ],
+  // Your Radarr/Sonarr servers. Each can be a source, a destination, or both.
+  "servers": [
+    {
+      "type": "radarr", // "radarr" | "sonarr"
+      "url": "http://radarr:7878",
+      "apiKey": "<32 hex chars>", // *arr API key (Settings → General)
+      "source": true, // share this library with peers
+      "destination": true, // register jack here + import grabs
+      "autoregister": { // indexer/client registration (destinations)
+        "enable": true, // set false to register it yourself
+        "priority": 1 // indexer priority in *arr (lower = preferred)
+      }
+    },
+    { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "<32 hex chars>" }
+  ],
 
-    // Other jack instances (friends) you consume from.
-    "peers": [
-      { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "..." }
-    ],
-
-    // Radarr/Sonarr jack registers into and triggers imports on.
-    "destinations": [
-      { "type": "radarr", "url": "http://radarr:7878", "apiKey": "<32 hex chars>" },
-      { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "<32 hex chars>" }
-    ]
-  }
+  // Other jack instances (friends) you consume from. Sources only.
+  "peers": [
+    { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "..." }
+  ]
 }
 ```
+
+`source`, `destination` default to `true`; `autoregister` defaults to
+`{ "enable": true, "priority": 1 }`.
 
 Field notes:
 
@@ -276,11 +289,10 @@ Field notes:
   sharing). On a shared Docker network use the container name; otherwise the host
   IP/domain.
 - **`jack.apiKey`** — see [The API key](#the-api-key).
-- **`servers.peers[].apiKey`** is *that peer's* `jack.apiKey` (what they gave
-  you), not your own.
-- **`servers.destinations[].apiKey`** is the Radarr/Sonarr API key — **exactly
-  32 hex characters** (Settings → General).
-- **`servers.sources[].apiKey`** is the Jellyfin API key.
+- **`peers[].apiKey`** is *that peer's* `jack.apiKey` (what they gave you), not
+  your own.
+- **`servers[].apiKey`** is the Radarr/Sonarr API key — **exactly 32 hex
+  characters** (Settings → General).
 - **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
   your **Radarr and Sonarr** containers at the **same paths** — jack registers
   the Torrent Blackhole client with these literal paths and *arr resolves them in
@@ -300,8 +312,8 @@ environment variable, so secrets can stay out of the config file:
 }
 ```
 
-Both forms are interchangeable everywhere an `apiKey` appears (`jack`, `sources`,
-`peers`, `destinations`), and the plain-string form keeps working unchanged. If a
+Both forms are interchangeable everywhere an `apiKey` appears (`jack`, `servers`,
+`peers`), and the plain-string form keeps working unchanged. If a
 referenced variable is unset or empty at startup, jack reports which one and
 refuses to load that config. The default config jack writes on first boot uses
 this env form for `jack.apiKey` (reading `JACK_API_KEY`).
@@ -394,7 +406,7 @@ Two gotchas:
   the linuxserver.io *arr images default to, so files jack writes are owned by
   the same user that imports them. Make sure the watch/completed folders (and the
   `/config` mount) are readable/writable by uid 1000 — `chown -R 1000:1000` them
-  if your *arr uses a different `PUID`, set it to match.
+  if your*arr uses a different `PUID`, set it to match.
 
 ### No indexer or download client registered
 
@@ -408,7 +420,7 @@ reject an indexer whose test query returns no results anyway. So with **no
 `peers` configured** jack deliberately skips registration (look for `"peers":0`
 in the `Server listening` log line).
 
-**Fix:** configure at least one entry under `servers.peers`. The indexer and
+**Fix:** configure at least one entry under `peers`. The indexer and
 download client are registered on the next startup once there's a peer behind
 them.
 
@@ -417,24 +429,23 @@ If you *do* have peers but registration still fails with
 means the test query returned nothing — check that the peer is reachable and its
 library actually contains matching items.
 
-### `ConnectionRefused` / "Jellyfin Server is loading" on startup
+### `ConnectionRefused` on startup
 
 ```
 Failed to initialize connector radarr: Unable to connect. Is the computer able to access the url?
 ```
 
 jack connects to your servers **once at boot**. If it starts before
-Jellyfin/Radarr/Sonarr are ready, those connectors fail and you'll see
-`sources:0` / `destinations:0` in the `Server listening` line. It usually fixes
-itself on the next restart, but to make it deterministic, wait for the
-dependencies to be healthy:
+Radarr/Sonarr are ready, those connectors fail and you'll see `sources:0` /
+`destinations:0` in the `Server listening` line. It usually fixes itself on the
+next restart, but to make it deterministic, wait for the dependencies to be
+healthy:
 
 ```yaml
 # jack
 depends_on:
-  jellyfin: { condition: service_healthy }
-  radarr:   { condition: service_healthy }
-  sonarr:   { condition: service_healthy }
+  radarr: {condition: service_healthy}
+  sonarr: {condition: service_healthy}
 ```
 
 (This needs `healthcheck` blocks on those services — the linuxserver.io images
@@ -445,7 +456,7 @@ ship with them.)
 Set `LOG_LEVEL=trace` to log every HTTP request (method, path, status,
 duration). Registration failures always log the raw *arr response body at
 `error` level, which carries the real validation message — read that body, it
-usually tells you exactly what *arr is unhappy about.
+usually tells you exactly what*arr is unhappy about.
 
 ## Development
 
@@ -465,7 +476,7 @@ mise run clients   # regenerate packages/schemas/src/generated
 
 ```
 apps/backend       # the Hono server (Torznab, peer API, blackhole watcher)
-packages/schemas   # shared Zod schemas + generated Jellyfin client
+packages/schemas   # generated Radarr/Sonarr API types
 examples/          # docker-compose.yml + config.jsonc template
 Dockerfile         # multi-stage production image
 ```

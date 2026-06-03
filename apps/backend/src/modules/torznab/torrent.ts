@@ -12,10 +12,10 @@ export function createTorrentStub(options: TorrentStubOptions): Buffer {
 
   const torrent = {
     info: {
-      name: Buffer.from(options.name),
+      'name': Buffer.from(options.name),
       'piece length': pieceLength,
-      length: options.size,
-      pieces: Buffer.alloc(20), // dummy hash, not used
+      'length': options.size,
+      'pieces': Buffer.alloc(20), // dummy hash, not used
     },
     comment: Buffer.from(`jack:${options.peerId}:${options.itemId}`),
   }
@@ -27,18 +27,20 @@ export function parseTorrentStub(data: Buffer): { peerId: string, itemId: string
   try {
     const torrent = bencode.decode(data) as any
     const raw = torrent.comment
-    if (!raw) return null
+    if (!raw)
+      return null
     const comment = raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw)
-    if (!comment.startsWith('jack:')) return null
+    if (!comment.startsWith('jack:'))
+      return null
 
-    const parts = comment.split(':')
-    if (parts.length < 3) return null
+    const [, peerId, ...itemParts] = comment.split(':')
+    const itemId = itemParts.join(':')
+    if (!peerId || !itemId)
+      return null
 
-    return {
-      peerId: parts[1],
-      itemId: parts.slice(2).join(':'),
-    }
-  } catch {
+    return { peerId, itemId }
+  }
+  catch {
     return null
   }
 }

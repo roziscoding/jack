@@ -1,6 +1,8 @@
 import type { TorznabController } from './torznab.controller'
+import type { TorznabItem } from './torznab.xml'
 import { Hono } from 'hono'
-import { buildCapsXml, buildSearchResultXml, buildErrorXml } from './torznab.xml'
+import { logger } from '../../logger'
+import { buildCapsXml, buildErrorXml, buildSearchResultXml, filterByCategory } from './torznab.xml'
 
 export function getTorznabRouter(controller: TorznabController, apiKey: string) {
   const app = new Hono()
@@ -10,16 +12,28 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
     const key = c.req.query('apikey')
 
     if (key !== apiKey) {
+      logger.warn('Torznab request rejected: incorrect API key')
       return c.body(buildErrorXml(100, 'Incorrect API Key'), 403, {
         'Content-Type': 'application/xml',
       })
     }
 
     if (!t) {
+      logger.warn('Torznab request rejected: missing parameter "t"')
       return c.body(buildErrorXml(200, 'Missing parameter: t'), 400, {
         'Content-Type': 'application/xml',
       })
     }
+
+    logger.debug({
+      t,
+      q: c.req.query('q'),
+      imdbid: c.req.query('imdbid'),
+      tvdbid: c.req.query('tvdbid'),
+      season: c.req.query('season'),
+      ep: c.req.query('ep'),
+      cat: c.req.query('cat'),
+    }, 'Torznab request received')
 
     switch (t) {
       case 'caps': {
@@ -28,48 +42,49 @@ export function getTorznabRouter(controller: TorznabController, apiKey: string) 
         })
       }
 
+      // Text (q) searches are NOT fanned out: *arr always searches by id, and a
+      // term would mean listing every peer's whole library. So a term returns
+      // empty; a no-term query returns the catalog (powers RSS + the indexer
+      // self-test, which *arr requires to return results).
       case 'search': {
-        const q = c.req.query('q') ?? ''
-        const items = await controller.search(q)
-        return c.body(buildSearchResultXml(items), 200, {
+        const q = c.req.query('q')?.trim()
+        const items = q ? [] : await controller.catalog()
+        return c.body(buildSearchResultXml(filterByCategory(items, c.req.query('cat'))), 200, {
           'Content-Type': 'application/xml',
         })
       }
 
       case 'movie': {
+        const tmdbId = c.req.query('tmdbid')
         const imdbId = c.req.query('imdbid')
-        if (!imdbId) {
-          const q = c.req.query('q') ?? ''
-          const items = await controller.search(q)
-          return c.body(buildSearchResultXml(items), 200, {
-            'Content-Type': 'application/xml',
-          })
-        }
-        const items = await controller.searchMovie(imdbId)
-        return c.body(buildSearchResultXml(items), 200, {
+        const q = c.req.query('q')?.trim()
+        let items: TorznabItem[]
+        if (tmdbId || imdbId)
+          items = await controller.searchMovie({ tmdbId, imdbId })
+        else
+          items = q ? [] : await controller.catalog()
+        return c.body(buildSearchResultXml(filterByCategory(items, c.req.query('cat'))), 200, {
           'Content-Type': 'application/xml',
         })
       }
 
       case 'tvsearch': {
         const tvdbId = c.req.query('tvdbid')
-        const season = c.req.query('season')
-        const ep = c.req.query('ep')
-
-        if (!tvdbId) {
-          const q = c.req.query('q') ?? ''
-          const items = await controller.search(q)
-          return c.body(buildSearchResultXml(items), 200, {
-            'Content-Type': 'application/xml',
-          })
+        const q = c.req.query('q')?.trim()
+        let items: TorznabItem[]
+        if (tvdbId) {
+          const season = c.req.query('season')
+          const ep = c.req.query('ep')
+          items = await controller.searchTv(
+            tvdbId,
+            season ? Number(season) : undefined,
+            ep ? Number(ep) : undefined,
+          )
         }
-
-        const items = await controller.searchTv(
-          tvdbId,
-          season ? Number(season) : undefined,
-          ep ? Number(ep) : undefined,
-        )
-        return c.body(buildSearchResultXml(items), 200, {
+        else {
+          items = q ? [] : await controller.catalog()
+        }
+        return c.body(buildSearchResultXml(filterByCategory(items, c.req.query('cat'))), 200, {
           'Content-Type': 'application/xml',
         })
       }

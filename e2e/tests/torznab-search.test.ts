@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
-import { getTestEnv, type TestEnv } from '../helpers'
+import type { TestEnv } from '../helpers'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { getTestEnv } from '../helpers'
 
 let env: TestEnv
 
@@ -18,7 +19,7 @@ describe('Torznab Search (e2e)', () => {
   })
 
   test('GET /torznab/api?t=search finds items via peer', async () => {
-    const res = await fetch(`${env.jackBetaUrl}/torznab/api?t=search&q=Big+Buck&apikey=${env.jackBetaApiKey}`)
+    const res = await fetch(`${env.jackBetaUrl}/torznab/api?t=search&apikey=${env.jackBetaApiKey}`)
     expect(res.status).toBe(200)
     const xml = await res.text()
     expect(xml).toContain('<rss version="2.0"')

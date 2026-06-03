@@ -1,7 +1,7 @@
 import type { PeerController } from './peer.controller'
 import { Hono } from 'hono'
-import z from 'zod'
 import { validator as zValidator } from 'hono-openapi'
+import z from 'zod'
 
 export function getPeerRouter(controller: PeerController, apiKey: string) {
   const app = new Hono()
@@ -17,8 +17,8 @@ export function getPeerRouter(controller: PeerController, apiKey: string) {
   app.get(
     '/search',
     zValidator('query', z.object({
-      q: z.string().optional(),
       imdbId: z.string().optional(),
+      tmdbId: z.string().optional(),
       tvdbId: z.string().optional(),
       season: z.coerce.number().int().optional(),
       episode: z.coerce.number().int().optional(),

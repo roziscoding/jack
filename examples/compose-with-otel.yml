@@ -1,0 +1,83 @@
+# jack + OpenTelemetry, all in one compose.
+#
+# Adds an OpenObserve instance (single image, no external DB — stores to disk)
+# and points jack at it over OTLP. You get request traces AND logs, correlated,
+# in one UI at http://localhost:5080.
+#
+# Secrets are NOT committed here — put them in a .env file next to this compose
+# (copy .env.example). You need O2_PASS and OTLP_AUTH; generate OTLP_AUTH with:
+#   printf 'EMAIL:PASSWORD' | base64 -w0
+#   # -> OTLP_AUTH=Authorization=Basic%20<that output>   (must match O2_USER/O2_PASS)
+#
+#   docker compose -f compose-with-otel.yml up -d
+#
+# Then open http://localhost:5080 (login = O2_USER / O2_PASS) and look at the
+# "Logs" and "Traces" sections, stream "default".
+services:
+  # Observability backend. OTLP in, UI out — everything in a single container.
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    container_name: openobserve
+    restart: unless-stopped
+    ports:
+      - '${O2_PORT:-5080}:5080'
+    environment:
+      ZO_ROOT_USER_EMAIL: ${O2_USER:-root@example.com}
+      # Required — set in .env (no default, so no password is baked into the repo).
+      ZO_ROOT_USER_PASSWORD: ${O2_PASS:?set O2_PASS in a .env file (see .env.example)}
+      ZO_DATA_DIR: /data
+    volumes:
+      # Traces/logs persist here across restarts.
+      - ./data/openobserve:/data
+
+  jack:
+    # Pre-built image published to GitHub Container Registry on every push to main.
+    image: ghcr.io/roziscoding/jack:main
+    container_name: jack
+    restart: unless-stopped
+    depends_on:
+      - openobserve
+    ports:
+      - '${JACK_PORT:-5225}:5225'
+    environment:
+      # production turns off pino-pretty and structured-logs JSON
+      ENVIRONMENT: production
+      # Request logs ("Request completed") are emitted at trace level; bump this
+      # to trace (or debug) if you want them showing up in OpenObserve too.
+      LOG_LEVEL: info
+      PORT: 5225
+      APP_CONFIG_PATH: /config/config.jsonc
+      # --- OpenTelemetry ---
+      # Telemetry turns on as soon as an OTLP endpoint is set. The exporter
+      # appends /v1/traces and /v1/logs to this base. "default" is the org.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://openobserve:5080/api/default
+      OTEL_SERVICE_NAME: jack-backend
+      # Required — set in .env. OpenObserve's OTLP endpoint uses basic auth:
+      # base64("email:password"), which MUST match O2_USER/O2_PASS. The value
+      # looks like:  Authorization=Basic%20<base64>   (%20 is the space).
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTLP_AUTH:?set OTLP_AUTH in a .env file (see .env.example)}
+    volumes:
+      # App config. Drop your config.jsonc in a ./config dir next to this file
+      # (start from the config.jsonc template in this examples/ folder).
+      - ./config:/config
+      # Media library. jack streams files to peers using the absolute path each
+      # Radarr/Sonarr stores for the file (i.e. the path INSIDE the *arr
+      # container), so jack must see those files at that SAME path. The
+      # `/data/media` target below is a placeholder — change it to match your
+      # *arr's media path(s), and add one mount per path if they use several
+      # (e.g. /movies and /tv).
+      - ${MEDIA_PATH:-./data/media}:/data/media
+      # Blackhole download dirs — must match `downloads.*` in config.jsonc.
+      # IMPORTANT: mount this SAME folder into your Radarr and Sonarr containers
+      # at the SAME path (e.g. /data/torrents). jack registers the Torrent
+      # Blackhole client with these literal paths, and *arr resolves them in its
+      # own filesystem — if they don't match, *arr can't drop stubs or import.
+      - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
+    # If Radarr / Sonarr run in their own compose network, attach this service
+    # to it so `jack.baseUrl` / server URLs resolve by container name.
+    # Otherwise reach them via host IP.
+    # networks:
+    #   - media
+# networks:
+#   media:
+#     external: true

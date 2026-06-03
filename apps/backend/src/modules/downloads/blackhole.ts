@@ -1,11 +1,11 @@
+import type { AppConfig } from '../../lib/config'
+import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import type { PeerConnector } from '../../lib/servers/peer'
 import { watch } from 'node:fs'
 import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { JackServerConnector } from '../../lib/servers/sources/jack'
-import type { DestinationServerConnector } from '../../lib/servers/destinations/base'
-import type { AppConfig } from '../../lib/config'
-import { parseTorrentStub } from '../torznab/torrent'
 import { logger } from '../../logger'
+import { parseTorrentStub } from '../torznab/torrent'
 
 const STABILITY_DELAY_MS = 500
 const STABILITY_RETRIES = 3
@@ -16,8 +16,8 @@ export class BlackholeWatcher {
 
   constructor(
     private readonly config: NonNullable<AppConfig['downloads']>,
-    private readonly peers: JackServerConnector[],
-    private readonly destinations: DestinationServerConnector[],
+    private readonly peers: PeerConnector[],
+    private readonly destinations: ArrServerConnector[],
   ) {}
 
   async start() {
@@ -29,10 +29,12 @@ export class BlackholeWatcher {
     await this.scanExisting()
 
     this.watcher = watch(watchPath, async (_event, filename) => {
-      if (!filename?.endsWith('.torrent')) return
+      if (!filename?.endsWith('.torrent'))
+        return
 
       const filePath = join(watchPath, filename)
-      if (!await this.waitForStableFile(filePath)) return
+      if (!await this.waitForStableFile(filePath))
+        return
       await this.processTorrent(filePath, filename)
     })
 
@@ -50,9 +52,11 @@ export class BlackholeWatcher {
     for (let i = 0; i < STABILITY_RETRIES; i++) {
       await Bun.sleep(STABILITY_DELAY_MS)
       const file = Bun.file(filePath)
-      if (!await file.exists()) return false
+      if (!await file.exists())
+        return false
       const size = file.size
-      if (size === lastSize && size > 0) return true
+      if (size === lastSize && size > 0)
+        return true
       lastSize = size
     }
     return lastSize > 0
@@ -66,18 +70,21 @@ export class BlackholeWatcher {
           await this.processTorrent(join(this.config.watchPath, file), file)
         }
       }
-    } catch {
+    }
+    catch {
       // Directory might not exist yet
     }
   }
 
   private async processTorrent(filePath: string, filename: string) {
-    if (this.processing.has(filename)) return
+    if (this.processing.has(filename))
+      return
     this.processing.add(filename)
 
     try {
       const file = Bun.file(filePath)
-      if (!await file.exists()) return
+      if (!await file.exists())
+        return
 
       const data = Buffer.from(await file.arrayBuffer())
       const stub = parseTorrentStub(data)
@@ -97,11 +104,8 @@ export class BlackholeWatcher {
 
       logger.info({ peerId, itemId, peer: peer.name ?? peer.url }, 'Downloading from peer')
 
-      const item = await peer.getItemMetadata(itemId)
-      const itemName = item.Name ?? 'Unknown'
-      const ext = item.MediaSources?.[0]?.Path?.split('.').pop() ?? 'mkv'
-      const destFilename = `${itemName}.${ext}`
-      const destPath = join(this.config.completedPath, destFilename)
+      const release = await peer.getRelease(itemId)
+      const destPath = join(this.config.completedPath, release.filename)
 
       await peer.downloadFile(itemId, destPath)
 
@@ -111,20 +115,23 @@ export class BlackholeWatcher {
       // Trigger import scan on all destinations
       await this.triggerImport()
 
-      logger.info({ itemName, destPath }, 'Download complete, triggered import')
-    } catch (err) {
+      logger.info({ filename: release.filename, destPath }, 'Download complete, triggered import')
+    }
+    catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ filename, error: message }, 'Failed to process torrent')
-    } finally {
+    }
+    finally {
       this.processing.delete(filename)
     }
   }
 
   private async triggerImport() {
-    for (const dest of this.destinations.filter(d => d.isInitialized)) {
+    for (const dest of this.destinations.filter(d => d.isInitialized && d.canDestination)) {
       try {
         await dest.triggerImport(this.config.completedPath)
-      } catch (err) {
+      }
+      catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.error({ destination: dest.name, error: message }, 'Failed to trigger import')
       }

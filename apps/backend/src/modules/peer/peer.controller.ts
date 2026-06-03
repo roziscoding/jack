@@ -1,62 +1,94 @@
-import type { JellyfinServerConnector } from '../../lib/servers/sources/jellyfin'
-import type { AppConfig } from '../../lib/config'
+import type { Release } from '../../lib/release'
+import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import { logger } from '../../logger'
 
+/**
+ * Serves the /peer API that other jacks talk to. Reads availability from the
+ * local arr sources (the `source: true` Radarr/Sonarr servers) and streams the
+ * underlying files from disk.
+ */
 export class PeerController {
   constructor(
-    private readonly jellyfin: JellyfinServerConnector | undefined,
-    private readonly jackConfig: NonNullable<AppConfig['jack']>,
+    private readonly sources: ArrServerConnector[],
   ) {}
 
-  async search(params: { q?: string, imdbId?: string, tvdbId?: string, season?: number, episode?: number }) {
-    if (!this.jellyfin) return []
+  // Sources gated by config only (`source: true`). We deliberately do NOT filter
+  // by `isInitialized` here: a source that failed to connect at boot is still
+  // attempted and re-initialized lazily by @requireInitialization, so one that
+  // came back online rejoins searches without a restart.
+  private get sourceServers() {
+    return this.sources.filter(s => s.canSource)
+  }
 
-    if (params.imdbId) {
-      return this.jellyfin.searchByImdbId(params.imdbId)
+  async search(params: { imdbId?: string, tmdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
+    const sources = this.sourceServers
+    logger.debug({ params, totalSources: this.sources.length, sourceServers: sources.length }, 'Peer search request received')
+
+    if (sources.length === 0) {
+      logger.warn({ params }, 'Peer search: no source-enabled servers — returning empty result')
+      return []
     }
 
-    if (params.tvdbId) {
-      return this.jellyfin.searchByTvdbId(params.tvdbId, params.season, params.episode)
-    }
+    // Id-based lookup (precise, often server-side); with no id we return the
+    // full catalog (used by the torznab RSS feed). No free-text matching — *arr
+    // always searches by id, so the catalog + id lookups cover every case.
+    // Each source is isolated: a failure is logged and treated as zero results.
+    const results = await Promise.all(sources.map(async (source) => {
+      try {
+        const items = params.tmdbId
+          ? await source.searchByTmdbId(params.tmdbId)
+          : params.imdbId
+            ? await source.searchByImdbId(params.imdbId)
+            : params.tvdbId
+              ? await source.searchByTvdbId(params.tvdbId, params.season, params.episode)
+              : await source.listReleases()
+        logger.debug({ source: source.name, type: source.type, params, count: items.length }, 'Source returned releases for peer search')
+        return items
+      }
+      catch (err) {
+        logger.error({ source: source.name, type: source.type, params, err }, 'Source search failed — skipping this source')
+        return []
+      }
+    }))
 
-    return this.jellyfin.searchItems(params.q ?? '')
+    const flat = results.flat()
+    logger.debug({ params, total: flat.length }, 'Peer search complete')
+    return flat
   }
 
-  async getItem(itemId: string) {
-    if (!this.jellyfin) return null
-    return this.jellyfin.getItemById(itemId)
+  async getItem(id: string): Promise<Release | null> {
+    const source = this.findSource(id)
+    if (!source)
+      return null
+    return source.getRelease(id)
   }
 
-  async getFilePath(itemId: string): Promise<string | null> {
-    if (!this.jellyfin) return null
-    const filePath = await this.jellyfin.getItemFilePath(itemId)
-    if (!filePath) return null
-    return filePath
+  // A release id is `${connectorId}:${kind}:${entityId}`; route it to the arr
+  // source that produced it.
+  private findSource(id: string): ArrServerConnector | undefined {
+    const connectorId = id.split(':')[0]
+    return this.sourceServers.find(s => s.id === connectorId)
   }
 
-  resolveLocalPath(jellyfinPath: string): string {
-    return jellyfinPath
-  }
+  async streamFile(id: string): Promise<{ stream: ReadableStream, size: number, filename: string } | null> {
+    const source = this.findSource(id)
+    if (!source)
+      return null
 
-  async streamFile(itemId: string): Promise<{ stream: ReadableStream, size: number, filename: string } | null> {
-    const filePath = await this.getFilePath(itemId)
-    if (!filePath) return null
+    const filePath = await source.getFilePath(id)
+    if (!filePath)
+      return null
 
-    const localPath = this.resolveLocalPath(filePath)
-    const file = Bun.file(localPath)
-
+    const file = Bun.file(filePath)
     if (!await file.exists()) {
-      logger.warn({ localPath, itemId }, 'File not found on disk')
+      logger.warn({ filePath, id }, 'File not found on disk')
       return null
     }
 
-    const size = file.size
-    const filename = localPath.split('/').pop() ?? 'unknown'
-
     return {
       stream: file.stream(),
-      size,
-      filename,
+      size: file.size,
+      filename: filePath.split('/').pop() ?? 'unknown',
     }
   }
 }

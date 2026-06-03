@@ -1,8 +1,8 @@
-import type { JackServerConnector } from '../../lib/servers/sources/jack'
+import type { PeerConnector } from '../../lib/servers/peer'
 import { Hono } from 'hono'
 import { createTorrentStub } from './torrent'
 
-export function getDownloadRouter(peers: JackServerConnector[], apiKey: string) {
+export function getDownloadRouter(peers: PeerConnector[], apiKey: string) {
   const app = new Hono()
 
   app.get('/download/:id', async (c) => {
@@ -24,9 +24,9 @@ export function getDownloadRouter(peers: JackServerConnector[], apiKey: string) 
       return c.json({ error: 'Peer not found or not initialized' }, 404)
     }
 
-    const item = await peer.getItemMetadata(itemId)
-    const name = item.Name ?? 'Unknown'
-    const size = item.MediaSources?.[0]?.Size ?? 0
+    const item = await peer.getRelease(itemId)
+    const name = item.title
+    const size = item.size
 
     const torrentData = createTorrentStub({ name, size, peerId, itemId })
 
