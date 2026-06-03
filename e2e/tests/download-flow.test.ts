@@ -25,14 +25,11 @@ describe('Download flow (e2e)', () => {
     expect(enclosureMatch).not.toBeNull()
 
     // The URL in the XML will have the docker-internal host, replace with localhost
-    let downloadUrl = enclosureMatch![1]!
+    const downloadUrl = enclosureMatch![1]!
       .replace('http://jack-beta:3000', env.jackBetaUrl)
       .replace(/&amp;/g, '&')
 
-    // Ensure apikey is in the URL
-    if (!downloadUrl.includes('apikey=')) {
-      downloadUrl += `${downloadUrl.includes('?') ? '&' : '?'}apikey=${env.jackBetaApiKey}`
-    }
+    expect(new URL(downloadUrl).searchParams.get('apikey')).toBe(env.jackBetaApiKey)
 
     // 3. Download the .torrent stub
     const torrentRes = await fetch(downloadUrl)

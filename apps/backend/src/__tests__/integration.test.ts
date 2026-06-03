@@ -185,6 +185,7 @@ describe('Torznab API', () => {
     expect(xml).toContain('<rss version="2.0"')
     expect(xml).toContain(peerRelease.title)
     expect(xml).toContain('application/x-bittorrent')
+    expect(xml).toContain('apikey=test-api-key')
   })
 
   test('GET /torznab/api?t=search with a term is NOT fanned out (empty)', async () => {
@@ -254,6 +255,14 @@ describe('Torrent download', () => {
     const res = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent?apikey=test-api-key`)
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('application/x-bittorrent')
+  })
+
+  test('GET /torznab/download/:id.torrent rejects missing apiKey', async () => {
+    const { app, peer } = createTestApp()
+    const guid = `${peer.id}:${peerRelease.id}`
+
+    const res = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent`)
+    expect(res.status).toBe(401)
   })
 })
 

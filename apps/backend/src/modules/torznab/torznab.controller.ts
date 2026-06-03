@@ -19,14 +19,21 @@ export interface TorznabItem {
   peerName?: string
 }
 
-export function releaseToTorznab(release: Release, peerId: string, peerName: string | undefined, baseUrl: string): TorznabItem {
+function buildDownloadUrl(baseUrl: string, guid: string, apiKey: string): string {
+  const trimmedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+  const url = new URL(`${trimmedBaseUrl}/torznab/download/${encodeURIComponent(guid)}.torrent`)
+  url.searchParams.set('apikey', apiKey)
+  return url.toString()
+}
+
+export function releaseToTorznab(release: Release, peerId: string, peerName: string | undefined, baseUrl: string, apiKey: string): TorznabItem {
   const guid = `${peerId}:${release.id}`
 
   return {
     title: release.title,
     guid,
     size: release.size,
-    downloadUrl: `${baseUrl}/torznab/download/${encodeURIComponent(guid)}.torrent`,
+    downloadUrl: buildDownloadUrl(baseUrl, guid, apiKey),
     category: release.category,
     imdbId: release.imdbId,
     tmdbId: release.tmdbId,
@@ -63,7 +70,7 @@ export class TorznabController {
         try {
           const releases = await search(peer)
           logger.debug({ search: label, peer: peer.name, count: releases.length }, 'Peer returned releases')
-          return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl))
+          return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey))
         }
         catch (err) {
           logger.error({ search: label, peer: peer.name, err }, 'Peer search failed — skipping this peer')
