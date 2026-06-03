@@ -1,5 +1,7 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { accepts } from 'hono/accepts'
+import { xml } from '../helpers/xml'
 import { FetchError } from '../lib/errors/FetchError'
 import { UnauthorizedError } from '../lib/errors/UnauthorizedError'
 
@@ -21,6 +23,11 @@ function getStatusCode<T>(error: T): ContentfulStatusCode | null {
 export function handleError(environment: string) {
   return (error: Error, c: Context) => {
     const status = getStatusCode(error)
+    const contentType = accepts(c, {
+      default: 'application/json',
+      header: 'Accept',
+      supports: ['application/json', 'application/rss+xml', 'application/xml+rss', 'application/xml', 'text/xml'],
+    })
 
     if (!status) {
       const payload = environment === 'development'
@@ -32,6 +39,15 @@ export function handleError(environment: string) {
         error: {
           code: 'INTERNAL_SERVER_ERROR',
           ...payload,
+        },
+      }, 500)
+    }
+
+    if (status === 401 && contentType !== 'application/json') {
+      return xml(c, {
+        error: {
+          '@code': 100,
+          '@description': error.message,
         },
       })
     }
