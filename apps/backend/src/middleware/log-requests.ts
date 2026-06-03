@@ -251,5 +251,5 @@ export const logRequests = createMiddleware(async (ctx, next) => {
     durationMs,
   }
 
-  logger.debug(logObject, 'Request completed')
+  logger.trace(logObject, 'Request completed')
 })

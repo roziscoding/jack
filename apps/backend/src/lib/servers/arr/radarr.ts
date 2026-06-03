@@ -1,8 +1,8 @@
 import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/types'
 import type { AutoRegisterConfig } from '../../config'
 import type { Release } from '../../release'
-import { logger } from '../../../logger'
 import { normalizeImdbId, ReleaseCategory } from '../../release'
+import { withSpan } from '../../tracing'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
 export class RadarrServerConnector extends ArrServerConnector {
@@ -61,41 +61,59 @@ export class RadarrServerConnector extends ArrServerConnector {
   }
 
   protected override async doSearchItems(term: string): Promise<Release[]> {
-    const needle = term.trim().toLowerCase()
-    const movies = await this.listMovies()
-    const releases = movies
-      .filter(m => m.hasFile && (!needle || (m.title ?? '').toLowerCase().includes(needle)))
-      .map(m => this.toRelease(m))
-      .filter((r): r is Release => r != null)
-    logger.debug({ source: this.name, term, totalMovies: movies.length, withFile: movies.filter(m => m.hasFile).length, matched: releases.length }, 'Radarr term search')
-    return releases
+    return withSpan('radarr.search_items', {
+      'source.name': this.name,
+      'search.term': term,
+    }, async (span) => {
+      const needle = term.trim().toLowerCase()
+      const movies = await this.listMovies()
+      const withFile = movies.filter(m => m.hasFile).length
+      const releases = movies
+        .filter(m => m.hasFile && (!needle || (m.title ?? '').toLowerCase().includes(needle)))
+        .map(m => this.toRelease(m))
+        .filter((r): r is Release => r != null)
+      span.setAttributes({ 'movie.count': movies.length, 'movie.with_file_count': withFile, 'release.count': releases.length })
+      return releases
+    })
   }
 
   protected override async doSearchByImdbId(imdbId: string): Promise<Release[]> {
     // Compare without the `tt` prefix: *arr stores `tt0133093`, torznab clients
     // (Radarr) query `imdbid=0133093`. Without this, the search never matches.
-    const target = normalizeImdbId(imdbId)
-    const movies = await this.listMovies()
-    const releases = movies
-      .filter(m => m.hasFile && m.imdbId != null && normalizeImdbId(m.imdbId) === target)
-      .map(m => this.toRelease(m))
-      .filter((r): r is Release => r != null)
-    logger.debug({ source: this.name, imdbId, totalMovies: movies.length, withFile: movies.filter(m => m.hasFile).length, matched: releases.length }, 'Radarr imdb search')
-    if (releases.length === 0)
-      logger.trace({ source: this.name, imdbId, sampleImdbIds: movies.filter(m => m.hasFile).map(m => m.imdbId).slice(0, 10) }, 'Radarr imdb search found nothing — sample of available imdbIds')
-    return releases
+    return withSpan('radarr.search_by_imdb', {
+      'source.name': this.name,
+      'search.imdb_id': imdbId,
+    }, async (span) => {
+      const target = normalizeImdbId(imdbId)
+      const movies = await this.listMovies()
+      const withFileMovies = movies.filter(m => m.hasFile)
+      const releases = withFileMovies
+        .filter(m => m.imdbId != null && normalizeImdbId(m.imdbId) === target)
+        .map(m => this.toRelease(m))
+        .filter((r): r is Release => r != null)
+      span.setAttributes({ 'movie.count': movies.length, 'movie.with_file_count': withFileMovies.length, 'release.count': releases.length })
+      if (releases.length === 0) {
+        span.setAttribute('search.sample_imdb_ids', withFileMovies.map(m => m.imdbId).filter((id): id is string => !!id).slice(0, 10))
+      }
+      return releases
+    })
   }
 
   protected override async doSearchByTmdbId(tmdbId: string): Promise<Release[]> {
     // Radarr filters /movie by tmdbId server-side, so this is a targeted lookup
     // (one movie) instead of listing the whole library.
-    const movies = await this.arrGet<MovieResource[]>('/api/v3/movie', { tmdbId })
-    const releases = (Array.isArray(movies) ? movies : [])
-      .filter(m => m.hasFile)
-      .map(m => this.toRelease(m))
-      .filter((r): r is Release => r != null)
-    logger.debug({ source: this.name, tmdbId, matched: releases.length }, 'Radarr tmdb search (server-side)')
-    return releases
+    return withSpan('radarr.search_by_tmdb', {
+      'source.name': this.name,
+      'search.tmdb_id': tmdbId,
+    }, async (span) => {
+      const movies = await this.arrGet<MovieResource[]>('/api/v3/movie', { tmdbId })
+      const releases = (Array.isArray(movies) ? movies : [])
+        .filter(m => m.hasFile)
+        .map(m => this.toRelease(m))
+        .filter((r): r is Release => r != null)
+      span.setAttribute('release.count', releases.length)
+      return releases
+    })
   }
 
   protected override async doSearchByTvdbId(): Promise<Release[]> {

@@ -1,6 +1,7 @@
 import type { AppConfig } from '../../lib/config'
 import type { Release } from '../../lib/release'
 import type { PeerConnector } from '../../lib/servers/peer'
+import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 
 export interface TorznabItem {
@@ -58,30 +59,39 @@ export class TorznabController {
     // the call below, so a peer that came back online rejoins searches without a
     // restart. Each peer is isolated: if it fails (still down, or errors), we log
     // and treat it as zero results instead of failing the whole search.
-    logger.debug({ search: label, peers: this.peers.length }, 'Fanning out search to peers')
+    return withSpan('torznab.fan_out', {
+      'search.label': label,
+      'peer.count': this.peers.length,
+    }, async (span) => {
+      if (this.peers.length === 0) {
+        span.setAttribute('release.count', 0)
+        return []
+      }
 
-    if (this.peers.length === 0) {
-      logger.warn({ search: label }, 'No peers configured — returning no results')
-      return []
-    }
+      const results = await Promise.all(
+        this.peers.map(async (peer) => {
+          try {
+            return await withSpan('torznab.peer_search', {
+              'search.label': label,
+              'peer.name': peer.name,
+              'peer.id': peer.id,
+            }, async (peerSpan) => {
+              const releases = await search(peer)
+              peerSpan.setAttribute('release.count', releases.length)
+              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey))
+            })
+          }
+          catch (err) {
+            logger.error({ search: label, peer: peer.name, err }, 'Peer search failed — skipping this peer')
+            return []
+          }
+        }),
+      )
 
-    const results = await Promise.all(
-      this.peers.map(async (peer) => {
-        try {
-          const releases = await search(peer)
-          logger.debug({ search: label, peer: peer.name, count: releases.length }, 'Peer returned releases')
-          return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey))
-        }
-        catch (err) {
-          logger.error({ search: label, peer: peer.name, err }, 'Peer search failed — skipping this peer')
-          return []
-        }
-      }),
-    )
-
-    const items = results.flat()
-    logger.debug({ search: label, total: items.length }, 'Fan-out complete')
-    return items
+      const items = results.flat()
+      span.setAttribute('release.count', items.length)
+      return items
+    })
   }
 
   async searchMovie(ids: { tmdbId?: string, imdbId?: string }): Promise<TorznabItem[]> {

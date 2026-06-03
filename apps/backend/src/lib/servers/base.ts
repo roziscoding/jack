@@ -3,12 +3,20 @@ import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
 import { FetchError } from '../errors/FetchError'
+import { withSpan } from '../tracing'
 
 const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
+const MAX_ERROR_BODY_BYTES = 8 * 1024
 
 function generateId(url: string): string {
   const hash = new Bun.CryptoHasher('sha256').update(url).digest('hex')
   return hash.slice(0, 8)
+}
+
+function truncateBody(body: string) {
+  if (body.length <= MAX_ERROR_BODY_BYTES)
+    return body
+  return `${body.slice(0, MAX_ERROR_BODY_BYTES)}...`
 }
 
 export abstract class ServerConnector {
@@ -85,40 +93,60 @@ export abstract class ServerConnector {
     }
 
     const method = init.method ?? 'GET'
-    logger.debug({ connector: this.name, type: this.type, method, url: url.toString(), timeoutMs }, 'Outgoing request')
 
-    let response: Response
-    try {
-      response = await fetch(url, initWithAuth)
-    }
-    catch (err) {
-      const timedOut = err instanceof DOMException && err.name === 'TimeoutError'
-      logger.warn({ connector: this.name, method, url: url.toString(), timeoutMs, timedOut, err }, timedOut ? `Request timed out after ${timeoutMs}ms` : 'Request failed (network error)')
-      throw err
-    }
+    return withSpan('connector.fetch', {
+      'connector.name': this.name,
+      'connector.type': this.type,
+      'http.request.method': method,
+      'http.request.timeout_ms': timeoutMs,
+      'server.address': url.hostname,
+      'url.path': url.pathname,
+      'url.query': url.search ? url.search.slice(1) : undefined,
+    }, async (span) => {
+      let response: Response
+      try {
+        response = await fetch(url, initWithAuth)
+      }
+      catch (err) {
+        const timedOut = err instanceof DOMException && err.name === 'TimeoutError'
+        span.setAttribute('error.timeout', timedOut)
+        logger.warn({ connector: this.name, method, url: url.toString(), timeoutMs, timedOut, err }, timedOut ? `Request timed out after ${timeoutMs}ms` : 'Request failed (network error)')
+        throw err
+      }
 
-    logger.debug({ connector: this.name, method, url: url.toString(), status: response.status }, 'Response received')
+      span.setAttributes({
+        'http.response.status_code': response.status,
+        'http.response.content_type': response.headers.get('content-type') ?? '',
+        'http.response.content_length': response.headers.get('content-length') ?? '',
+      })
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => 'Could not fetch body')
-      logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body }, 'Request failed (non-2xx)')
-      throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
-    }
+      if (!response.ok) {
+        const body = await response.text().catch(() => 'Could not fetch body')
+        span.setAttribute('http.response.body', truncateBody(body))
+        logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body: truncateBody(body) }, 'Request failed (non-2xx)')
+        throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
+      }
 
-    const body = await response.json()
-    logger.trace({ connector: this.name, method, url: url.pathname, body }, 'Response body')
-    if (!init.schema) {
-      return body as z.infer<TResponseSchema>
-    }
+      const body = await response.json()
+      if (!init.schema) {
+        return body as z.infer<TResponseSchema>
+      }
 
-    const { success, error, data } = init.schema.safeParse(body)
+      const { success, error, data } = init.schema.safeParse(body)
 
-    if (!success) {
-      logger.warn({ connector: this.name, method, url: url.pathname, error: z.prettifyError(error) }, 'Response failed schema validation')
-      throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${z.prettifyError(error)}`, response, { body: JSON.stringify(body), method: init.method })
-    }
+      if (!success) {
+        const prettyError = z.prettifyError(error)
+        span.setAttributes({
+          'schema.validation.success': false,
+          'schema.validation.error': prettyError,
+        })
+        logger.warn({ connector: this.name, method, url: url.pathname, error: prettyError }, 'Response failed schema validation')
+        throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${prettyError}`, response, { body: JSON.stringify(body), method: init.method })
+      }
 
-    return data
+      span.setAttribute('schema.validation.success', true)
+      return data
+    })
   }
 
   async ping<TResponseSchema extends z.ZodType = z.ZodUnknown>(schema?: TResponseSchema): Promise<z.infer<TResponseSchema>> {

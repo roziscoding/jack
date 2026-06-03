@@ -129,18 +129,6 @@ export function getTorznabRouter(controller: TorznabController) {
       return xml(c, body, 400)
     }
 
-    logger.debug({
-      params: {
-        t,
-        q: c.req.query('q'),
-        imdbid: c.req.query('imdbid'),
-        tvdbid: c.req.query('tvdbid'),
-        season: c.req.query('season'),
-        ep: c.req.query('ep'),
-        cat: c.req.query('cat'),
-      },
-    }, 'Torznab request received')
-
     switch (t) {
       case 'caps': {
         return xml(c, CAPS_XML)
