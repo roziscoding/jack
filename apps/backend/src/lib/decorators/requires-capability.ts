@@ -20,7 +20,7 @@ export function requiresSource(
   return async function (this: any, ...args: any[]) {
     if (!this.canSource) {
       logger.warn({ connector: this.name }, `Blocked call: server "${this.name}" is not configured as a source`)
-      throw new AppError(`Server "${this.name}" is not configured as a source`, 'NOT_A_SOURCE')
+      throw new AppError(`Server "${this.name}" is not configured as a source`, 'NOT_A_SOURCE', { cause: undefined })
     }
     return target.apply(this, args)
   }
@@ -32,7 +32,7 @@ export function requiresDestination(
 ) {
   return async function (this: any, ...args: any[]) {
     if (!this.canDestination) {
-      throw new AppError(`Server "${this.name}" is not configured as a destination`, 'NOT_A_DESTINATION')
+      throw new AppError(`Server "${this.name}" is not configured as a destination`, 'NOT_A_DESTINATION', { cause: undefined })
     }
     return target.apply(this, args)
   }
