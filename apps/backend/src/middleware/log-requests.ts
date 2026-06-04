@@ -2,7 +2,7 @@ import type { AttributeValue, Span } from '@opentelemetry/api'
 import type { Context } from 'hono'
 import { trace } from '@opentelemetry/api'
 import { createMiddleware } from 'hono/factory'
-import { isSensitiveField, REDACTED, redactRecord } from '../lib/redact'
+import { redactIfSensitive, redactRecord } from '../lib/redact'
 import { logger } from '../logger'
 
 const MAX_CAPTURED_BODY_BYTES = 8 * 1024
@@ -73,7 +73,7 @@ function flattenedAttributes(prefix: string, record: Record<string, string | str
   return Object.fromEntries(
     Object.entries(record)
       .filter(([key]) => allowedFields.has(key.toLowerCase()))
-      .map(([key, value]) => [`${prefix}.${key.toLowerCase()}`, isSensitiveField(key) ? REDACTED : value]),
+      .map(([key, value]) => [`${prefix}.${key.toLowerCase()}`, redactIfSensitive(key, value)]),
   )
 }
 
