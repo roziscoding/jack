@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import z from 'zod'
 import { AppConfig, ConfigSecret, JackConfig, PeerConfig, ServerConfig } from '../lib/config'
@@ -6,14 +9,28 @@ const HEX_KEY = '0123456789abcdef0123456789abcdef'
 
 describe('configSecret', () => {
   const savedEnv = { ...process.env }
+  let emptyFile: string
+  let hexFile: string
+  let secretFile: string
+  let tempDir: string
 
   beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'jack-config-secret-'))
+    emptyFile = join(tempDir, 'empty')
+    hexFile = join(tempDir, 'hex')
+    secretFile = join(tempDir, 'secret')
+
+    writeFileSync(emptyFile, '\n')
+    writeFileSync(hexFile, `${HEX_KEY}\n`)
+    writeFileSync(secretFile, 'file-secret\n')
+
     process.env.MY_SECRET = 'super-secret'
     process.env.MY_HEX = HEX_KEY
     delete process.env.UNSET_SECRET
   })
 
   afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
     process.env = { ...savedEnv }
   })
 
@@ -23,6 +40,10 @@ describe('configSecret', () => {
 
   test('resolves an { env } reference from the environment', () => {
     expect(ConfigSecret().parse({ env: 'MY_SECRET' })).toBe('super-secret')
+  })
+
+  test('resolves a { file } reference from an absolute path', () => {
+    expect(ConfigSecret().parse({ file: secretFile })).toBe('file-secret')
   })
 
   test('fails with a clear message when the referenced env var is not set', () => {
@@ -36,8 +57,25 @@ describe('configSecret', () => {
     expect(ConfigSecret().safeParse({ env: 'EMPTY_SECRET' }).success).toBe(false)
   })
 
+  test('fails when the referenced file path is not absolute', () => {
+    const result = ConfigSecret().safeParse({ file: 'secret-file' })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toContain('must be absolute')
+  })
+
+  test('fails with a clear message when the referenced file cannot be read', () => {
+    const missingFile = join(tempDir, 'missing')
+    const result = ConfigSecret().safeParse({ file: missingFile })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toContain(missingFile)
+  })
+
   test('rejects an empty plain string by default', () => {
     expect(ConfigSecret().safeParse('').success).toBe(false)
+  })
+
+  test('rejects an empty file-resolved string by default', () => {
+    expect(ConfigSecret().safeParse({ file: emptyFile }).success).toBe(false)
   })
 
   test('applies the inner schema to plain strings', () => {
@@ -53,20 +91,47 @@ describe('configSecret', () => {
     expect(secret.safeParse({ env: 'MY_SECRET' }).success).toBe(false)
   })
 
-  test('exposes string | { env } as input and string as output', () => {
+  test('applies the inner schema to file-resolved values', () => {
+    const secret = ConfigSecret(z.hex().min(32).max(32))
+    expect(secret.parse({ file: hexFile })).toBe(HEX_KEY)
+    expect(secret.safeParse({ file: secretFile }).success).toBe(false)
+  })
+
+  test('exposes string | { env } | { file } as input and string as output', () => {
     const _secret = ConfigSecret()
     const _in1: z.input<typeof _secret> = 'literal'
     const _in2: z.input<typeof _secret> = { env: 'X' }
+    const _in3: z.input<typeof _secret> = { file: '/run/secrets/x' }
     const _out: z.output<typeof _secret> = 'a-string'
-    expect([_in1, _in2, _out]).toBeDefined()
+    expect([_in1, _in2, _in3, _out]).toBeDefined()
   })
 })
 
 describe('appConfig parsing', () => {
+  const savedEnv = { ...process.env }
+  let headerSecretFile: string
+  let jackSecretFile: string
+  let radarrKeyFile: string
+  let tempDir: string
+
   beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'jack-app-config-'))
+    headerSecretFile = join(tempDir, 'header-secret')
+    jackSecretFile = join(tempDir, 'jack-secret')
+    radarrKeyFile = join(tempDir, 'radarr-key')
+
+    writeFileSync(headerSecretFile, 'header-file-secret\n')
+    writeFileSync(jackSecretFile, 'jack-file-secret\n')
+    writeFileSync(radarrKeyFile, `${HEX_KEY}\n`)
+
     process.env.JACK_KEY = 'jack-secret'
     process.env.RADARR_KEY = HEX_KEY
     process.env.HEADER_SECRET = 'header-secret'
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+    process.env = { ...savedEnv }
   })
 
   test('parses a servers + peers config', () => {
@@ -131,6 +196,16 @@ describe('appConfig parsing', () => {
     expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
   })
 
+  test('resolves file-reference api keys into plain strings', () => {
+    const parsed = AppConfig.parse({
+      jack: { baseUrl: 'http://jack:3000', apiKey: { file: jackSecretFile } },
+      servers: [{ name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: { file: radarrKeyFile } }],
+    })
+
+    expect(parsed.jack?.apiKey).toBe('jack-file-secret')
+    expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
+  })
+
   test('resolves custom server and peer headers', () => {
     const parsed = AppConfig.parse({
       servers: [{
@@ -141,6 +216,7 @@ describe('appConfig parsing', () => {
         headers: {
           'X-Literal': 'literal-header',
           'X-Secret': { env: 'HEADER_SECRET' },
+          'X-Secret-File': { file: headerSecretFile },
         },
       }],
       peers: [{
@@ -149,12 +225,20 @@ describe('appConfig parsing', () => {
         apiKey: 'peer-key',
         headers: {
           'X-Peer-Secret': { env: 'HEADER_SECRET' },
+          'X-Peer-Secret-File': { file: headerSecretFile },
         },
       }],
     })
 
-    expect(parsed.servers[0]?.headers).toEqual({ 'X-Literal': 'literal-header', 'X-Secret': 'header-secret' })
-    expect(parsed.peers[0]?.headers).toEqual({ 'X-Peer-Secret': 'header-secret' })
+    expect(parsed.servers[0]?.headers).toEqual({
+      'X-Literal': 'literal-header',
+      'X-Secret': 'header-secret',
+      'X-Secret-File': 'header-file-secret',
+    })
+    expect(parsed.peers[0]?.headers).toEqual({
+      'X-Peer-Secret': 'header-secret',
+      'X-Peer-Secret-File': 'header-file-secret',
+    })
   })
 
   test('keeps the hex constraint for env-resolved server keys', () => {

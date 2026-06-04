@@ -1,15 +1,20 @@
 import type { Envs } from './envs'
+import { readFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import process from 'node:process'
 import { jsonc } from 'jsonc'
 import z from 'zod'
 import { logger } from '../logger'
 
+const TRAILING_LINE_ENDINGS = /[\r\n]+$/
+
 /**
- * A secret value (API key, token, ...) that can be supplied in two ways:
+ * A secret value (API key, token, ...) that can be supplied in three ways:
  *
  * - as a plain string: `"my-secret"`
  * - as a reference to an environment variable: `{ "env": "MY_SECRET" }`
+ * - as a reference to an absolute file path: `{ "file": "/run/secrets/my-secret" }`
  *
  * Whatever the input shape, the parsed value is always the resolved string, so
  * the rest of the codebase keeps reading `config.*.apiKey` as a plain string and
@@ -17,27 +22,54 @@ import { logger } from '../logger'
  *
  * @param value - schema used to validate the resolved string (defaults to a
  * non-empty string). It is applied both to literal strings and to values loaded
- * from the environment.
+ * from the environment or filesystem.
  */
 export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1)) {
   return z
-    .union([z.string(), z.object({ env: z.string().min(1) })])
+    .union([
+      z.string(),
+      z.object({ env: z.string().min(1) }),
+      z.object({ file: z.string().min(1) }),
+    ])
     .transform((input, ctx) => {
       if (typeof input === 'string')
         return input
 
-      const resolved = process.env[input.env]
+      if ('env' in input) {
+        const resolved = process.env[input.env]
 
-      if (!resolved) {
+        if (!resolved) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Environment variable "${input.env}" is not set`,
+            fatal: true,
+          })
+          return z.NEVER
+        }
+
+        return resolved
+      }
+
+      if (!isAbsolute(input.file)) {
         ctx.addIssue({
           code: 'custom',
-          message: `Environment variable "${input.env}" is not set`,
+          message: `Secret file path "${input.file}" must be absolute`,
           fatal: true,
         })
         return z.NEVER
       }
 
-      return resolved
+      try {
+        return readFileSync(input.file, 'utf8').replace(TRAILING_LINE_ENDINGS, '')
+      }
+      catch {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Secret file "${input.file}" could not be read`,
+          fatal: true,
+        })
+        return z.NEVER
+      }
     })
     .pipe(value)
 }

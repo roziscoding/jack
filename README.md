@@ -298,16 +298,17 @@ Field notes:
   characters** (Settings → General).
 - **`servers[].headers` / `peers[].headers`** are optional extra HTTP headers
   sent to that server/peer. Header values support the same plain-string or
-  `{ "env": "NAME" }` secret forms as API keys.
+  `{ "env": "NAME" }` / `{ "file": "/absolute/path" }` secret forms as API keys.
 - **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
   your **Radarr and Sonarr** containers at the **same paths** — jack registers
   the Torrent Blackhole client with these literal paths and *arr resolves them in
   its own filesystem (see the callout in [Quick start](#quick-start-docker-compose)).
 
-### Secrets from environment variables
+### Secrets from environment variables or files
 
-Any `apiKey` can be given either as a plain string or as a reference to an
-environment variable, so secrets can stay out of the config file:
+Any `apiKey` can be given as a plain string, as a reference to an environment
+variable, or as a reference to a secret file, so secrets can stay out of the
+config file:
 
 ```jsonc
 {
@@ -318,12 +319,22 @@ environment variable, so secrets can stay out of the config file:
 }
 ```
 
-Both forms are interchangeable everywhere an `apiKey` appears (`jack`, `servers`,
-`peers`) and for `servers[].headers` / `peers[].headers` values. The
-plain-string form keeps working unchanged. If a
-referenced variable is unset or empty at startup, jack reports which one and
-refuses to load that config. The default config jack writes on first boot uses
-this env form for `jack.apiKey` (reading `JACK_API_KEY`).
+```jsonc
+{
+  "jack": {
+    "baseUrl": "http://jack:5225",
+    "apiKey": { "file": "/run/secrets/jack_api_key" } // path must be absolute
+  }
+}
+```
+
+All three forms are interchangeable everywhere an `apiKey` appears (`jack`,
+`servers`, `peers`) and for `servers[].headers` / `peers[].headers` values. The
+plain-string form keeps working unchanged. File paths must be absolute; trailing
+line endings are ignored. If a referenced variable is unset/empty, or a secret
+file cannot be read or resolves to an empty value at startup, jack reports the
+problem and refuses to load that config. The default config jack writes on first
+boot uses the env form for `jack.apiKey` (reading `JACK_API_KEY`).
 
 ## Environment variables
 

@@ -1,10 +1,11 @@
 {
   // Every "apiKey" below, and every value under a "headers" object, can be
-  // written in TWO ways:
-  //   1. a plain string:                 "apiKey": "my-secret"
+  // written in THREE ways:
+  //   1. a plain string:                  "apiKey": "my-secret"
   //   2. a reference to an env variable:  "apiKey": { "env": "MY_SECRET" }
-  // The env form keeps secrets out of this file (recommended for deployments).
-  // Both forms are interchangeable; jack resolves them to the same string.
+  //   3. a reference to a secret file:    "apiKey": { "file": "/run/secrets/my-secret" }
+  // Env/file forms keep secrets out of this file (recommended for deployments).
+  // File paths must be absolute. All forms resolve to the same string.
 
   // Identity of THIS jack instance. Required for the Torznab indexer and
   // for peers to reach you. `baseUrl` must be reachable from your *arr apps.
@@ -15,6 +16,8 @@
     // You hand this SAME value to your peers so they can reach you, and your
     // Radarr/Sonarr use it to query your Torznab indexer (see README).
     // Here it is read from the JACK_API_KEY environment variable.
+    // You can also use a secret file, for example:
+    //   "apiKey": { "file": "/run/secrets/jack_api_key" }
     "apiKey": { "env": "JACK_API_KEY" }
   },
 
@@ -52,7 +55,10 @@
     //   "name": "friend",
     //   "url": "https://their-jack.example.com",
     //   "apiKey": "their-shared-secret",
-    //   "headers": { "CF-Access-Client-Secret": { "env": "FRIEND_CF_SECRET" } }
+    //   "headers": {
+    //     "CF-Access-Client-Secret": { "env": "FRIEND_CF_SECRET" },
+    //     "CF-Access-Client-Id": { "file": "/run/secrets/friend_cf_client_id" }
+    //   }
     // }
   ]
 }
