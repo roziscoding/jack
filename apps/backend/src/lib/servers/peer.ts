@@ -13,9 +13,29 @@ const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
 const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
 const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
 
+export type PeerDownloadProgressEvent
+  = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | null, expectedBytesMismatch: boolean }
+    | { type: 'progress', downloadedBytes: number, expectedBytes: number | null }
+    | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
+
 export interface PeerDownloadOptions {
   timeoutMs?: number
   torrentFilename?: string
+  partPath?: string
+  releaseSize?: number
+  onProgress?: (event: PeerDownloadProgressEvent) => void | Promise<void>
+}
+
+function parseContentLength(headers: Headers): number | null {
+  const raw = headers.get('Content-Length')
+  if (!raw)
+    return null
+
+  const parsed = Number(raw)
+  if (!Number.isSafeInteger(parsed) || parsed < 0)
+    return null
+
+  return parsed
 }
 
 /**
@@ -132,7 +152,7 @@ export class PeerConnector extends ServerConnector {
       const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000
       const torrentFilename = options.torrentFilename
       const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
-      const partPath = `${destPath}.part`
+      const partPath = options.partPath ?? `${destPath}.part`
       span.setAttributes({
         'http.request.timeout_ms': timeoutMs,
         'url.path': url.pathname,
@@ -153,11 +173,32 @@ export class PeerConnector extends ServerConnector {
         throw new Error('Peer returned a file response without a body')
       }
 
-      const contentLength = Number(response.headers.get('Content-Length') || 0)
-      span.setAttribute('download.expected_bytes', contentLength)
-      if (contentLength > MAX_DOWNLOAD_BYTES) {
-        throw new Error(`File too large: ${contentLength} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
+      const expectedBytes = parseContentLength(response.headers)
+      const expectedBytesMismatch = expectedBytes != null && options.releaseSize != null && expectedBytes !== options.releaseSize
+      if (expectedBytes != null)
+        span.setAttribute('download.expected_bytes', expectedBytes)
+      span.setAttribute('download.expected_bytes_source', expectedBytes == null ? 'unknown' : 'content_length')
+      span.setAttribute('download.expected_bytes_mismatch', expectedBytesMismatch)
+
+      if (expectedBytesMismatch) {
+        logger.warn({
+          id,
+          torrentFilename,
+          releaseSize: options.releaseSize,
+          expectedBytes,
+          peer: this.name,
+        }, 'Peer file Content-Length differs from release metadata size')
       }
+
+      await options.onProgress?.({
+        type: 'headers',
+        expectedBytes,
+        expectedBytesSource: expectedBytes == null ? null : 'content_length',
+        expectedBytesMismatch,
+      })
+
+      if (expectedBytes != null && expectedBytes > MAX_DOWNLOAD_BYTES)
+        throw new Error(`File too large: ${expectedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
 
       const reader = response.body.getReader()
       const writer = Bun.file(partPath).writer()
@@ -192,7 +233,8 @@ export class PeerConnector extends ServerConnector {
           const shouldLogProgress = downloadedBytes - lastLoggedBytes >= DOWNLOAD_PROGRESS_BYTES || now - lastLoggedAt >= DOWNLOAD_PROGRESS_INTERVAL_MS
           if (lastLoggedBytes === 0 || shouldLogProgress) {
             await writer.flush()
-            logger.debug({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes: contentLength, peer: this.name }, 'Download progress from peer')
+            logger.debug({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes, peer: this.name }, 'Download progress from peer')
+            await options.onProgress?.({ type: 'progress', downloadedBytes, expectedBytes })
             lastLoggedAt = now
             lastLoggedBytes = downloadedBytes
           }
@@ -201,12 +243,18 @@ export class PeerConnector extends ServerConnector {
         endWriter()
         reader.releaseLock()
 
-        if (contentLength > 0 && downloadedBytes !== contentLength) {
-          throw new Error(`Incomplete file download: got ${downloadedBytes} bytes, expected ${contentLength}`)
-        }
+        if (expectedBytes != null && downloadedBytes !== expectedBytes)
+          throw new Error(`Incomplete file download: got ${downloadedBytes} bytes, expected ${expectedBytes}`)
 
         await rename(partPath, destPath)
         span.setAttribute('download.downloaded_bytes', downloadedBytes)
+        try {
+          await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.error({ id, torrentFilename, destPath, downloadedBytes, expectedBytes, peer: this.name, error: message }, 'Completed download progress callback failed')
+        }
       }
       catch (err) {
         try {

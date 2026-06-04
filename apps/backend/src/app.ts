@@ -2,6 +2,7 @@ import type { AppConfig } from './lib/config'
 import type { Envs } from './lib/envs'
 import type { ArrServerConnector } from './lib/servers/arr/base'
 import type { PeerConnector } from './lib/servers/peer'
+import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
@@ -9,6 +10,8 @@ import { getAppEnvs, isOtelEnabled } from './lib/envs'
 import { handleError } from './middleware/handle-error'
 import { logRequests } from './middleware/log-requests'
 import { requireApiKey } from './middleware/require-auth'
+import { DownloadsController } from './modules/downloads/downloads.controller'
+import { getDownloadsRouter } from './modules/downloads/downloads.router'
 import { ItemsController } from './modules/items/items.controller'
 import { getItemsRouter } from './modules/items/items.router'
 import { PeerController } from './modules/peer/peer.controller'
@@ -24,18 +27,24 @@ interface Connectors {
   peers: PeerConnector[]
 }
 
-export function getApp(envs: Envs, config: AppConfig, connectors: Connectors) {
+interface AppServices {
+  downloadsRepository?: DownloadsRepository
+}
+
+export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, services: AppServices = {}) {
   const app = new Hono()
 
   // Controllers
   const serversController = new ServersController({ servers: connectors.servers, peers: connectors.peers })
   const itemsController = new ItemsController({ sources: connectors.servers })
   const peerController = new PeerController(connectors.servers)
+  const downloadsController = services.downloadsRepository ? new DownloadsController(services.downloadsRepository) : null
 
   // Routers
   const serversRouter = getServersRouter(serversController)
   const itemsRouter = getItemsRouter(itemsController)
   const peerRouter = getPeerRouter(peerController)
+  const downloadsRouter = downloadsController ? getDownloadsRouter(downloadsController) : null
 
   app.use('*', secureHeaders())
 
@@ -57,6 +66,9 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors) {
 
   app.route('/servers', serversRouter)
   app.route('/items', itemsRouter)
+
+  if (downloadsRouter)
+    app.route('/downloads', downloadsRouter)
 
   if (config.jack) {
     const jackConfig = config.jack
