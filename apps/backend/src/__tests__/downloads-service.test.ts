@@ -129,9 +129,7 @@ describe('DownloadsService download progress persistence', () => {
     expect(await Bun.file(evilOutside).exists()).toBe(false)
     expect(await Bun.file(`${evilOutside}.part`).exists()).toBe(false)
 
-    const downloads = repository.list()
-    expect(downloads).toHaveLength(1)
-    expect(downloads[0]?.status).toBe('failed')
+    expect(repository.list()).toHaveLength(0)
     handle.close()
   })
 

@@ -61,6 +61,9 @@ export class DownloadsService {
           && !safeName.includes('/') && !safeName.includes('\\')
           && release.filename === safeName
 
+        if (!isSafeName)
+          throw new Error(`Unsafe release filename from peer: ${release.filename}`)
+
         const destPath = join(this.config.completedPath, safeName)
         const partPath = `${destPath}.part`
         span.setAttributes({ 'release.filename': safeName, 'release.size': release.size })
@@ -100,9 +103,6 @@ export class DownloadsService {
         // `import_queued` means: the file downloaded AND triggerImport was
         // attempted (best-effort per destination — see triggerImport below).
         try {
-          if (!isSafeName)
-            throw new Error(`Unsafe release filename from peer: ${release.filename}`)
-
           await peer.downloadFile(itemId, destPath, { torrentFilename: filename, partPath, releaseSize: release.size, onProgress })
           await unlink(filePath)
           await this.triggerImport(filename)

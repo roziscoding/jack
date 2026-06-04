@@ -178,4 +178,32 @@ describe('PeerConnector.downloadFile', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  test('does not fail a completed file download when the completed progress callback throws', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+        return new Response(streamOf([1, 2, 3, 4]), { headers: { 'Content-Length': '4' } })
+      }),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-completed-callback-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        onProgress: (event) => {
+          if (event.type === 'completed')
+            throw new Error('tracking write failed')
+        },
+      })
+
+      expect(await Bun.file(partPath).exists()).toBe(false)
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

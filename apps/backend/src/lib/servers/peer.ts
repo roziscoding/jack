@@ -248,7 +248,13 @@ export class PeerConnector extends ServerConnector {
 
         await rename(partPath, destPath)
         span.setAttribute('download.downloaded_bytes', downloadedBytes)
-        await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
+        try {
+          await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.error({ id, torrentFilename, destPath, downloadedBytes, expectedBytes, peer: this.name, error: message }, 'Completed download progress callback failed')
+        }
       }
       catch (err) {
         try {
