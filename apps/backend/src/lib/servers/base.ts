@@ -170,6 +170,9 @@ export abstract class ServerConnector {
       return
     }
 
+    const retrying = this._initState === 'failed'
+    const previousError = this._initializationError ?? undefined
+
     if (this._initState === 'failed') {
       logger.info({ connector: this.name, url: this.url, previousError: this._initializationError }, `Retrying connector "${this.name}" that previously failed to initialize`)
     }
@@ -182,7 +185,17 @@ export abstract class ServerConnector {
     // doesn't surface as an unhandled promise rejection.
     this._initialization.promise.catch(() => {})
 
-    this.runInit()
+    withSpan('server.init', {
+      'connector.name': this.name,
+      'connector.type': this.type,
+      'connector.id': this.id,
+      'server.url': this.url,
+      'init.retry': retrying,
+      'init.previous_error': previousError,
+    }, async (span) => {
+      await this.runInit()
+      span.setAttribute('connector.initialized', true)
+    })
       .then(() => {
         this._isInitialized = true
         this._initState = 'initialized'

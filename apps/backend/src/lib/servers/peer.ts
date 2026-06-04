@@ -37,8 +37,15 @@ export class PeerConnector extends ServerConnector {
   }
 
   protected override async runInit(): Promise<void> {
-    await this.ping()
-    logger.debug(`Connected to Jack peer ${this.name}`)
+    await withSpan('peer.init', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+      'server.url': this.url,
+    }, async (span) => {
+      await this.ping()
+      span.setAttribute('peer.initialized', true)
+      logger.debug(`Connected to Jack peer ${this.name}`)
+    })
   }
 
   @requireInitialization
