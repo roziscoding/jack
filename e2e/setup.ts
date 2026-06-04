@@ -1,4 +1,6 @@
+/* eslint-disable no-console */
 import { join } from 'node:path'
+import process from 'node:process'
 import { fetchJson, retry, waitForUrl } from './helpers'
 
 const RADARR_URL = 'http://localhost:17878'
@@ -10,6 +12,7 @@ const CONFIG_DIR = join(import.meta.dir, 'config')
 // fixture at fixtures/media/movies/Big Buck Bunny (2008)/Big Buck Bunny.mkv.
 const BIG_BUCK_TMDB_ID = 10378
 
+const API_KEY_REGEX = /<ApiKey>([^<]+)<\/ApiKey>/
 async function extractApiKey(service: 'Radarr' | 'Sonarr', url: string): Promise<string> {
   console.log(`⏳ Waiting for ${service}...`)
   await waitForUrl(`${url}/ping`)
@@ -17,7 +20,7 @@ async function extractApiKey(service: 'Radarr' | 'Sonarr', url: string): Promise
 
   // Extract API key from config.xml inside the container.
   const result = await Bun.$`docker compose -f ${join(import.meta.dir, 'docker-compose.yml')} exec ${service.toLowerCase()} cat /config/config.xml`.text()
-  const match = result.match(/<ApiKey>([^<]+)<\/ApiKey>/)
+  const match = result.match(API_KEY_REGEX)
   const apiKey = match?.[1]
   if (!apiKey)
     throw new Error(`Could not extract API key from ${service}`)

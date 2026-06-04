@@ -1,10 +1,22 @@
+import type { ConnectorHeadersConfig } from '../config'
+import { rename, unlink } from 'node:fs/promises'
 import z from 'zod'
 import { logger } from '../../logger'
+import { requireInitialization } from '../decorators/require-initialization'
 import { FetchError } from '../errors/FetchError'
 import { normalizeImdbId, Release } from '../release'
+import { withSpan } from '../tracing'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({ items: z.array(Release) })
+const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
+const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
+const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
+
+export interface PeerDownloadOptions {
+  timeoutMs?: number
+  torrentFilename?: string
+}
 
 /**
  * A connector to another jack instance (a "peer"). Sources only: we fan out
@@ -12,7 +24,7 @@ const PeerSearchResponse = z.object({ items: z.array(Release) })
  * `Release`s, just like a local arr source.
  */
 export class PeerConnector extends ServerConnector {
-  constructor(config: { url: string, apiKey: string, name: string }) {
+  constructor(config: { url: string, apiKey: string, name: string, headers?: ConnectorHeadersConfig }) {
     super({
       pingPath: '/peer/search',
       pingMethod: 'GET',
@@ -29,71 +41,178 @@ export class PeerConnector extends ServerConnector {
     logger.debug(`Connected to Jack peer ${this.name}`)
   }
 
+  @requireInitialization
   async searchByImdbId(imdbId: string): Promise<Release[]> {
-    logger.debug({ peer: this.name, imdbId }, 'Asking peer for items by imdbId')
-    const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
-    // Defensive: an older/over-eager peer may return more than asked (e.g. its
-    // whole catalog), so keep only the releases that actually match the id.
-    const target = normalizeImdbId(imdbId)
-    const matched = items.filter(r => r.imdbId != null && normalizeImdbId(r.imdbId) === target)
-    logger.debug({ peer: this.name, imdbId, returned: items.length, matched: matched.length }, 'Peer answered (imdb search)')
-    return matched
+    return withSpan('peer.search_by_imdb', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+      'search.imdb_id': imdbId,
+    }, async (span) => {
+      const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
+      // Defensive: an older/over-eager peer may return more than asked (e.g. its
+      // whole catalog), so keep only the releases that actually match the id.
+      const target = normalizeImdbId(imdbId)
+      const matched = items.filter(r => r.imdbId != null && normalizeImdbId(r.imdbId) === target)
+      span.setAttributes({ 'release.returned_count': items.length, 'release.matched_count': matched.length })
+      return matched
+    })
   }
 
+  @requireInitialization
   async searchByTmdbId(tmdbId: string): Promise<Release[]> {
-    logger.debug({ peer: this.name, tmdbId }, 'Asking peer for items by tmdbId')
-    const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
-    const matched = items.filter(r => r.tmdbId != null && String(r.tmdbId) === tmdbId)
-    logger.debug({ peer: this.name, tmdbId, returned: items.length, matched: matched.length }, 'Peer answered (tmdb search)')
-    return matched
+    return withSpan('peer.search_by_tmdb', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+      'search.tmdb_id': tmdbId,
+    }, async (span) => {
+      const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
+      const matched = items.filter(r => r.tmdbId != null && String(r.tmdbId) === tmdbId)
+      span.setAttributes({ 'release.returned_count': items.length, 'release.matched_count': matched.length })
+      return matched
+    })
   }
 
   /** Full catalog of the peer's releases (no filter) — used for the RSS feed. */
+  @requireInitialization
   async listReleases(): Promise<Release[]> {
-    logger.debug({ peer: this.name }, 'Asking peer for its full catalog')
-    const { items } = await this.fetch('/peer/search', { method: 'GET', schema: PeerSearchResponse })
-    logger.debug({ peer: this.name, count: items.length }, 'Peer answered (catalog)')
-    return items
+    return withSpan('peer.catalog', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+    }, async (span) => {
+      const { items } = await this.fetch('/peer/search', { method: 'GET', schema: PeerSearchResponse })
+      span.setAttribute('release.count', items.length)
+      return items
+    })
   }
 
+  @requireInitialization
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
-    const query: Record<string, string> = { tvdbId }
-    if (season != null)
-      query.season = String(season)
-    if (episode != null)
-      query.episode = String(episode)
-    logger.debug({ peer: this.name, tvdbId, season, episode }, 'Asking peer for items by tvdbId')
-    const { items } = await this.fetch('/peer/search', { method: 'GET', query, schema: PeerSearchResponse })
-    const matched = items.filter(r =>
-      r.tvdbId != null && String(r.tvdbId) === tvdbId
-      && (season == null || r.season === season)
-      && (episode == null || r.episode === episode))
-    logger.debug({ peer: this.name, tvdbId, season, episode, returned: items.length, matched: matched.length }, 'Peer answered (tvdb search)')
-    return matched
+    return withSpan('peer.search_by_tvdb', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+      'search.tvdb_id': tvdbId,
+      'search.season': season,
+      'search.episode': episode,
+    }, async (span) => {
+      const query: Record<string, string> = { tvdbId }
+      if (season != null)
+        query.season = String(season)
+      if (episode != null)
+        query.episode = String(episode)
+      const { items } = await this.fetch('/peer/search', { method: 'GET', query, schema: PeerSearchResponse })
+      const matched = items.filter(r =>
+        r.tvdbId != null && String(r.tvdbId) === tvdbId
+        && (season == null || r.season === season)
+        && (episode == null || r.episode === episode))
+      span.setAttributes({ 'release.returned_count': items.length, 'release.matched_count': matched.length })
+      return matched
+    })
   }
 
+  @requireInitialization
   async getRelease(id: string): Promise<Release> {
     return this.fetch(`/peer/items/${encodeURIComponent(id)}`, { method: 'GET', schema: Release })
   }
 
-  async downloadFile(id: string, destPath: string, timeoutMs = 30 * 60 * 1000): Promise<void> {
-    const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
-    const response = await fetch(url, {
-      headers: { 'X-Api-Key': this.apiKey },
-      signal: AbortSignal.timeout(timeoutMs),
+  @requireInitialization
+  async downloadFile(id: string, destPath: string, options: PeerDownloadOptions = {}): Promise<void> {
+    return withSpan('peer.download_file', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+      'item.id': id,
+      'torrent.filename': options.torrentFilename,
+    }, async (span) => {
+      const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000
+      const torrentFilename = options.torrentFilename
+      const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
+      const partPath = `${destPath}.part`
+      span.setAttributes({
+        'http.request.timeout_ms': timeoutMs,
+        'url.path': url.pathname,
+      })
+
+      const response = await fetch(url, {
+        headers: { ...this.headers, 'X-Api-Key': this.apiKey },
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+
+      span.setAttribute('http.response.status_code', response.status)
+
+      if (!response.ok) {
+        throw new FetchError(`Failed to download file from peer: ${response.statusText}`, response)
+      }
+
+      if (!response.body) {
+        throw new Error('Peer returned a file response without a body')
+      }
+
+      const contentLength = Number(response.headers.get('Content-Length') || 0)
+      span.setAttribute('download.expected_bytes', contentLength)
+      if (contentLength > MAX_DOWNLOAD_BYTES) {
+        throw new Error(`File too large: ${contentLength} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
+      }
+
+      const reader = response.body.getReader()
+      const writer = Bun.file(partPath).writer()
+      let downloadedBytes = 0
+      let lastLoggedAt = Date.now()
+      let lastLoggedBytes = 0
+      let writerEnded = false
+
+      const endWriter = () => {
+        if (writerEnded)
+          return
+        writer.end()
+        writerEnded = true
+      }
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done)
+            break
+          if (!value)
+            continue
+
+          downloadedBytes += value.byteLength
+          if (downloadedBytes > MAX_DOWNLOAD_BYTES) {
+            throw new Error(`File too large: downloaded ${downloadedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
+          }
+
+          writer.write(value)
+
+          const now = Date.now()
+          const shouldLogProgress = downloadedBytes - lastLoggedBytes >= DOWNLOAD_PROGRESS_BYTES || now - lastLoggedAt >= DOWNLOAD_PROGRESS_INTERVAL_MS
+          if (lastLoggedBytes === 0 || shouldLogProgress) {
+            await writer.flush()
+            logger.debug({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes: contentLength, peer: this.name }, 'Download progress from peer')
+            lastLoggedAt = now
+            lastLoggedBytes = downloadedBytes
+          }
+        }
+
+        endWriter()
+        reader.releaseLock()
+
+        if (contentLength > 0 && downloadedBytes !== contentLength) {
+          throw new Error(`Incomplete file download: got ${downloadedBytes} bytes, expected ${contentLength}`)
+        }
+
+        await rename(partPath, destPath)
+        span.setAttribute('download.downloaded_bytes', downloadedBytes)
+      }
+      catch (err) {
+        try {
+          endWriter()
+        }
+        catch {}
+        try {
+          reader.releaseLock()
+        }
+        catch {}
+        await unlink(partPath).catch(() => {})
+        throw err
+      }
     })
-
-    if (!response.ok) {
-      throw new FetchError(`Failed to download file from peer: ${response.statusText}`, response)
-    }
-
-    const contentLength = Number(response.headers.get('Content-Length') || 0)
-    const maxSize = 100 * 1024 * 1024 * 1024 // 100GB
-    if (contentLength > maxSize) {
-      throw new Error(`File too large: ${contentLength} bytes exceeds ${maxSize} byte limit`)
-    }
-
-    await Bun.write(destPath, response)
-    logger.info({ id, destPath, size: contentLength, peer: this.name }, 'Downloaded file from peer')
   }
 }

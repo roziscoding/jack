@@ -15,7 +15,12 @@ export const Envs = z.object({
   OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.url().optional(),
   OTEL_SERVICE_NAME: z.string().default('jack-backend'),
-})
+  NODE_ENV: z.string().optional(),
+  ENABLE_LOGS: z.stringbool().optional().default(true),
+}).transform(vars => ({
+  ...vars,
+  ENABLE_LOGS: vars.NODE_ENV !== 'test' && vars.ENABLE_LOGS,
+}))
 
 export type Envs = z.infer<typeof Envs>
 

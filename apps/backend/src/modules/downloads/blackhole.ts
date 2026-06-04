@@ -1,9 +1,11 @@
 import type { AppConfig } from '../../lib/config'
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
+import { Buffer } from 'node:buffer'
 import { watch } from 'node:fs'
 import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 import { parseTorrentStub } from '../torznab/torrent'
 
@@ -33,6 +35,7 @@ export class BlackholeWatcher {
         return
 
       const filePath = join(watchPath, filename)
+      logger.debug({ torrentFilename: filename, filePath, watchPath }, 'Torrent file detected in watch folder')
       if (!await this.waitForStableFile(filePath))
         return
       await this.processTorrent(filePath, filename)
@@ -63,16 +66,24 @@ export class BlackholeWatcher {
   }
 
   private async scanExisting() {
+    logger.debug({ watchPath: this.config.watchPath }, 'Starting watch folder scan')
+
     try {
       const files = await readdir(this.config.watchPath)
-      for (const file of files) {
-        if (file.endsWith('.torrent')) {
-          await this.processTorrent(join(this.config.watchPath, file), file)
-        }
+      const torrentFiles = files.filter(file => file.endsWith('.torrent'))
+
+      logger.debug({ watchPath: this.config.watchPath, filesFound: torrentFiles.length }, 'Watch folder scan complete')
+
+      for (const file of torrentFiles) {
+        const filePath = join(this.config.watchPath, file)
+        logger.debug({ torrentFilename: file, filePath, watchPath: this.config.watchPath }, 'Torrent file found in watch folder scan')
+        await this.processTorrent(filePath, file)
       }
     }
-    catch {
+    catch (err) {
       // Directory might not exist yet
+      const message = err instanceof Error ? err.message : String(err)
+      logger.warn({ watchPath: this.config.watchPath, error: message }, 'Watch folder scan failed')
     }
   }
 
@@ -82,58 +93,88 @@ export class BlackholeWatcher {
     this.processing.add(filename)
 
     try {
-      const file = Bun.file(filePath)
-      if (!await file.exists())
-        return
+      await withSpan('blackhole.process_torrent', {
+        'torrent.filename': filename,
+      }, async (span) => {
+        const file = Bun.file(filePath)
+        if (!await file.exists()) {
+          span.setAttribute('torrent.exists', false)
+          return
+        }
 
-      const data = Buffer.from(await file.arrayBuffer())
-      const stub = parseTorrentStub(data)
+        span.setAttribute('torrent.exists', true)
+        const data = Buffer.from(await file.arrayBuffer())
+        const stub = parseTorrentStub(data)
 
-      if (!stub) {
-        logger.warn({ filename }, 'Could not parse torrent stub, skipping')
-        return
-      }
+        if (!stub) {
+          span.setAttribute('torrent.stub.valid', false)
+          logger.warn({ torrentFilename: filename, filename }, 'Could not parse torrent stub, skipping')
+          return
+        }
 
-      const { peerId, itemId } = stub
-      const peer = this.peers.find(p => p.id === peerId && p.isInitialized)
+        span.setAttribute('torrent.stub.valid', true)
+        const { peerId, itemId } = stub
+        span.setAttributes({
+          'peer.id': peerId,
+          'item.id': itemId,
+        })
 
-      if (!peer) {
-        logger.error({ peerId, filename }, 'Peer not found or not initialized')
-        return
-      }
+        // No isInitialized pre-filter: the peer methods are guarded by
+        // @requireInitialization, so a peer that was down at boot gets
+        // re-initialized lazily on the getRelease/downloadFile calls below.
+        const peer = this.peers.find(p => p.id === peerId)
 
-      logger.info({ peerId, itemId, peer: peer.name ?? peer.url }, 'Downloading from peer')
+        if (!peer) {
+          span.setAttribute('peer.found', false)
+          logger.error({ torrentFilename: filename, peerId, filename }, 'Peer not found')
+          return
+        }
 
-      const release = await peer.getRelease(itemId)
-      const destPath = join(this.config.completedPath, release.filename)
+        span.setAttributes({
+          'peer.found': true,
+          'peer.name': peer.name ?? peer.url,
+        })
 
-      await peer.downloadFile(itemId, destPath)
+        const release = await peer.getRelease(itemId)
+        const destPath = join(this.config.completedPath, release.filename)
+        span.setAttributes({
+          'release.filename': release.filename,
+          'release.size': release.size,
+        })
 
-      // Remove the .torrent stub
-      await unlink(filePath)
+        await peer.downloadFile(itemId, destPath, { torrentFilename: filename })
 
-      // Trigger import scan on all destinations
-      await this.triggerImport()
+        // Remove the .torrent stub
+        await unlink(filePath)
 
-      logger.info({ filename: release.filename, destPath }, 'Download complete, triggered import')
+        // Trigger import scan on all destinations
+        await this.triggerImport(filename)
+
+        logger.info({ torrentFilename: filename, filename: release.filename }, 'Download complete, triggered import')
+      })
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      logger.error({ filename, error: message }, 'Failed to process torrent')
+      logger.error({ torrentFilename: filename, filename, error: message }, 'Failed to process torrent')
     }
     finally {
       this.processing.delete(filename)
     }
   }
 
-  private async triggerImport() {
+  private async triggerImport(torrentFilename: string) {
     for (const dest of this.destinations.filter(d => d.isInitialized && d.canDestination)) {
       try {
-        await dest.triggerImport(this.config.completedPath)
+        await withSpan('blackhole.trigger_import', {
+          'torrent.filename': torrentFilename,
+          'destination.name': dest.name,
+        }, async () => {
+          await dest.triggerImport(this.config.completedPath)
+        })
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        logger.error({ destination: dest.name, error: message }, 'Failed to trigger import')
+        logger.error({ torrentFilename, destination: dest.name, error: message }, 'Failed to trigger import')
       }
     }
   }

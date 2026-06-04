@@ -18,15 +18,21 @@ const PINO_LEVEL_TO_SEVERITY: Record<number, SeverityNumber> = {
   60: SeverityNumber.FATAL,
 }
 
+const logFormatters = {
+  level(label: string, level: number) {
+    return { level, severity: label }
+  },
+}
+
 // Tie logs to traces: stamp each log with the active span's ids. Runs in the
 // main thread on every log, so the request span (set by the @hono/otel
 // middleware) is current. Returns nothing when there's no active span.
 function traceContextMixin() {
   const span = trace.getActiveSpan()
   if (!span)
-    return {}
+    return { environment: envs.ENVIRONMENT }
   const { traceId, spanId, traceFlags } = span.spanContext()
-  return { trace_id: traceId, span_id: spanId, trace_flags: traceFlags.toString(16) }
+  return { environment: envs.ENVIRONMENT, trace_id: traceId, span_id: spanId, trace_flags: traceFlags.toString(16) }
 }
 
 // In-process bridge from pino to the OpenTelemetry Logs API. Each finished pino
@@ -50,14 +56,20 @@ const otelLogStream = {
     // Everything that isn't a standard pino field becomes a log attribute. The
     // trace ids are dropped — the active span is attached natively below.
     const attributes = { ...record }
-    for (const key of ['time', 'level', 'msg', 'hostname', 'pid', 'trace_id', 'span_id', 'trace_flags'])
+    for (const key of ['time', 'level', 'severity', 'message', 'msg', 'hostname', 'pid', 'trace_id', 'span_id', 'trace_flags'])
       delete attributes[key]
+
+    const body = typeof record.message === 'string'
+      ? record.message
+      : typeof record.msg === 'string'
+        ? record.msg
+        : undefined
 
     logs.getLogger(envs.OTEL_SERVICE_NAME).emit({
       timestamp: typeof record.time === 'number' ? record.time : undefined,
       severityNumber: PINO_LEVEL_TO_SEVERITY[level] ?? SeverityNumber.UNSPECIFIED,
       severityText: levels.labels[level],
-      body: typeof record.msg === 'string' ? record.msg : undefined,
+      body,
       attributes: attributes as LogAttributes,
     })
   },
@@ -67,18 +79,13 @@ const otelLogStream = {
 // in-process multistream — no worker thread, which `thread-stream` transports
 // don't survive under Bun. With tracing off, keep the original path:
 // pretty-printed in dev, plain synchronous stdout in production.
-export const logger = otelEnabled
-  ? pino(
-      { level: envs.LOG_LEVEL, mixin: traceContextMixin },
-      // Each stream needs the level too: multistream defaults entries to `info`
-      // and would otherwise drop everything below it (e.g. our request traces).
-      multistream([
-        { stream: process.stdout, level: envs.LOG_LEVEL },
-        { stream: otelLogStream, level: envs.LOG_LEVEL },
-      ]),
-    )
-  : pino({
+function getLogger() {
+  if (!otelEnabled) {
+    return pino({
+      enabled: envs.ENABLE_LOGS,
       level: envs.LOG_LEVEL,
+      messageKey: 'message',
+      formatters: logFormatters,
       mixin: traceContextMixin,
       transport: envs.ENVIRONMENT !== 'production'
         ? {
@@ -86,8 +93,27 @@ export const logger = otelEnabled
             options: {
               colorize: true,
               singleLine: true,
-              ignore: 'pid,hostname',
+              messageKey: 'message',
+              ignore: 'pid,hostname,severity',
             },
           }
         : undefined,
     })
+  }
+
+  return pino(
+    {
+      enabled: envs.ENABLE_LOGS,
+      level: envs.LOG_LEVEL,
+      messageKey: 'message',
+      formatters: logFormatters,
+      mixin: traceContextMixin,
+    },
+    multistream([
+      { stream: process.stdout, level: envs.LOG_LEVEL },
+      { stream: otelLogStream, level: envs.LOG_LEVEL },
+    ]),
+  )
+}
+
+export const logger = getLogger()

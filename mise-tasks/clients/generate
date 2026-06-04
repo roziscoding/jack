@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+#MISE description="Generate schema clients from OpenAPI definitions"
 #MISE wait_for=["clients:clean"]
 
 bun run --cwd packages/schemas openapi-ts

@@ -3,16 +3,8 @@ import { Hono } from 'hono'
 import { validator as zValidator } from 'hono-openapi'
 import z from 'zod'
 
-export function getPeerRouter(controller: PeerController, apiKey: string) {
+export function getPeerRouter(controller: PeerController) {
   const app = new Hono()
-
-  app.use('*', async (c, next) => {
-    const key = c.req.header('X-Api-Key') ?? c.req.query('apikey')
-    if (key !== apiKey) {
-      return c.json({ error: 'Unauthorized' }, 401)
-    }
-    await next()
-  })
 
   app.get(
     '/search',

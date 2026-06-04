@@ -1,4 +1,5 @@
 import type { AppConfig } from '../lib/config'
+import type { Envs } from '../lib/envs'
 import type { Release } from '../lib/release'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
@@ -96,6 +97,17 @@ const config: AppConfig = {
   peers: [],
 }
 
+const envs: Envs = {
+  APP_CONFIG_PATH: '/data/config.json',
+  ENABLE_LOGS: false,
+  ENVIRONMENT: 'test' as any,
+  HTTP_TIMEOUT_MS: 3000,
+  LOG_LEVEL: 'fatal',
+  OTEL_SERVICE_NAME: 'jack-server',
+  PORT: 3000,
+  NODE_ENV: 'test',
+}
+
 const AUTOREGISTER = { enable: true, priority: 1 }
 
 function markInitialized<T extends object>(connector: T): T {
@@ -117,7 +129,7 @@ function makeRadarr(overrides?: { source?: boolean, destination?: boolean }) {
 function createTestApp() {
   const radarr = markInitialized(makeRadarr())
   const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
-  return { app: getApp(config, { servers: [radarr], peers: [peer] }), radarr, peer }
+  return { app: getApp(envs, config, { servers: [radarr], peers: [peer] }), radarr, peer }
 }
 
 describe('Peer API', () => {
@@ -135,6 +147,9 @@ describe('Peer API', () => {
   test('GET /peer/search rejects wrong apiKey', async () => {
     const { app } = createTestApp()
     const res = await app.request('/peer/search?q=Matrix&apikey=wrong-key')
+    if (res.status !== 401) {
+      console.error(await res.text())
+    }
     expect(res.status).toBe(401)
   })
 
@@ -170,6 +185,7 @@ describe('Torznab API', () => {
     expect(xml).toContain('<rss version="2.0"')
     expect(xml).toContain(peerRelease.title)
     expect(xml).toContain('application/x-bittorrent')
+    expect(xml).toContain('apikey=test-api-key')
   })
 
   test('GET /torznab/api?t=search with a term is NOT fanned out (empty)', async () => {
@@ -221,15 +237,13 @@ describe('Torznab API', () => {
   test('Torznab rejects wrong apikey', async () => {
     const { app } = createTestApp()
     const res = await app.request('/torznab/api?t=caps&apikey=wrong')
-    expect(res.status).toBe(403)
-    expect(await res.text()).toContain('Incorrect API Key')
+    expect(res.status).toBe(401)
   })
 
   test('Torznab rejects unknown function', async () => {
     const { app } = createTestApp()
     const res = await app.request('/torznab/api?t=unknown&apikey=test-api-key')
     expect(res.status).toBe(400)
-    expect(await res.text()).toContain('Unknown function')
   })
 })
 
@@ -241,6 +255,14 @@ describe('Torrent download', () => {
     const res = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent?apikey=test-api-key`)
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('application/x-bittorrent')
+  })
+
+  test('GET /torznab/download/:id.torrent rejects missing apiKey', async () => {
+    const { app, peer } = createTestApp()
+    const guid = `${peer.id}:${peerRelease.id}`
+
+    const res = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent`)
+    expect(res.status).toBe(401)
   })
 })
 
@@ -341,7 +363,7 @@ describe('Auto-registration', () => {
 
 describe('Routes mount without peers or sources', () => {
   function createBareApp() {
-    return getApp(config, { servers: [], peers: [] })
+    return getApp(envs, config, { servers: [], peers: [] })
   }
 
   test('Torznab caps works with no peers', async () => {

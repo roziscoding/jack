@@ -1,8 +1,5 @@
 import process from 'node:process'
 import { getApp } from './app'
-// Initializes the OpenTelemetry SDK as a side effect. Like every static import
-// it's evaluated (and `sdk.start()` runs) before this module's body below, so
-// the tracer provider is registered before the server handles any request.
 import { shutdownTelemetry } from './instrumentation'
 import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
@@ -11,12 +8,9 @@ import { initializeConnectors } from './lib/servers'
 import { logger } from './logger'
 import { BlackholeWatcher } from './modules/downloads/blackhole'
 
-// Surface the *arr response body (which carries the actual validation message)
-// instead of just "Bad Request" — registration failures are almost always a
-// validation/test error Radarr/Sonarr return in the 400 body.
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
   if (err instanceof FetchError) {
-    logger.error({ destination: destName, status: err.status, body: err.extras.body }, `Failed to register ${what}`)
+    logger.error({ destination: destName, status: err.extras.status, body: err.extras.body }, `Failed to register ${what}`)
     return
   }
   const message = err instanceof Error ? err.message : String(err)
@@ -32,7 +26,7 @@ const config = await getAppConfig(envs)
 const connectors = await initializeConnectors(config)
 const destinations = connectors.servers.filter(s => s.canDestination)
 
-const app = getApp(config, connectors)
+const app = getApp(envs, config, connectors)
 const server = Bun.serve({
   fetch: app.fetch,
 })

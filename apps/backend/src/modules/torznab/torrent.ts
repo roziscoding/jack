@@ -1,4 +1,8 @@
+import { Buffer } from 'node:buffer'
 import bencode from 'bencode'
+
+const PIECE_LENGTH = 16 * 1024 * 1024 // 16MiB keeps stubs small while staying torrent-parser friendly.
+const SHA1_HASH_LENGTH = 20
 
 export interface TorrentStubOptions {
   name: string
@@ -7,15 +11,22 @@ export interface TorrentStubOptions {
   itemId: string
 }
 
+function getPieceCount(size: number): number {
+  if (size <= 0)
+    return 0
+
+  return Math.ceil(size / PIECE_LENGTH)
+}
+
 export function createTorrentStub(options: TorrentStubOptions): Buffer {
-  const pieceLength = 262144 // 256KB, doesn't matter for stub
+  const pieces = Buffer.alloc(getPieceCount(options.size) * SHA1_HASH_LENGTH)
 
   const torrent = {
     info: {
       'name': Buffer.from(options.name),
-      'piece length': pieceLength,
+      'piece length': PIECE_LENGTH,
       'length': options.size,
-      'pieces': Buffer.alloc(20), // dummy hash, not used
+      'pieces': pieces, // Dummy hashes. Radarr validates count/shape before writing to blackhole.
     },
     comment: Buffer.from(`jack:${options.peerId}:${options.itemId}`),
   }

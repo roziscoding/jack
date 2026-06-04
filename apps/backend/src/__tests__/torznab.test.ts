@@ -1,6 +1,7 @@
 import type { Release } from '../lib/release'
 import { describe, expect, test } from 'bun:test'
-import { buildCapsXml, buildErrorXml, buildSearchResultXml, releaseToTorznab } from '../modules/torznab/torznab.xml'
+import { releaseToTorznab } from '../modules/torznab/torznab.controller'
+import { buildErrorXml, buildSearchResultXml } from '../modules/torznab/torznab.router'
 
 const movieRelease: Release = {
   id: 'conn1:movie:42',
@@ -26,53 +27,53 @@ const episodeRelease: Release = {
   seriesTitle: 'Show',
 }
 
-describe('Torznab XML helpers', () => {
-  test('buildCapsXml returns valid XML with categories', () => {
-    const xml = buildCapsXml()
-    expect(xml).toContain('<?xml version="1.0"')
-    expect(xml).toContain('<caps>')
-    expect(xml).toContain('category id="2000" name="Movies"')
-    expect(xml).toContain('category id="5000" name="TV"')
-    expect(xml).toContain('movie-search available="yes"')
-    expect(xml).toContain('tv-search available="yes"')
-  })
+const JACK_API_KEY = 'test-api-key'
 
+function attrValue(item: Record<string, any>, name: string): unknown {
+  return (item['torznab:attr'] as Array<Record<string, any>>)
+    .find(a => a['@name'] === name)?.['@value']
+}
+
+describe('Torznab XML helpers', () => {
   test('buildSearchResultXml returns RSS with items', () => {
-    const xml = buildSearchResultXml([releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000')])
-    expect(xml).toContain('<?xml version="1.0"')
-    expect(xml).toContain('<rss version="2.0"')
-    expect(xml).toContain('xmlns:torznab=')
-    expect(xml).toContain('<title>Test.Movie.2021.1080p.BluRay.x264-GROUP</title>')
-    expect(xml).toContain('<guid>peer1:conn1:movie:42</guid>')
-    expect(xml).toContain('value="2000"')
-    expect(xml).toContain('name="imdbid" value="tt9999999"')
-    expect(xml).toContain('name="tmdbid" value="12345"')
-    expect(xml).toContain('name="downloadvolumefactor" value="0"')
-    expect(xml).toContain('name="uploadvolumefactor" value="1"')
-    expect(xml).toContain('type="application/x-bittorrent"')
+    const result = buildSearchResultXml([releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
+    expect(result.rss['@version']).toBe('2.0')
+    expect(result.rss['@xmlns:torznab']).toContain('torznab')
+
+    const item = result.rss.channel.item[0]
+    expect(item.title).toBe('Test.Movie.2021.1080p.BluRay.x264-GROUP')
+    expect(item.guid).toBe('peer1:conn1:movie:42')
+    expect(new URL(item.link).searchParams.get('apikey')).toBe(JACK_API_KEY)
+    expect(new URL(item.enclosure['@url']).searchParams.get('apikey')).toBe(JACK_API_KEY)
+    expect(item.enclosure['@type']).toBe('application/x-bittorrent')
+    expect(attrValue(item, 'category')).toBe(2000)
+    expect(attrValue(item, 'imdbid')).toBe('tt9999999')
+    expect(attrValue(item, 'tmdbid')).toBe(12345)
+    expect(attrValue(item, 'downloadvolumefactor')).toBe(0)
+    expect(attrValue(item, 'uploadvolumefactor')).toBe(1)
   })
 
   test('buildSearchResultXml emits tv attrs for episodes', () => {
-    const xml = buildSearchResultXml([releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000')])
-    expect(xml).toContain('value="5000"')
-    expect(xml).toContain('name="tvdbid" value="654321"')
-    expect(xml).toContain('name="season" value="1"')
-    expect(xml).toContain('name="episode" value="2"')
+    const result = buildSearchResultXml([releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
+    const item = result.rss.channel.item[0]
+    expect(attrValue(item, 'category')).toBe(5000)
+    expect(attrValue(item, 'tvdbid')).toBe(654321)
+    expect(attrValue(item, 'season')).toBe(1)
+    expect(attrValue(item, 'episode')).toBe(2)
   })
 
   test('buildSearchResultXml handles empty results', () => {
-    const xml = buildSearchResultXml([])
-    expect(xml).toContain('<channel>')
-    expect(xml).not.toContain('<item>')
+    const result = buildSearchResultXml([])
+    expect(result.rss.channel.item).toEqual([])
   })
 
   test('buildErrorXml returns error element', () => {
-    const xml = buildErrorXml(100, 'Incorrect API Key')
-    expect(xml).toContain('code="100"')
-    expect(xml).toContain('description="Incorrect API Key"')
+    const result = buildErrorXml(100, 'Incorrect API Key')
+    expect(result.error['@code']).toBe(100)
+    expect(result.error['@description']).toBe('Incorrect API Key')
   })
 
-  test('buildSearchResultXml escapes XML special characters', () => {
+  test('buildSearchResultXml passes special characters through raw (encoder handles escaping)', () => {
     const release: Release = {
       id: 'conn1:movie:1',
       title: 'Movie <with> "special" & \'chars\'',
@@ -81,16 +82,14 @@ describe('Torznab XML helpers', () => {
       size: 100,
     }
 
-    const xml = buildSearchResultXml([releaseToTorznab(release, 'peer1', undefined, 'http://localhost')])
-    expect(xml).toContain('&lt;with&gt;')
-    expect(xml).toContain('&amp;')
-    expect(xml).toContain('&quot;special&quot;')
+    const result = buildSearchResultXml([releaseToTorznab(release, 'peer1', undefined, 'http://localhost', JACK_API_KEY)])
+    expect(result.rss.channel.item[0].title).toBe('Movie <with> "special" & \'chars\'')
   })
 })
 
 describe('releaseToTorznab', () => {
   test('maps a movie release', () => {
-    const result = releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000')
+    const result = releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)
     expect(result.title).toBe('Test.Movie.2021.1080p.BluRay.x264-GROUP')
     expect(result.category).toBe(2000)
     expect(result.imdbId).toBe('tt9999999')
@@ -99,10 +98,11 @@ describe('releaseToTorznab', () => {
     expect(result.size).toBe(2_000_000_000)
     expect(result.downloadUrl).toContain('/torznab/download/')
     expect(result.downloadUrl).toContain(encodeURIComponent('peer1:conn1:movie:42'))
+    expect(new URL(result.downloadUrl).searchParams.get('apikey')).toBe(JACK_API_KEY)
   })
 
   test('maps an episode release to the TV category with season/episode', () => {
-    const result = releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000')
+    const result = releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)
     expect(result.category).toBe(5000)
     expect(result.tvdbId).toBe(654321)
     expect(result.season).toBe(1)

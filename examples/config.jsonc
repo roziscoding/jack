@@ -1,9 +1,11 @@
 {
-  // Every "apiKey" below can be written in TWO ways:
-  //   1. a plain string:                 "apiKey": "my-secret"
+  // Every "apiKey" below, and every value under a "headers" object, can be
+  // written in THREE ways:
+  //   1. a plain string:                  "apiKey": "my-secret"
   //   2. a reference to an env variable:  "apiKey": { "env": "MY_SECRET" }
-  // The env form keeps secrets out of this file (recommended for deployments).
-  // Both forms are interchangeable; jack resolves them to the same string.
+  //   3. a reference to a secret file:    "apiKey": { "file": "/run/secrets/my-secret" }
+  // Env/file forms keep secrets out of this file (recommended for deployments).
+  // File paths must be absolute. All forms resolve to the same string.
 
   // Identity of THIS jack instance. Required for the Torznab indexer and
   // for peers to reach you. `baseUrl` must be reachable from your *arr apps.
@@ -14,6 +16,8 @@
     // You hand this SAME value to your peers so they can reach you, and your
     // Radarr/Sonarr use it to query your Torznab indexer (see README).
     // Here it is read from the JACK_API_KEY environment variable.
+    // You can also use a secret file, for example:
+    //   "apiKey": { "file": "/run/secrets/jack_api_key" }
     "apiKey": { "env": "JACK_API_KEY" }
   },
 
@@ -34,18 +38,28 @@
   //   { "enable": true, "priority": 1 }
   "servers": [
     // {
+    //   "name": "Main Radarr",
     //   "type": "radarr",
     //   "url": "http://radarr:7878",
     //   "apiKey": { "env": "RADARR_API_KEY" },
+    //   "headers": { "X-Forwarded-User": "jack" },
     //   "source": true,
     //   "destination": true,
     //   "autoregister": { "enable": true, "priority": 1 }
     // },
-    // { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
+    // { "name": "Main Sonarr", "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
   ],
 
   // Other jack instances you search (peer-to-peer). Sources only.
   "peers": [
-    // { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "their-shared-secret" }
+    // {
+    //   "name": "friend",
+    //   "url": "https://their-jack.example.com",
+    //   "apiKey": "their-shared-secret",
+    //   "headers": {
+    //     "CF-Access-Client-Secret": { "env": "FRIEND_CF_SECRET" },
+    //     "CF-Access-Client-Id": { "file": "/run/secrets/friend_cf_client_id" }
+    //   }
+    // }
   ]
 }

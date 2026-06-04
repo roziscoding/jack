@@ -1,10 +1,12 @@
-import type { AutoRegisterConfig, ServerType } from '../../config'
+import type { AutoRegisterConfig, ConnectorHeadersConfig, ServerType } from '../../config'
 import type { Release } from '../../release'
 import z from 'zod'
 import { logger } from '../../../logger'
 import { requireInitialization } from '../../decorators/require-initialization'
 import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
 import { ServerConnector } from '../base'
+
+const BASENAME_SEPARATOR_REGEX = /[/\\]/
 
 export const DestinationServerHealthIssue = z.array(
   z.object({
@@ -29,7 +31,7 @@ export const DestinationServerHealthIssue = z.array(
 export type ReleaseKind = 'movie' | 'episode'
 
 export function basename(path: string): string {
-  return path.split(/[/\\]/).pop() ?? path
+  return path.split(BASENAME_SEPARATOR_REGEX).pop() ?? path
 }
 
 export function stripExtension(name: string): string {
@@ -54,7 +56,7 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   constructor(
     connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, expectedAppName: string },
-    config: { type: ServerType, url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig },
+    config: { type: ServerType, url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig },
   ) {
     super(connectorConfig, config)
     this.expectedAppName = connectorConfig.expectedAppName

@@ -35,10 +35,13 @@ describe('Torznab Search (e2e)', () => {
   })
 
   test('Torznab rejects wrong API key', async () => {
-    const res = await fetch(`${env.jackBetaUrl}/torznab/api?t=caps&apikey=wrong-key`)
-    expect(res.status).toBe(403)
+    const res = await fetch(`${env.jackBetaUrl}/torznab/api?t=caps&apikey=wrong-key`, {
+      headers: { Accept: 'application/xml' },
+    })
+    expect(res.status).toBe(200)
     const xml = await res.text()
-    expect(xml).toContain('Incorrect API Key')
+    expect(xml).toContain('<error code="100"')
+    expect(xml).toContain('Unauthorized: invalid API key')
   })
 
   test('Torznab rejects unknown function', async () => {

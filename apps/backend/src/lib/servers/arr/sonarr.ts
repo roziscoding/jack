@@ -1,14 +1,14 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
-import type { AutoRegisterConfig } from '../../config'
+import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import { logger } from '../../../logger'
 import { ReleaseCategory } from '../../release'
+import { withSpan } from '../../tracing'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
 type SeriesWithId = SeriesResource & { id: number }
 
 export class SonarrServerConnector extends ArrServerConnector {
-  constructor(config: { url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig }) {
+  constructor(config: { url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig }) {
     super({
       pingPath: '/api/v3/system/status',
       pingMethod: 'GET',
@@ -81,13 +81,18 @@ export class SonarrServerConnector extends ArrServerConnector {
   }
 
   protected override async doSearchItems(term: string): Promise<Release[]> {
-    const needle = term.trim().toLowerCase()
-    const series = await this.listSeries()
-    const matching = series.filter(s => !needle || (s.title ?? '').toLowerCase().includes(needle))
-    const perSeries = await Promise.all(matching.map(s => this.releasesForSeries(s)))
-    const releases = perSeries.flat()
-    logger.debug({ source: this.name, term, totalSeries: series.length, matchingSeries: matching.length, releases: releases.length }, 'Sonarr term search')
-    return releases
+    return withSpan('sonarr.search_items', {
+      'source.name': this.name,
+      'search.term': term,
+    }, async (span) => {
+      const needle = term.trim().toLowerCase()
+      const series = await this.listSeries()
+      const matching = series.filter(s => !needle || (s.title ?? '').toLowerCase().includes(needle))
+      const perSeries = await Promise.all(matching.map(s => this.releasesForSeries(s)))
+      const releases = perSeries.flat()
+      span.setAttributes({ 'series.count': series.length, 'series.matched_count': matching.length, 'release.count': releases.length })
+      return releases
+    })
   }
 
   protected override async doSearchByImdbId(): Promise<Release[]> {
@@ -107,17 +112,24 @@ export class SonarrServerConnector extends ArrServerConnector {
   }
 
   protected override async doSearchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
-    const series = await this.listSeries({ tvdbId })
-    const perSeries = await Promise.all(series.map(s => this.releasesForSeries(s, (e) => {
-      if (season != null && e.seasonNumber !== season)
-        return false
-      if (episode != null && e.episodeNumber !== episode)
-        return false
-      return true
-    })))
-    const releases = perSeries.flat()
-    logger.debug({ source: this.name, tvdbId, season, episode, matchingSeries: series.length, releases: releases.length }, 'Sonarr tvdb search')
-    return releases
+    return withSpan('sonarr.search_by_tvdb', {
+      'source.name': this.name,
+      'search.tvdb_id': tvdbId,
+      'search.season': season,
+      'search.episode': episode,
+    }, async (span) => {
+      const series = await this.listSeries({ tvdbId })
+      const perSeries = await Promise.all(series.map(s => this.releasesForSeries(s, (e) => {
+        if (season != null && e.seasonNumber !== season)
+          return false
+        if (episode != null && e.episodeNumber !== episode)
+          return false
+        return true
+      })))
+      const releases = perSeries.flat()
+      span.setAttributes({ 'series.matched_count': series.length, 'release.count': releases.length })
+      return releases
+    })
   }
 
   private async fetchEpisodeBundle(id: string): Promise<{ episode: EpisodeResource, series?: SeriesResource, file?: EpisodeFileResource } | null> {
