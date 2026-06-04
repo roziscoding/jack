@@ -3,6 +3,7 @@ import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
 import { FetchError } from '../errors/FetchError'
+import { redactRecord } from '../redact'
 import { withSpan } from '../tracing'
 
 const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
@@ -102,6 +103,7 @@ export abstract class ServerConnector {
       'connector.type': this.type,
       'http.request.method': method,
       'http.request.timeout_ms': timeoutMs,
+      'http.request.headers': JSON.stringify(redactRecord(initWithAuth.headers)),
       'server.address': url.hostname,
       'url.path': url.pathname,
       'url.query': url.search ? url.search.slice(1) : undefined,

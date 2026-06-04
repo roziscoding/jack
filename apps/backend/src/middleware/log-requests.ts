@@ -2,14 +2,13 @@ import type { AttributeValue, Span } from '@opentelemetry/api'
 import type { Context } from 'hono'
 import { trace } from '@opentelemetry/api'
 import { createMiddleware } from 'hono/factory'
+import { isSensitiveField, REDACTED, redactRecord } from '../lib/redact'
 import { logger } from '../logger'
 
 const MAX_CAPTURED_BODY_BYTES = 8 * 1024
-const REDACTED = '[redacted]'
 const OMITTED_BINARY_BODY = '[binary body omitted]'
 const UNREADABLE_BODY = '[unreadable]'
 
-const SENSITIVE_FIELD_NAME = /(?:^|[-_.])(?:api[-_.]?key|authorization|cookie|password|secret|token)(?:$|[-_.])/i
 const FLATTENED_HEADER_FIELDS = new Set([
   'accept',
   'content-length',
@@ -40,16 +39,6 @@ interface CapturedBody {
   readable: boolean
   omitted: boolean
   size: string
-}
-
-function isSensitiveField(name: string) {
-  return SENSITIVE_FIELD_NAME.test(name)
-}
-
-function redactRecord(record: Record<string, string | string[]>): Record<string, string | string[]> {
-  return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, isSensitiveField(key) ? REDACTED : value]),
-  )
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {
