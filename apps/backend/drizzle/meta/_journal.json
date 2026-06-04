@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1780589033291,
+      "tag": "0000_mysterious_vin_gonzales",
+      "breakpoints": true
+    }
+  ]
+}
