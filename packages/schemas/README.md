@@ -1,15 +1,32 @@
 # @jack/schemas
 
-To install dependencies:
+Generated TypeScript types for the Radarr and Sonarr API schemas used by
+`@jack/backend`.
+
+This package intentionally exports types only. The backend still performs its
+own connector requests so it can centralize auth headers, timeouts, error
+wrapping, and tracing.
+
+## Exports
+
+- `@jack/schemas/radarr/types`
+- `@jack/schemas/sonarr/types`
+- `@jack/schemas` namespace exports for both sets
+
+## Regenerating
+
+From the repo root:
 
 ```bash
-bun install
+mise run clients
 ```
 
-To run:
+That runs `openapi-ts` against the checked-in `radarr.openapi.json` and
+`sonarr.openapi.json`, writing generated files under `src/generated`.
+
+To refresh the checked-in specs first:
 
 ```bash
-bun run src/index.ts
+bun run --cwd packages/schemas fetch-specs
+mise run clients
 ```
-
-This project was created using `bun init` in bun v1.3.10. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.

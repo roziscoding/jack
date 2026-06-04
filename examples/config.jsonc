@@ -38,6 +38,7 @@
   //   { "enable": true, "priority": 1 }
   "servers": [
     // {
+    //   "name": "Main Radarr",
     //   "type": "radarr",
     //   "url": "http://radarr:7878",
     //   "apiKey": { "env": "RADARR_API_KEY" },
@@ -46,7 +47,7 @@
     //   "destination": true,
     //   "autoregister": { "enable": true, "priority": 1 }
     // },
-    // { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
+    // { "name": "Main Sonarr", "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
   ],
 
   // Other jack instances you search (peer-to-peer). Sources only.

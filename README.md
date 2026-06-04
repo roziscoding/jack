@@ -17,6 +17,7 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 - [Configuration](#configuration)
 - [Environment variables](#environment-variables)
 - [Health check](#health-check)
+- [CLI and local API](#cli-and-local-api)
 - [Running without Docker](#running-without-docker)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -118,7 +119,7 @@ sequenceDiagram
     participant FJACK as jack (friend)
     participant FARR as Radarr/Sonarr (friend)
 
-    ARR->>JACK: Torznab query /torznab?apikey=…
+    ARR->>JACK: Torznab query /torznab/api?apikey=…
     JACK->>FJACK: /peer/search (X-Api-Key)
     FJACK->>FARR: search library (movies/episodes with files)
     FARR-->>FJACK: matching releases
@@ -188,8 +189,9 @@ so **the jack process must be able to read your media files at those same paths*
 
 ## The API key
 
-`jack.apiKey` is a **single shared secret** that protects both your `/torznab`
-and `/peer` endpoints. It is used in two directions:
+`jack.apiKey` is a **single shared secret** that protects every HTTP endpoint
+except `/ping` when the `jack` block is configured, including `/torznab` and
+`/peer`. It is used in two directions:
 
 - Your **Radarr/Sonarr** send it as the Torznab `apikey` when they search you
   (jack fills this in automatically when it registers itself).
@@ -205,8 +207,9 @@ openssl rand -hex 32
 ```
 
 Put the result in `jack.apiKey` in your `config.jsonc`. If you don't set one,
-jack falls back to a value but you should always define your own so it stays
-stable across restarts.
+jack does not expose the Torznab or peer APIs. The default config jack writes on
+first boot reads this from `JACK_API_KEY`; set that environment variable or
+replace it with a plain string/secret-file reference before peering.
 
 ### Sharing with friends (peering)
 
@@ -237,8 +240,10 @@ After that, each side's Radarr/Sonarr can find and pull media the other has.
 
 jack reads a [JSONC](https://github.com/microsoft/node-jsonc-parser) file
 (comments allowed) from `APP_CONFIG_PATH` (default `/config/config.jsonc`). If
-the file doesn't exist, jack writes a default one on first boot. Copy
-[`examples/config.jsonc`](examples/config.jsonc) as a starting point.
+the file doesn't exist, jack writes a default one on first boot. If that default
+references `JACK_API_KEY` and the variable is not set yet, jack starts with an
+empty config until you provide it. Copy [`examples/config.jsonc`](examples/config.jsonc)
+as a starting point.
 
 Every top-level block is optional — configure only what you need for what
 you're doing.
@@ -262,6 +267,7 @@ you're doing.
   // Your Radarr/Sonarr servers. Each can be a source, a destination, or both.
   "servers": [
     {
+      "name": "Main Radarr",
       "type": "radarr", // "radarr" | "sonarr"
       "url": "http://radarr:7878",
       "apiKey": "<32 hex chars>", // *arr API key (Settings → General)
@@ -273,12 +279,20 @@ you're doing.
         "priority": 1 // indexer priority in *arr (lower = preferred)
       }
     },
-    { "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "<32 hex chars>" }
+    { "name": "Main Sonarr", "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "<32 hex chars>" }
   ],
 
   // Other jack instances (friends) you consume from. Sources only.
   "peers": [
-    { "name": "friend", "url": "https://their-jack.example.com", "apiKey": "..." }
+    {
+      "name": "friend",
+      "url": "https://their-jack.example.com",
+      "apiKey": "...",
+      "headers": {
+        "CF-Access-Client-Id": { "env": "FRIEND_CF_CLIENT_ID" },
+        "CF-Access-Client-Secret": { "env": "FRIEND_CF_CLIENT_SECRET" }
+      }
+    }
   ]
 }
 ```
@@ -294,11 +308,17 @@ Field notes:
 - **`jack.apiKey`** — see [The API key](#the-api-key).
 - **`peers[].apiKey`** is *that peer's* `jack.apiKey` (what they gave you), not
   your own.
+- **`servers[].name` / `peers[].name`** are required display names used in logs,
+  health output, and search results.
 - **`servers[].apiKey`** is the Radarr/Sonarr API key — **exactly 32 hex
   characters** (Settings → General).
 - **`servers[].headers` / `peers[].headers`** are optional extra HTTP headers
   sent to that server/peer. Header values support the same plain-string or
   `{ "env": "NAME" }` / `{ "file": "/absolute/path" }` secret forms as API keys.
+  Use these for reverse proxies or access layers such as Cloudflare Access,
+  Authelia, or a custom gateway. These are outbound connector headers only; jack
+  still adds the required *arr `X-Api-Key` or peer `X-Api-Key` auth header
+  separately.
 - **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
   your **Radarr and Sonarr** containers at the **same paths** — jack registers
   the Torrent Blackhole client with these literal paths and *arr resolves them in
@@ -334,7 +354,9 @@ plain-string form keeps working unchanged. File paths must be absolute; trailing
 line endings are ignored. If a referenced variable is unset/empty, or a secret
 file cannot be read or resolves to an empty value at startup, jack reports the
 problem and refuses to load that config. The default config jack writes on first
-boot uses the env form for `jack.apiKey` (reading `JACK_API_KEY`).
+boot uses the env form for `jack.apiKey` (reading `JACK_API_KEY`); on that first
+boot only, a missing `JACK_API_KEY` leaves jack running with an empty config so
+you can fill in the file.
 
 ## Environment variables
 
@@ -344,9 +366,20 @@ boot uses the env form for `jack.apiKey` (reading `JACK_API_KEY`).
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
+| `HTTP_TIMEOUT_MS` | `30000` | Default timeout, in milliseconds, for outbound connector requests |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables OpenTelemetry traces and logs and sends OTLP/HTTP data to this base endpoint |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Also enables OpenTelemetry when set; useful if traces use a signal-specific endpoint |
+| `OTEL_SERVICE_NAME` | `jack-backend` | Service name attached to emitted telemetry |
+| `ENABLE_LOGS` | `true` | Set false to disable pino logging; logs are also disabled automatically when `NODE_ENV=test` |
 
 > Set `LOG_LEVEL=trace` to log every HTTP request — method, path, response
 > status, and duration — as it completes.
+
+When an OTLP endpoint is configured, jack emits request traces and bridges pino
+logs into OpenTelemetry logs. Request spans include redacted headers/query
+attributes and bounded textual request/response bodies; binary bodies are
+omitted. See [`examples/compose-with-otel.yml`](examples/compose-with-otel.yml)
+for a compose setup with OpenObserve.
 
 ## Health check
 
@@ -361,6 +394,30 @@ curl http://localhost:5225/ping
 The Docker image wires this endpoint up as a built-in `HEALTHCHECK`, so
 `docker ps` and Compose report the container's health automatically — no extra
 configuration needed.
+
+## CLI and local API
+
+The repo includes a small Bun CLI for talking to a running jack:
+
+```bash
+JACK_URL=http://localhost:5225 \
+JACK_API_KEY=your-key \
+bun scripts/cli.ts api GET /servers
+```
+
+Supported commands:
+
+- `bun scripts/cli.ts api [METHOD] <path> [items...]` — generic HTTP request.
+  Items use httpie-style syntax: `key==query`, `key=body`, `key:=rawjson`, or
+  `Header:value`.
+- `bun scripts/cli.ts peer search [--imdbId id] [--tmdbId id] [--tvdbId id] [--season n] [--episode n]` — call your local `/peer/search`.
+- `bun scripts/cli.ts torznab search [--imdbId id] [--tmdbId id] [--tvdbId id] [--season n] [--episode n] [--cat id]` — call `/torznab/api` and print XML.
+
+Operational endpoints:
+
+- `GET /servers` — list configured Radarr/Sonarr connectors and peers, including initialization state.
+- `GET /servers/health` — return health issues from destination Sonarr connectors.
+- `GET /items?searchTerm=...` — search local source Radarr/Sonarr libraries directly.
 
 ## Running without Docker
 
@@ -456,11 +513,16 @@ library actually contains matching items.
 Failed to initialize connector radarr: Unable to connect. Is the computer able to access the url?
 ```
 
-jack connects to your servers **once at boot**. If it starts before
-Radarr/Sonarr are ready, those connectors fail and you'll see `sources:0` /
-`destinations:0` in the `Server listening` line. It usually fixes itself on the
-next restart, but to make it deterministic, wait for the dependencies to be
-healthy:
+jack tries to connect to your servers at boot. If it starts before Radarr/Sonarr
+are ready, those connectors fail initially and you'll see `sources:0` /
+`destinations:0` in the `Server listening` line. Source and peer connectors are
+retried lazily the next time a search/download needs them, so they can recover
+without a restart once the remote service is up.
+
+Auto-registration still runs only during startup, so a destination that was down
+at boot may need a jack restart before the Torznab indexer or Torrent Blackhole
+client is created in Radarr/Sonarr. To make startup deterministic, wait for the
+dependencies to be healthy:
 
 ```yaml
 # jack
@@ -487,7 +549,7 @@ mise run lint    # lint
 mise run lint:fix
 ```
 
-API clients for external services are generated from OpenAPI specs:
+API types for external services are generated from OpenAPI specs:
 
 ```bash
 mise run clients   # regenerate packages/schemas/src/generated
