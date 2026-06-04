@@ -108,6 +108,33 @@ describe('DownloadsService download progress persistence', () => {
     handle.close()
   })
 
+  test('rejects a peer release with a path-traversal filename and does not write outside completedPath', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const writtenPaths: string[] = []
+    const peer = fakePeer({
+      getRelease: async () => ({ ...release, filename: '../../evil.mkv' }),
+      downloadFile: async (_itemId: string, destPath: string) => {
+        writtenPaths.push(destPath)
+      },
+    })
+    const service = new DownloadsService({ completedPath }, [peer as any], [fakeDestination() as any], repository)
+    const filePath = await writeTorrent()
+
+    await service.processTorrentFile(filePath, 'movie.torrent')
+
+    // The unsafe name must never reach downloadFile / be written to disk.
+    expect(writtenPaths).toHaveLength(0)
+    const evilOutside = join(tempDir, 'evil.mkv')
+    expect(await Bun.file(evilOutside).exists()).toBe(false)
+    expect(await Bun.file(`${evilOutside}.part`).exists()).toBe(false)
+
+    const downloads = repository.list()
+    expect(downloads).toHaveLength(1)
+    expect(downloads[0]?.status).toBe('failed')
+    handle.close()
+  })
+
   test('marks an existing row failed when download fails after metadata resolves', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)

@@ -4,7 +4,7 @@ import type { PeerConnector, PeerDownloadProgressEvent } from '../../lib/servers
 import type { DownloadsRepository } from './downloads.repository'
 import { Buffer } from 'node:buffer'
 import { unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 import { parseTorrentStub } from '../torznab/torrent'
@@ -50,16 +50,27 @@ export class DownloadsService {
         span.setAttributes({ 'peer.found': true, 'peer.name': peer.name ?? peer.url })
 
         const release = await peer.getRelease(itemId)
-        const destPath = join(this.config.completedPath, release.filename)
+
+        // `release.filename` is peer-controlled and only validated as a string.
+        // Force it to a plain basename inside `completedPath` so a value like
+        // `../../evil.mkv` or an absolute path cannot escape the directory.
+        // Reject (rather than silently rewrite) anything that is not already a
+        // plain filename, so a malicious peer cannot smuggle in path separators.
+        const safeName = basename(release.filename)
+        const isSafeName = safeName.length > 0 && safeName !== '.' && safeName !== '..'
+          && !safeName.includes('/') && !safeName.includes('\\')
+          && release.filename === safeName
+
+        const destPath = join(this.config.completedPath, safeName)
         const partPath = `${destPath}.part`
-        span.setAttributes({ 'release.filename': release.filename, 'release.size': release.size })
+        span.setAttributes({ 'release.filename': safeName, 'release.size': release.size })
 
         const download = this.downloadsRepository?.create({
           torrentFilename: filename,
           peerId,
           peerName: peer.name ?? peer.url,
           itemId,
-          filename: release.filename,
+          filename: safeName,
           destPath,
           partPath,
           releaseSize: release.size,
@@ -89,6 +100,9 @@ export class DownloadsService {
         // `import_queued` means: the file downloaded AND triggerImport was
         // attempted (best-effort per destination — see triggerImport below).
         try {
+          if (!isSafeName)
+            throw new Error(`Unsafe release filename from peer: ${release.filename}`)
+
           await peer.downloadFile(itemId, destPath, { torrentFilename: filename, partPath, releaseSize: release.size, onProgress })
           await unlink(filePath)
           await this.triggerImport(filename)
@@ -104,7 +118,7 @@ export class DownloadsService {
           throw err
         }
 
-        logger.info({ torrentFilename: filename, filename: release.filename }, 'Download complete, triggered import')
+        logger.info({ torrentFilename: filename, filename: safeName }, 'Download complete, triggered import')
       })
     }
     catch (err) {
