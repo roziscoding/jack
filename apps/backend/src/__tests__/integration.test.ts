@@ -1,12 +1,17 @@
 import type { AppConfig } from '../lib/config'
 import type { Envs } from '../lib/envs'
 import type { Release } from '../lib/release'
+import { Database } from 'bun:sqlite'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { getApp } from '../app'
+import { runMigrations } from '../database/connection'
+import * as schema from '../database/schema'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { PeerConnector } from '../lib/servers/peer'
+import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 
 const RADARR_URL = 'http://radarr.test:7878'
 const PEER_JACK_URL = 'http://peer-jack.test:3000'
@@ -86,8 +91,14 @@ const handlers = [
 
 const server = setupServer(...handlers)
 
+const testDatabases: Database[] = []
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  server.resetHandlers()
+  for (const db of testDatabases.splice(0))
+    db.close()
+})
 afterAll(() => server.close())
 
 const config: AppConfig = {
@@ -129,7 +140,13 @@ function makeRadarr(overrides?: { source?: boolean, destination?: boolean }) {
 function createTestApp() {
   const radarr = markInitialized(makeRadarr())
   const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
-  return { app: getApp(envs, config, { servers: [radarr], peers: [peer] }), radarr, peer }
+  const database = new Database(':memory:')
+  testDatabases.push(database)
+  database.exec('pragma foreign_keys = ON')
+  const db = drizzle({ client: database, schema })
+  runMigrations(db)
+  const downloadsRepository = new DownloadsRepository(db)
+  return { app: getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository }), radarr, peer, database, downloadsRepository }
 }
 
 describe('Peer API', () => {
@@ -263,6 +280,28 @@ describe('Torrent download', () => {
 
     const res = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent`)
     expect(res.status).toBe(401)
+  })
+})
+
+describe('Downloads API', () => {
+  test('GET /downloads returns persisted download state', async () => {
+    const { app, downloadsRepository } = createTestApp()
+    downloadsRepository.create({
+      torrentFilename: 'movie.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: peerRelease.filename,
+      destPath: '/tmp/completed/Movie.mkv',
+      partPath: '/tmp/completed/Movie.mkv.part',
+      releaseSize: peerRelease.size,
+      release: peerRelease,
+    })
+
+    const res = await app.request('/downloads', { headers: { 'X-Api-Key': 'test-api-key' } })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { downloads: Array<{ torrentFilename: string }> }
+    expect(body.downloads[0]?.torrentFilename).toBe('movie.torrent')
   })
 })
 

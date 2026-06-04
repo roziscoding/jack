@@ -1,12 +1,15 @@
 import process from 'node:process'
 import { getApp } from './app'
+import { openDatabase } from './database/connection'
 import { shutdownTelemetry } from './instrumentation'
 import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
 import { FetchError } from './lib/errors/FetchError'
 import { initializeConnectors } from './lib/servers'
 import { logger } from './logger'
-import { BlackholeWatcher } from './modules/downloads/blackhole'
+import { BlackholeWatcher } from './modules/downloads/blackhole.watcher'
+import { DownloadsRepository } from './modules/downloads/downloads.repository'
+import { DownloadsService } from './modules/downloads/downloads.service'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
   if (err instanceof FetchError) {
@@ -26,7 +29,14 @@ const config = await getAppConfig(envs)
 const connectors = await initializeConnectors(config)
 const destinations = connectors.servers.filter(s => s.canDestination)
 
-const app = getApp(envs, config, connectors)
+const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
+const downloadsRepository = new DownloadsRepository(database.db)
+const reconciledDownloads = await downloadsRepository.reconcileStaleDownloads()
+
+if (reconciledDownloads > 0)
+  logger.warn({ downloads: reconciledDownloads, databasePath: database.path }, 'Reconciled stale downloads from previous Jack run')
+
+const app = getApp(envs, config, connectors, { downloadsRepository })
 const server = Bun.serve({
   fetch: app.fetch,
 })
@@ -34,6 +44,7 @@ const server = Bun.serve({
 logger.info({
   port: server.port,
   configPath: envs.APP_CONFIG_PATH,
+  databasePath: database.path,
   sources: connectors.servers.filter(c => c.isInitialized && c.canSource).length,
   peers: connectors.peers.filter(c => c.isInitialized).length,
   destinations: destinations.filter(c => c.isInitialized).length,
@@ -90,15 +101,17 @@ if (config.jack) {
 }
 
 // Start blackhole watcher
-let blackhole: BlackholeWatcher | null = null
+let blackholeWatcher: BlackholeWatcher | null = null
 if (config.downloads) {
-  blackhole = new BlackholeWatcher(config.downloads, connectors.peers, destinations)
-  await blackhole.start()
+  const downloadsService = new DownloadsService(config.downloads, connectors.peers, destinations, downloadsRepository)
+  blackholeWatcher = new BlackholeWatcher(config.downloads, downloadsService)
+  await blackholeWatcher.start()
 }
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
-  blackhole?.stop()
+  blackholeWatcher?.stop()
+  database.close()
   server.stop()
   await shutdownTelemetry()
   process.exit(0)
@@ -106,7 +119,8 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
-  blackhole?.stop()
+  blackholeWatcher?.stop()
+  database.close()
   server.stop()
   await shutdownTelemetry()
   process.exit(0)

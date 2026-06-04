@@ -21,6 +21,18 @@ function markInitialized<T extends object>(connector: T): T {
   return connector
 }
 
+// In this MSW/Bun version a `new Response(Uint8Array)` body reads back as 0
+// bytes through getReader(); a ReadableStream body streams correctly (and keeps
+// an explicit Content-Length header), matching the connector's streaming path.
+function streamOf(bytes: number[]) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(bytes))
+      controller.close()
+    },
+  })
+}
+
 async function waitFor(predicate: () => Promise<boolean>) {
   for (let i = 0; i < 50; i++) {
     if (await predicate())
@@ -83,6 +95,86 @@ describe('PeerConnector.downloadFile', () => {
     }
     finally {
       releaseSecondChunk.resolve()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('reports expected bytes from Content-Length and streamed progress', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+        return new Response(streamOf([1, 2, 3, 4]), { headers: { 'Content-Length': '4' } })
+      }),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-progress-'))
+    const events: unknown[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), {
+        torrentFilename: 'movie.torrent',
+        releaseSize: 4,
+        onProgress: (event) => { events.push(event) },
+      })
+
+      expect(events).toContainEqual({ type: 'headers', expectedBytes: 4, expectedBytesSource: 'content_length', expectedBytesMismatch: false })
+      // The first chunk always emits a progress event (lastLoggedBytes === 0).
+      expect(events).toContainEqual({ type: 'progress', downloadedBytes: 4, expectedBytes: 4 })
+      expect(events).toContainEqual({ type: 'completed', downloadedBytes: 4, expectedBytes: 4 })
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('reports indeterminate expected bytes when Content-Length is missing or invalid', async () => {
+    for (const contentLength of [null, 'not-a-number']) {
+      server.resetHandlers()
+      server.use(
+        http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+          const headers = contentLength == null ? {} : { 'Content-Length': contentLength }
+          return new Response(streamOf([1, 2]), { headers })
+        }),
+      )
+
+      const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+      const dir = await mkdtemp(join(tmpdir(), 'jack-peer-indeterminate-'))
+      const events: unknown[] = []
+
+      try {
+        await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), {
+          onProgress: (event) => { events.push(event) },
+        })
+
+        expect(events).toContainEqual({ type: 'headers', expectedBytes: null, expectedBytesSource: null, expectedBytesMismatch: false })
+        expect(events).toContainEqual({ type: 'completed', downloadedBytes: 2, expectedBytes: null })
+      }
+      finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test('reports Content-Length mismatches against releaseSize', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+        return new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+      }),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-mismatch-'))
+    const events: unknown[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), {
+        releaseSize: 4,
+        onProgress: (event) => { events.push(event) },
+      })
+
+      expect(events).toContainEqual({ type: 'headers', expectedBytes: 3, expectedBytesSource: 'content_length', expectedBytesMismatch: true })
+    }
+    finally {
       await rm(dir, { recursive: true, force: true })
     }
   })
