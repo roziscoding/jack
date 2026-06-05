@@ -1,6 +1,7 @@
 {
   "name": "jack",
   "private": true,
+  "license": "GPL-3.0-only",
   "peerDependencies": {
     "typescript": "^5"
   },
