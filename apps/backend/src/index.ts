@@ -50,59 +50,55 @@ logger.info({
   destinations: destinations.filter(c => c.isInitialized).length,
 }, 'Server listening')
 
-// Auto-register as Torznab indexer (and Torrent Blackhole download client) in
-// each destination that opts in via its `autoregister` config.
+// Auto-register as a Torznab indexer + qBittorrent download client in each
+// destination that opts in via its `autoregister` config. We register even when
+// there are no peers / an empty catalog (forceSave on the *arr side), so the
+// Jack indexer and client are always present and bound — they start returning
+// results as soon as peers come online.
 if (config.jack) {
-  // Without peers there's nothing to search and nothing to grab, and *arr rejects
-  // an indexer whose test query returns no results — so skip registration entirely.
-  if (connectors.peers.length === 0) {
-    logger.info('No peers configured; skipping indexer and download client registration (nothing to search or grab yet).')
+  const jackConfig = config.jack
+  const downloads = config.downloads
+
+  if (!downloads) {
+    logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
   }
-  else {
-    const jackConfig = config.jack
-    const downloads = config.downloads
 
-    if (!downloads) {
-      logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
-    }
-
-    const registrable = destinations.filter(d => d.isInitialized && d.autoRegister.enable)
-    for (const dest of registrable) {
-      // Register the download client first so we can bind the indexer to it:
-      // grabs from the Jack indexer must go to the Jack qBittorrent client, not
-      // whatever client *arr would otherwise pick.
-      let downloadClientId: number | undefined
-      if (downloads) {
-        try {
-          downloadClientId = await dest.registerDownloadClient({
-            name: 'Jack',
-            baseUrl: jackConfig.baseUrl,
-            username: dest.name,
-            password: jackConfig.apiKey,
-            category: qbCategoryForServer(dest.id),
-            priority: dest.autoRegister.priority,
-          })
-          logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as qBittorrent download client')
-        }
-        catch (err) {
-          logRegistrationFailure('download client', dest.name, err)
-        }
-      }
-
+  const registrable = destinations.filter(d => d.isInitialized && d.autoRegister.enable)
+  for (const dest of registrable) {
+    // Register the download client first so we can bind the indexer to it:
+    // grabs from the Jack indexer must go to the Jack qBittorrent client, not
+    // whatever client *arr would otherwise pick.
+    let downloadClientId: number | undefined
+    if (downloads) {
       try {
-        await dest.registerIndexer({
+        downloadClientId = await dest.registerDownloadClient({
           name: 'Jack',
-          baseUrl: `${jackConfig.baseUrl}/torznab`,
-          apiKey: jackConfig.apiKey,
+          baseUrl: jackConfig.baseUrl,
+          username: dest.name,
+          password: jackConfig.apiKey,
+          category: qbCategoryForServer(dest.id),
           priority: dest.autoRegister.priority,
-          categories: dest.categories,
-          downloadClientId,
         })
-        logger.info({ destination: dest.name, categories: dest.categories, downloadClientId }, 'Registered Jack as Torznab indexer')
+        logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as qBittorrent download client')
       }
       catch (err) {
-        logRegistrationFailure('indexer', dest.name, err)
+        logRegistrationFailure('download client', dest.name, err)
       }
+    }
+
+    try {
+      await dest.registerIndexer({
+        name: 'Jack',
+        baseUrl: `${jackConfig.baseUrl}/torznab`,
+        apiKey: jackConfig.apiKey,
+        priority: dest.autoRegister.priority,
+        categories: dest.categories,
+        downloadClientId,
+      })
+      logger.info({ destination: dest.name, categories: dest.categories, downloadClientId }, 'Registered Jack as Torznab indexer')
+    }
+    catch (err) {
+      logRegistrationFailure('indexer', dest.name, err)
     }
   }
 }

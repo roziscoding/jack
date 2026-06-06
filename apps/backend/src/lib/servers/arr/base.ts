@@ -193,15 +193,16 @@ export abstract class ArrServerConnector extends ServerConnector {
       ],
     }
 
-    // forceSave: false keeps *arr's validation test on save. We deliberately do
-    // NOT want to register when it fails — better to fail loudly (the caller logs
-    // the *arr error) than to silently register a broken indexer.
+    // forceSave: true registers the indexer even when *arr's test query returns
+    // no results (e.g. no peers / empty catalog yet). We always want the Jack
+    // indexer present and bound to the Jack client; it starts returning results
+    // as soon as peers come online.
     if (existing) {
       await this.fetch(`/api/v3/indexer/${existing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, id: existing.id }),
-        query: { forceSave: 'false' },
+        query: { forceSave: 'true' },
       } as any)
     }
     else {
@@ -209,7 +210,7 @@ export abstract class ArrServerConnector extends ServerConnector {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        query: { forceSave: 'false' },
+        query: { forceSave: 'true' },
       } as any)
     }
   }
@@ -251,14 +252,16 @@ export abstract class ArrServerConnector extends ServerConnector {
       ],
     }
 
-    // forceSave: false keeps *arr's connection test on save — fail loudly rather
-    // than register a client *arr can't actually reach/authenticate.
+    // forceSave: true registers the client even if *arr's connection test can't
+    // reach jack at registration time. This guarantees the client is saved and
+    // its id returned, so the indexer can always be bound to it (an unbound
+    // indexer is the failure mode when the test throws here).
     if (existing) {
       await this.fetch(`/api/v3/downloadclient/${existing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, id: existing.id }),
-        query: { forceSave: 'false' },
+        query: { forceSave: 'true' },
       } as any)
       return existing.id as number
     }
@@ -267,7 +270,7 @@ export abstract class ArrServerConnector extends ServerConnector {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      query: { forceSave: 'false' },
+      query: { forceSave: 'true' },
       schema: DownloadClientResource,
     } as any)
     return created.id
