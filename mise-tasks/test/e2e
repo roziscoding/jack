@@ -11,12 +11,12 @@ docker compose -f "$E2E_DIR/docker-compose.yml" down -v 2>/dev/null || true
 rm -f "$E2E_DIR/config/jack-alpha.jsonc" "$E2E_DIR/config/jack-beta.jsonc" "$E2E_DIR/config/test-env.json"
 rm -f "$E2E_DIR/config/database.sqlite" "$E2E_DIR/config/database.sqlite-shm" "$E2E_DIR/config/database.sqlite-wal"
 rm -rf "$E2E_DIR/volumes"
-mkdir -p "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
+mkdir -p "$E2E_DIR/volumes/blackhole-completed"
 mkdir -p "$E2E_DIR/config"
 # jack and the *arr containers run as uid 1000; the CI runner that creates these
 # dirs may be a different uid. Make them world-writable so both can read/write
-# the blackhole watch/completed folders.
-chmod 777 "$E2E_DIR/volumes/blackhole-watch" "$E2E_DIR/volumes/blackhole-completed"
+# the completed-downloads folder.
+chmod 777 "$E2E_DIR/volumes/blackhole-completed"
 # jack also creates database.sqlite next to its mounted config file on startup.
 chmod 777 "$E2E_DIR/config"
 # Same uid mismatch applies to the media fixtures: Radarr (uid 1000) must be able
