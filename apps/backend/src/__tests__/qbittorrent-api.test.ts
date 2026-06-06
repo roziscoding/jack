@@ -223,6 +223,28 @@ describe('qBittorrent add/delete/setCategory', () => {
     expect(repository.get(created.id)).toBeNull()
   })
 
+  test.each(['setShareLimits', 'topPrio', 'setForceStart'])('best-effort no-op %s returns Ok. with a session', async (route) => {
+    const { app } = buildAppWithService()
+    const cookie = await loginCookie(app)
+
+    const res = await app.request(`/api/v2/torrents/${route}`, {
+      method: 'POST',
+      headers: { 'cookie': cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ hashes: 'all' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('Ok.')
+  })
+
+  test.each(['setShareLimits', 'topPrio', 'setForceStart'])('best-effort no-op %s requires a session (403)', async (route) => {
+    const { app } = buildAppWithService()
+
+    const res = await app.request(`/api/v2/torrents/${route}`, { method: 'POST' })
+
+    expect(res.status).toBe(403)
+  })
+
   test('setCategory updates a session-owned row', async () => {
     const { app, repository } = buildAppWithService()
     const created = seedDownload(repository, qbCategoryForServer('abc12345'))

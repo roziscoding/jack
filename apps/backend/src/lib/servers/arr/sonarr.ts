@@ -25,6 +25,10 @@ export class SonarrServerConnector extends ArrServerConnector {
     return 'DownloadedEpisodesScan'
   }
 
+  protected override get qbCategoryFieldName(): string {
+    return 'tvCategory'
+  }
+
   private buildRelease(episode: EpisodeResource, series: SeriesResource | undefined, file: EpisodeFileResource | undefined): Release | null {
     if (!episode.id || !episode.hasFile || !file)
       return null

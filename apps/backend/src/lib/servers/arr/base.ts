@@ -7,6 +7,7 @@ import { requiresDestination, requiresSource } from '../../decorators/requires-c
 import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
+const TRAILING_SLASH_REGEX = /\/$/
 
 export const DestinationServerHealthIssue = z.array(
   z.object({
@@ -72,6 +73,8 @@ export abstract class ArrServerConnector extends ServerConnector {
   // Category id reported to *arr (2000 movies / 5000 tv).
   abstract get categories(): number[]
   protected abstract get importCommandName(): string
+  // qBittorrent settings use a per-app category field name.
+  protected abstract get qbCategoryFieldName(): string
 
   protected override async runInit(): Promise<void> {
     const apiInfo = await this.ping(z.object({ appName: z.string(), version: z.string() }))
@@ -224,11 +227,20 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresDestination
   @requireInitialization
-  async registerDownloadClient(clientConfig: { name: string, watchPath: string, completedPath: string, priority: number }): Promise<number> {
+  async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string, priority: number }): Promise<number> {
+    const url = new URL(clientConfig.baseUrl)
+    const host = url.hostname
+    const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80)
+    const useSsl = url.protocol === 'https:'
+    // urlBase is the path prefix BEFORE /api/v2 (qB's proxy appends /api/v2).
+    const urlBase = url.pathname.replace(TRAILING_SLASH_REGEX, '')
+
+    // Match by NAME regardless of implementation so an existing TorrentBlackhole
+    // "Jack" client from a previous version is upgraded in place (PUT switches it
+    // to QBittorrent/QBittorrentSettings) instead of leaving a duplicate.
     const existingClients = await this.arrGet<any[]>('/api/v3/downloadclient')
     const existing: any = Array.isArray(existingClients)
-      ? existingClients.find((client: any) =>
-          client.fields?.some((f: any) => f.name === 'torrentFolder' && f.value === clientConfig.watchPath))
+      ? existingClients.find((client: any) => client.name === clientConfig.name)
       : null
 
     const body = {
@@ -236,23 +248,22 @@ export abstract class ArrServerConnector extends ServerConnector {
       enable: true,
       protocol: 'torrent',
       priority: clientConfig.priority,
-      implementation: 'TorrentBlackhole',
-      implementationName: 'Torrent Blackhole',
-      configContract: 'TorrentBlackholeSettings',
+      implementation: 'QBittorrent',
+      implementationName: 'qBittorrent',
+      configContract: 'QBittorrentSettings',
       fields: [
-        // *arr writes the stub .torrent here; jack's watcher picks it up.
-        { name: 'torrentFolder', value: clientConfig.watchPath },
-        // jack writes the finished file here; *arr scans it to import.
-        { name: 'watchFolder', value: clientConfig.completedPath },
-        { name: 'saveMagnetFiles', value: false },
-        { name: 'readOnly', value: false },
+        { name: 'host', value: host },
+        { name: 'port', value: port },
+        { name: 'useSsl', value: useSsl },
+        { name: 'urlBase', value: urlBase },
+        { name: 'username', value: clientConfig.username },
+        { name: 'password', value: clientConfig.password },
+        { name: this.qbCategoryFieldName, value: clientConfig.category },
       ],
     }
 
-    // forceSave: false keeps *arr's folder-accessibility test on save. We
-    // deliberately do NOT want to register when it fails — better to fail loudly
-    // (the caller logs the *arr error) than to silently register a download
-    // client whose watch/completed folders *arr can't actually reach.
+    // forceSave: false keeps *arr's connection test on save — fail loudly rather
+    // than register a client *arr can't actually reach/authenticate.
     if (existing) {
       await this.fetch(`/api/v3/downloadclient/${existing.id}`, {
         method: 'PUT',

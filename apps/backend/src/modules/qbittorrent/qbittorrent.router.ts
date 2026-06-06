@@ -102,5 +102,11 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
 
   app.post('/torrents/createCategory', c => c.text('Ok.', 200))
 
+  // Best-effort: *arr issues these for priority/seeding; jack doesn't seed, so
+  // acknowledge and no-op (real qB returns 200 here too).
+  app.post('/torrents/setShareLimits', c => c.text('Ok.', 200))
+  app.post('/torrents/topPrio', c => c.text('Ok.', 200))
+  app.post('/torrents/setForceStart', c => c.text('Ok.', 200))
+
   return app
 }

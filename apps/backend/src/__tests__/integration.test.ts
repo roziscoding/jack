@@ -10,10 +10,12 @@ import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
 import { AppConfig } from '../lib/config'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
+import { SonarrServerConnector } from '../lib/servers/arr/sonarr'
 import { PeerConnector } from '../lib/servers/peer'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 
 const RADARR_URL = 'http://radarr.test:7878'
+const SONARR_URL = 'http://sonarr.test:8989'
 const PEER_JACK_URL = 'http://peer-jack.test:3000'
 const HEX_KEY = 'a'.repeat(32)
 
@@ -73,6 +75,11 @@ const handlers = [
   http.post(`${RADARR_URL}/api/v3/command`, () => HttpResponse.json({ id: 1 })),
   http.get(`${RADARR_URL}/api/v3/health`, () => HttpResponse.json([])),
 
+  // ---- Local Sonarr (destination) — for the tvCategory download-client test ----
+  http.get(`${SONARR_URL}/api/v3/system/status`, () => HttpResponse.json({ appName: 'Sonarr', version: '4.0.0' })),
+  http.get(`${SONARR_URL}/api/v3/downloadclient`, () => HttpResponse.json([])),
+  http.post(`${SONARR_URL}/api/v3/downloadclient`, () => HttpResponse.json({ id: 1, name: 'Jack' })),
+
   // ---- Peer jack ----
   http.get(`${PEER_JACK_URL}/peer/search`, ({ request }) => {
     const url = new URL(request.url)
@@ -131,6 +138,17 @@ function makeRadarr(overrides?: { source?: boolean, destination?: boolean }) {
     url: RADARR_URL,
     apiKey: HEX_KEY,
     name: 'My Radarr',
+    source: overrides?.source ?? true,
+    destination: overrides?.destination ?? true,
+    autoregister: AUTOREGISTER,
+  })
+}
+
+function makeSonarr(overrides?: { source?: boolean, destination?: boolean }) {
+  return new SonarrServerConnector({
+    url: SONARR_URL,
+    apiKey: HEX_KEY,
+    name: 'My Sonarr',
     source: overrides?.source ?? true,
     destination: overrides?.destination ?? true,
     autoregister: AUTOREGISTER,
@@ -389,45 +407,11 @@ describe('Auto-registration', () => {
     })).rejects.toThrow()
   })
 
-  test('registerDownloadClient registers a Torrent Blackhole client', async () => {
+  test('registerDownloadClient registers a qBittorrent client (Radarr → movieCategory)', async () => {
     let createdBody: any = null
     server.use(
       http.post(`${RADARR_URL}/api/v3/downloadclient`, async ({ request }) => {
         createdBody = await request.json()
-        return HttpResponse.json({ id: 1, name: 'Jack' })
-      }),
-    )
-
-    const radarr = markInitialized(makeRadarr())
-    const id = await radarr.registerDownloadClient({
-      name: 'Jack',
-      watchPath: '/data/torrents/watch',
-      completedPath: '/data/torrents/completed',
-      priority: 1,
-    })
-
-    expect(id).toBe(1)
-    expect(createdBody).toMatchObject({
-      name: 'Jack',
-      enable: true,
-      protocol: 'torrent',
-      implementation: 'TorrentBlackhole',
-      configContract: 'TorrentBlackholeSettings',
-    })
-    expect(createdBody.fields).toContainEqual({ name: 'torrentFolder', value: '/data/torrents/watch' })
-    expect(createdBody.fields).toContainEqual({ name: 'watchFolder', value: '/data/torrents/completed' })
-  })
-
-  test('registerDownloadClient updates an existing Jack client instead of duplicating', async () => {
-    let putCalled = false
-    server.use(
-      http.get(`${RADARR_URL}/api/v3/downloadclient`, () => {
-        return HttpResponse.json([
-          { id: 7, name: 'Jack', fields: [{ name: 'torrentFolder', value: '/data/torrents/watch' }] },
-        ])
-      }),
-      http.put(`${RADARR_URL}/api/v3/downloadclient/7`, () => {
-        putCalled = true
         return HttpResponse.json({ id: 7, name: 'Jack' })
       }),
     )
@@ -435,13 +419,80 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     const id = await radarr.registerDownloadClient({
       name: 'Jack',
-      watchPath: '/data/torrents/watch',
-      completedPath: '/data/torrents/completed',
+      baseUrl: 'http://jack:5225',
+      username: 'My Radarr',
+      password: 'secret',
+      category: 'jack-abc',
       priority: 1,
     })
 
-    expect(putCalled).toBe(true)
     expect(id).toBe(7)
+    expect(createdBody).toMatchObject({
+      name: 'Jack',
+      enable: true,
+      protocol: 'torrent',
+      implementation: 'QBittorrent',
+      configContract: 'QBittorrentSettings',
+    })
+    expect(createdBody.fields).toContainEqual({ name: 'host', value: 'jack' })
+    expect(createdBody.fields).toContainEqual({ name: 'port', value: 5225 })
+    expect(createdBody.fields).toContainEqual({ name: 'useSsl', value: false })
+    expect(createdBody.fields).toContainEqual({ name: 'username', value: 'My Radarr' })
+    expect(createdBody.fields).toContainEqual({ name: 'password', value: 'secret' })
+    expect(createdBody.fields).toContainEqual({ name: 'movieCategory', value: 'jack-abc' })
+  })
+
+  test('registerDownloadClient uses tvCategory for Sonarr', async () => {
+    let createdBody: any = null
+    server.use(
+      http.post(`${SONARR_URL}/api/v3/downloadclient`, async ({ request }) => {
+        createdBody = await request.json()
+        return HttpResponse.json({ id: 9, name: 'Jack' })
+      }),
+    )
+
+    const sonarr = markInitialized(makeSonarr())
+    const id = await sonarr.registerDownloadClient({
+      name: 'Jack',
+      baseUrl: 'http://jack:5225',
+      username: 'My Sonarr',
+      password: 'secret',
+      category: 'jack-def',
+      priority: 1,
+    })
+
+    expect(id).toBe(9)
+    expect(createdBody.fields).toContainEqual({ name: 'tvCategory', value: 'jack-def' })
+    expect(createdBody.fields).not.toContainEqual({ name: 'movieCategory', value: 'jack-def' })
+  })
+
+  test('registerDownloadClient upgrades an existing blackhole "Jack" client in place (PUT, no duplicate)', async () => {
+    let putBody: any = null
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/downloadclient`, () => {
+        return HttpResponse.json([
+          { id: 3, name: 'Jack', implementation: 'TorrentBlackhole', fields: [] },
+        ])
+      }),
+      http.put(`${RADARR_URL}/api/v3/downloadclient/3`, async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json({ id: 3, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    const id = await radarr.registerDownloadClient({
+      name: 'Jack',
+      baseUrl: 'http://jack:5225',
+      username: 'My Radarr',
+      password: 'secret',
+      category: 'jack-abc',
+      priority: 1,
+    })
+
+    expect(id).toBe(3)
+    expect(putBody.implementation).toBe('QBittorrent')
+    expect(putBody.id).toBe(3)
   })
 })
 

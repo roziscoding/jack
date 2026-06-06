@@ -23,6 +23,10 @@ export class RadarrServerConnector extends ArrServerConnector {
     return 'DownloadedMoviesScan'
   }
 
+  protected override get qbCategoryFieldName(): string {
+    return 'movieCategory'
+  }
+
   private toRelease(movie: MovieResource): Release | null {
     const file = movie.movieFile
     if (!movie.id || !movie.hasFile || !file)

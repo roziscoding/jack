@@ -10,6 +10,7 @@ import { logger } from './logger'
 import { BlackholeWatcher } from './modules/downloads/blackhole.watcher'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
+import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
   if (err instanceof FetchError) {
@@ -63,24 +64,26 @@ if (config.jack) {
     const downloads = config.downloads
 
     if (!downloads) {
-      logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a Torrent Blackhole client is configured.')
+      logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
     }
 
     const registrable = destinations.filter(d => d.isInitialized && d.autoRegister.enable)
     for (const dest of registrable) {
       // Register the download client first so we can bind the indexer to it:
-      // grabs from the Jack indexer must go to the Jack blackhole client, not
+      // grabs from the Jack indexer must go to the Jack qBittorrent client, not
       // whatever client *arr would otherwise pick.
       let downloadClientId: number | undefined
       if (downloads) {
         try {
           downloadClientId = await dest.registerDownloadClient({
             name: 'Jack',
-            watchPath: downloads.watchPath,
-            completedPath: downloads.completedPath,
+            baseUrl: jackConfig.baseUrl,
+            username: dest.name,
+            password: jackConfig.apiKey,
+            category: qbCategoryForServer(dest.id),
             priority: dest.autoRegister.priority,
           })
-          logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as Torrent Blackhole download client')
+          logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as qBittorrent download client')
         }
         catch (err) {
           logRegistrationFailure('download client', dest.name, err)
