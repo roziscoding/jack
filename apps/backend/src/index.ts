@@ -77,8 +77,6 @@ if (config.jack) {
           username: dest.name,
           password: jackConfig.apiKey,
           category: qbCategoryForServer(dest.id),
-          priority: dest.autoRegister.priority,
-          tag: dest.autoRegister.tag,
         })
         logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as qBittorrent download client')
       }

@@ -93,12 +93,6 @@ export type ConnectorHeadersConfig = z.infer<typeof ConnectorHeadersConfig>
 export const AutoRegisterConfig = z.object({
   enable: z.boolean().default(true),
   priority: z.number().int().min(1).default(1),
-  // Tag applied to the auto-registered qBittorrent download client. *arr only
-  // routes a tagged client to media carrying a matching tag, so a tag no media
-  // ever has keeps real torrents from other indexers out of jack's client,
-  // while the indexer→client binding still sends Jack grabs here (an explicit
-  // binding bypasses tag filtering). Set to "" to disable tagging.
-  tag: z.string().default('jack-internal'),
 })
 
 export type AutoRegisterConfig = z.infer<typeof AutoRegisterConfig>

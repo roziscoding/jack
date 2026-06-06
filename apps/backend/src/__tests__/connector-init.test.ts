@@ -27,7 +27,7 @@ function makeRadarr(url: string) {
     name: `radarr@${url}`,
     source: true,
     destination: false,
-    autoregister: { enable: false, priority: 1, tag: 'jack-internal' },
+    autoregister: { enable: false, priority: 1 },
   })
 }
 
@@ -52,7 +52,7 @@ describe('connector init() state machine', () => {
       name: 'radarr@headers',
       source: true,
       destination: false,
-      autoregister: { enable: false, priority: 1, tag: 'jack-internal' },
+      autoregister: { enable: false, priority: 1 },
       headers: {
         'X-Custom-Auth': 'custom-secret',
         'X-Api-Key': 'should-not-override',

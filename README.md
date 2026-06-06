@@ -277,8 +277,7 @@ you're doing.
       "destination": true, // register jack here + import grabs
       "autoregister": { // indexer/client registration (destinations)
         "enable": true, // set false to register it yourself
-        "priority": 1, // indexer priority in *arr (lower = preferred)
-        "tag": "jack-internal" // tag put on the qB client (see field notes); "" disables
+        "priority": 1 // indexer priority in *arr (lower = preferred)
       }
     },
     { "name": "Main Sonarr", "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "<32 hex chars>" }
@@ -300,7 +299,7 @@ you're doing.
 ```
 
 `source`, `destination` default to `true`; `autoregister` defaults to
-`{ "enable": true, "priority": 1, "tag": "jack-internal" }`.
+`{ "enable": true, "priority": 1 }`.
 
 Field notes:
 
@@ -326,14 +325,13 @@ Field notes:
   *arr resolves that path in its own filesystem to import them (see the callout in
   [Quick start](#quick-start-docker-compose)). The other `downloads.*` keys are
   optional tuning knobs (concurrency and retry backoff).
-- **`servers[].autoregister.tag`** (default `jack-internal`) is a tag jack puts on
-  the qBittorrent download client it registers. *arr only routes a tagged client
-  to media carrying a matching tag, so a tag **no media ever has** keeps real
-  torrents (grabbed from your other indexers) out of jack's client — they'd be
-  rejected anyway. Grabs from the Jack indexer still reach the client because the
-  indexer is bound to it explicitly (`downloadClientId`), which bypasses tag
-  filtering. jack creates the tag in each destination if it's missing. Set to `""`
-  to register the client untagged.
+- **Download client isolation.** jack registers its qBittorrent client at *arr's
+  **lowest** priority (50).*arr's general client pool only round-robins among the
+  best-priority group, so real torrents grabbed from your other indexers never get
+  routed to jack's client (they'd be rejected anyway). Grabs from the Jack indexer
+  still reach it because the indexer is bound to the client explicitly
+  (`downloadClientId`), which *arr resolves before applying priority. No tags or
+  extra config needed.
 
 ### Secrets from environment variables or files
 

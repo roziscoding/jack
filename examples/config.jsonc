@@ -42,10 +42,10 @@
   //                    qBittorrent download client, and triggers imports.
   //   - both:          share your library AND search your friends', symmetric.
   // "autoregister" controls the indexer/client registration (destinations only):
-  //   { "enable": true, "priority": 1, "tag": "jack-internal" }
-  // "tag" is put on the qBittorrent client so *arr never routes real torrents
-  // (from your other indexers) to jack; Jack grabs still reach it via the
-  // indexer binding. jack creates the tag if missing. Set "" to disable.
+  //   { "enable": true, "priority": 1 }
+  // The qBittorrent client is always registered at *arr's lowest priority so real
+  // torrents from your other indexers never get routed to jack (Jack grabs still
+  // reach it via the indexer binding, which *arr resolves before priority).
   "servers": [
     // {
     //   "name": "Main Radarr",
@@ -55,7 +55,7 @@
     //   "headers": { "X-Forwarded-User": "jack" },
     //   "source": true,
     //   "destination": true,
-    //   "autoregister": { "enable": true, "priority": 1, "tag": "jack-internal" }
+    //   "autoregister": { "enable": true, "priority": 1 }
     // },
     // { "name": "Main Sonarr", "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
   ],
