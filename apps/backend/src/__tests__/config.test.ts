@@ -158,7 +158,7 @@ describe('appConfig parsing', () => {
     const server = parsed.servers[0]!
     expect(server.source).toBe(true)
     expect(server.destination).toBe(true)
-    expect(server.autoregister).toEqual({ enable: true, priority: 1 })
+    expect(server.autoregister).toEqual({ enable: true, priority: 1, tag: 'jack-internal' })
   })
 
   test('respects explicit source/destination/autoregister', () => {
@@ -170,14 +170,14 @@ describe('appConfig parsing', () => {
         apiKey: HEX_KEY,
         source: false,
         destination: true,
-        autoregister: { enable: false, priority: 5 },
+        autoregister: { enable: false, priority: 5, tag: 'custom-tag' },
       }],
     })
 
     const server = parsed.servers[0]!
     expect(server.source).toBe(false)
     expect(server.destination).toBe(true)
-    expect(server.autoregister).toEqual({ enable: false, priority: 5 })
+    expect(server.autoregister).toEqual({ enable: false, priority: 5, tag: 'custom-tag' })
   })
 
   test('defaults servers and peers to empty arrays', () => {

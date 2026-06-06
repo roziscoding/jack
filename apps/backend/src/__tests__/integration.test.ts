@@ -72,6 +72,8 @@ const handlers = [
   http.post(`${RADARR_URL}/api/v3/indexer`, () => HttpResponse.json({ id: 1, name: 'Jack' })),
   http.get(`${RADARR_URL}/api/v3/downloadclient`, () => HttpResponse.json([])),
   http.post(`${RADARR_URL}/api/v3/downloadclient`, () => HttpResponse.json({ id: 1, name: 'Jack' })),
+  http.get(`${RADARR_URL}/api/v3/tag`, () => HttpResponse.json([])),
+  http.post(`${RADARR_URL}/api/v3/tag`, () => HttpResponse.json({ id: 1, label: 'jack-internal' })),
   http.post(`${RADARR_URL}/api/v3/command`, () => HttpResponse.json({ id: 1 })),
   http.get(`${RADARR_URL}/api/v3/health`, () => HttpResponse.json([])),
 
@@ -79,6 +81,8 @@ const handlers = [
   http.get(`${SONARR_URL}/api/v3/system/status`, () => HttpResponse.json({ appName: 'Sonarr', version: '4.0.0' })),
   http.get(`${SONARR_URL}/api/v3/downloadclient`, () => HttpResponse.json([])),
   http.post(`${SONARR_URL}/api/v3/downloadclient`, () => HttpResponse.json({ id: 1, name: 'Jack' })),
+  http.get(`${SONARR_URL}/api/v3/tag`, () => HttpResponse.json([])),
+  http.post(`${SONARR_URL}/api/v3/tag`, () => HttpResponse.json({ id: 1, label: 'jack-internal' })),
 
   // ---- Peer jack ----
   http.get(`${PEER_JACK_URL}/peer/search`, ({ request }) => {
@@ -126,7 +130,7 @@ const envs: Envs = {
   NODE_ENV: 'test',
 }
 
-const AUTOREGISTER = { enable: true, priority: 1 }
+const AUTOREGISTER = { enable: true, priority: 1, tag: 'jack-internal' }
 
 function markInitialized<T extends object>(connector: T): T {
   ;(connector as any)._isInitialized = true
@@ -493,6 +497,96 @@ describe('Auto-registration', () => {
     expect(id).toBe(3)
     expect(putBody.implementation).toBe('QBittorrent')
     expect(putBody.id).toBe(3)
+  })
+
+  test('registerDownloadClient creates the configured tag and applies it to the client', async () => {
+    let tagBody: any = null
+    let clientBody: any = null
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/tag`, () => HttpResponse.json([])),
+      http.post(`${RADARR_URL}/api/v3/tag`, async ({ request }) => {
+        tagBody = await request.json()
+        return HttpResponse.json({ id: 42, label: 'jack-internal' })
+      }),
+      http.post(`${RADARR_URL}/api/v3/downloadclient`, async ({ request }) => {
+        clientBody = await request.json()
+        return HttpResponse.json({ id: 7, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    await radarr.registerDownloadClient({
+      name: 'Jack',
+      baseUrl: 'http://jack:5225',
+      username: 'My Radarr',
+      password: 'secret',
+      category: 'jack-abc',
+      priority: 1,
+      tag: 'jack-internal',
+    })
+
+    expect(tagBody).toEqual({ label: 'jack-internal' })
+    expect(clientBody.tags).toEqual([42])
+  })
+
+  test('registerDownloadClient reuses an existing tag (no tag created)', async () => {
+    let tagCreated = false
+    let clientBody: any = null
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/tag`, () =>
+        HttpResponse.json([{ id: 8, label: 'jack-internal' }])),
+      http.post(`${RADARR_URL}/api/v3/tag`, () => {
+        tagCreated = true
+        return HttpResponse.json({ id: 99, label: 'jack-internal' })
+      }),
+      http.post(`${RADARR_URL}/api/v3/downloadclient`, async ({ request }) => {
+        clientBody = await request.json()
+        return HttpResponse.json({ id: 7, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    await radarr.registerDownloadClient({
+      name: 'Jack',
+      baseUrl: 'http://jack:5225',
+      username: 'My Radarr',
+      password: 'secret',
+      category: 'jack-abc',
+      priority: 1,
+      tag: 'jack-internal',
+    })
+
+    expect(tagCreated).toBe(false)
+    expect(clientBody.tags).toEqual([8])
+  })
+
+  test('registerDownloadClient with an empty tag applies no tag (and never calls the tag API)', async () => {
+    let tagTouched = false
+    let clientBody: any = null
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/tag`, () => {
+        tagTouched = true
+        return HttpResponse.json([])
+      }),
+      http.post(`${RADARR_URL}/api/v3/downloadclient`, async ({ request }) => {
+        clientBody = await request.json()
+        return HttpResponse.json({ id: 7, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    await radarr.registerDownloadClient({
+      name: 'Jack',
+      baseUrl: 'http://jack:5225',
+      username: 'My Radarr',
+      password: 'secret',
+      category: 'jack-abc',
+      priority: 1,
+      tag: '',
+    })
+
+    expect(tagTouched).toBe(false)
+    expect(clientBody.tags).toEqual([])
   })
 })
 

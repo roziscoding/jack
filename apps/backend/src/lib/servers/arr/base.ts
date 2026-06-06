@@ -33,6 +33,9 @@ export const DestinationServerHealthIssue = z.array(
 // the auto-registered indexer to it.
 const DownloadClientResource = z.object({ id: z.number().int() })
 
+// *arr returns the saved tag on create; we only need its id for the client.
+const TagResource = z.object({ id: z.number().int() })
+
 export type ReleaseKind = 'movie' | 'episode'
 
 export function basename(path: string): string {
@@ -215,15 +218,39 @@ export abstract class ArrServerConnector extends ServerConnector {
     }
   }
 
+  /**
+   * Resolve a tag label to its id in this *arr, creating the tag if it doesn't
+   * exist yet. Used to tag the Jack download client so *arr never routes torrents
+   * from other indexers to it.
+   */
+  protected async ensureTag(label: string): Promise<number> {
+    const tags = await this.arrGet<any[]>('/api/v3/tag')
+    const existing: any = Array.isArray(tags) ? tags.find((t: any) => t.label === label) : null
+    if (existing)
+      return existing.id as number
+
+    const created = await this.fetch<typeof TagResource>('/api/v3/tag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+      schema: TagResource,
+    } as any)
+    return created.id
+  }
+
   @requiresDestination
   @requireInitialization
-  async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string, priority: number }): Promise<number> {
+  async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string, priority: number, tag?: string }): Promise<number> {
     const url = new URL(clientConfig.baseUrl)
     const host = url.hostname
     const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80)
     const useSsl = url.protocol === 'https:'
     // urlBase is the path prefix BEFORE /api/v2 (qB's proxy appends /api/v2).
     const urlBase = url.pathname.replace(TRAILING_SLASH_REGEX, '')
+
+    // Tag the client so *arr keeps real torrents (from other indexers) out of it;
+    // the indexer→client binding still routes Jack grabs here. Empty tag = none.
+    const tags = clientConfig.tag ? [await this.ensureTag(clientConfig.tag)] : []
 
     // Match by NAME regardless of implementation so an existing TorrentBlackhole
     // "Jack" client from a previous version is upgraded in place (PUT switches it
@@ -241,6 +268,7 @@ export abstract class ArrServerConnector extends ServerConnector {
       implementation: 'QBittorrent',
       implementationName: 'qBittorrent',
       configContract: 'QBittorrentSettings',
+      tags,
       fields: [
         { name: 'host', value: host },
         { name: 'port', value: port },
