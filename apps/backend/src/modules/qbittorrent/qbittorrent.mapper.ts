@@ -22,7 +22,7 @@ export function qbCategoryForServer(serverId: string): string {
 
 export type QbState = 'downloading' | 'pausedUP' | 'error'
 
-const ETA_UNKNOWN = 8_640_000 // qB's "unknown ETA" sentinel; *arr treats >365d as null
+const ETA_UNKNOWN = 8_640_000 // qB's "unknown ETA" sentinel (= 100 days); *arr recognises this specific value as "no ETA"
 
 function mapState(status: DownloadStatus): QbState {
   switch (status) {
