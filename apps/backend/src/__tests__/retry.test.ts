@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { FetchError } from '../lib/errors/FetchError'
 import { IncompleteDownloadError } from '../lib/errors/IncompleteDownloadError'
 import { retry } from '../lib/retry'
@@ -87,6 +87,21 @@ describe('retry', () => {
     })
     expect(delays).toEqual([2000])
   })
+
+  test('rejects invalid maxAttempts without calling the operation', async () => {
+    let calls = 0
+    await expect(retry(async () => {
+      calls++
+      return 'ok'
+    }, {
+      maxAttempts: 0,
+      baseDelayMs: 1,
+      maxDelayMs: 10,
+      isRetryable: () => true,
+      sleep: noSleep,
+    })).rejects.toThrow('maxAttempts must be at least 1')
+    expect(calls).toBe(0)
+  })
 })
 
 describe('isTransientDownloadError', () => {
@@ -112,6 +127,12 @@ describe('isTransientDownloadError', () => {
     expect(isTransientDownloadError(new TypeError('fetch failed'))).toBe(true)
   })
 
+  test('treats manual aborts as permanent', () => {
+    const abort = new Error('shutting down')
+    abort.name = 'AbortError'
+    expect(isTransientDownloadError(abort)).toBe(false)
+  })
+
   test('treats an incomplete download as transient', () => {
     expect(isTransientDownloadError(new IncompleteDownloadError('got 3 bytes, expected 5'))).toBe(true)
   })
@@ -125,6 +146,32 @@ describe('downloadRetryAfterMs', () => {
   test('parses a seconds Retry-After header', () => {
     const err = new FetchError('x', new Response(null, { status: 429, headers: { 'Retry-After': '2' } }))
     expect(downloadRetryAfterMs(err)).toBe(2000)
+  })
+
+  test('parses an HTTP-date Retry-After header', () => {
+    const now = Date.UTC(2098, 11, 31, 23, 59, 58)
+    const nowSpy = spyOn(Date, 'now').mockReturnValue(now)
+    const err = new FetchError('x', new Response(null, { status: 429, headers: { 'Retry-After': 'Thu, 01 Jan 2099 00:00:00 GMT' } }))
+
+    try {
+      expect(downloadRetryAfterMs(err)).toBe(2000)
+    }
+    finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('floors past HTTP-date Retry-After headers at zero', () => {
+    const now = Date.UTC(2099, 0, 1, 0, 0, 0)
+    const nowSpy = spyOn(Date, 'now').mockReturnValue(now)
+    const err = new FetchError('x', new Response(null, { status: 429, headers: { 'Retry-After': 'Wed, 31 Dec 2098 23:59:59 GMT' } }))
+
+    try {
+      expect(downloadRetryAfterMs(err)).toBe(0)
+    }
+    finally {
+      nowSpy.mockRestore()
+    }
   })
 
   test('returns null without a header or for non-FetchErrors', () => {

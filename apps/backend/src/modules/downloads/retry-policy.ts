@@ -18,8 +18,8 @@ export function isTransientDownloadError(error: unknown): boolean {
     return status >= 500 && status <= 599
   }
   if (error instanceof Error) {
-    // AbortSignal.timeout rejects with a TimeoutError; manual aborts with AbortError.
-    if (error.name === 'TimeoutError' || error.name === 'AbortError')
+    // AbortSignal.timeout rejects with a TimeoutError; manual aborts are permanent.
+    if (error.name === 'TimeoutError')
       return true
     // A failed fetch (DNS, connection refused, reset) rejects with a TypeError.
     if (error instanceof TypeError)

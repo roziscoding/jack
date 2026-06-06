@@ -21,13 +21,14 @@ export async function retry<T>(fn: (attempt: number) => Promise<T>, options: Ret
   const sleep = options.sleep ?? defaultSleep
   const random = options.random ?? Math.random
 
-  let lastError: unknown
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1)
+    throw new RangeError('maxAttempts must be at least 1')
+
+  for (let attempt = 1; ; attempt++) {
     try {
       return await fn(attempt)
     }
     catch (error) {
-      lastError = error
       if (attempt >= maxAttempts || !isRetryable(error))
         throw error
 
@@ -39,5 +40,4 @@ export async function retry<T>(fn: (attempt: number) => Promise<T>, options: Ret
       await sleep(delayMs)
     }
   }
-  throw lastError
 }
