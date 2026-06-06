@@ -151,4 +151,65 @@ describe('DownloadsRepository', () => {
     expect(stale.error).toContain('stale')
     handle.close()
   })
+
+  test('increments attempts and records a resume reset', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const created = repository.create({
+      torrentFilename: 'movie.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath: join(tempDir, release.filename),
+      partPath: join(tempDir, `${release.filename}.part`),
+      releaseSize: release.size,
+      release,
+    })
+
+    expect(repository.incrementAttempts(created.id)).toBe(1)
+    expect(repository.incrementAttempts(created.id)).toBe(2)
+    repository.updateProgress(created.id, 40)
+    repository.markResumeReset(created.id)
+
+    const row = repository.get(created.id)!
+    expect(row.attempts).toBe(2)
+    expect(row.downloadedBytes).toBe(0)
+    expect(row.status).toBe('downloading')
+    expect(row.error).toContain('resume validation failed')
+    handle.close()
+  })
+
+  test('lists stale downloading rows without mutating them', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const a = repository.create({
+      torrentFilename: 'a.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: 'A.mkv',
+      destPath: join(tempDir, 'A.mkv'),
+      partPath: join(tempDir, 'A.mkv.part'),
+      releaseSize: 10,
+      release,
+    })
+    const b = repository.create({
+      torrentFilename: 'b.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:2',
+      filename: 'B.mkv',
+      destPath: join(tempDir, 'B.mkv'),
+      partPath: join(tempDir, 'B.mkv.part'),
+      releaseSize: 10,
+      release,
+    })
+    repository.markCompleted(b.id, 10)
+
+    const stale = repository.listStaleDownloads()
+    expect(stale.map(r => r.id)).toEqual([a.id])
+    expect(repository.get(a.id)?.status).toBe('downloading')
+    handle.close()
+  })
 })

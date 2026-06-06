@@ -20,6 +20,7 @@ export const downloads = sqliteTable('downloads', {
   expectedBytesSource: text('expected_bytes_source').$type<ExpectedBytesSource | null>(),
   expectedBytesMismatch: integer('expected_bytes_mismatch', { mode: 'boolean' }).notNull().default(false),
   downloadedBytes: integer('downloaded_bytes').notNull().default(0),
+  attempts: integer('attempts').notNull().default(0),
   status: text('status').$type<DownloadStatus>().notNull(),
   startedAt: text('started_at').notNull(),
   updatedAt: text('updated_at').notNull(),
