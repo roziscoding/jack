@@ -19,10 +19,6 @@ export class RadarrServerConnector extends ArrServerConnector {
     return [ReleaseCategory.Movie]
   }
 
-  protected override get importCommandName(): string {
-    return 'DownloadedMoviesScan'
-  }
-
   protected override get qbCategoryFieldName(): string {
     return 'movieCategory'
   }

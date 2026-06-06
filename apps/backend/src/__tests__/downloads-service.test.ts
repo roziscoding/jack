@@ -1,5 +1,5 @@
 import type { Release } from '../lib/release'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
@@ -7,7 +7,6 @@ import { openDatabase } from '../database/connection'
 import { FetchError } from '../lib/errors/FetchError'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 import { DownloadsService } from '../modules/downloads/downloads.service'
-import { createTorrentStub } from '../modules/torznab/torrent'
 
 const release: Release = {
   id: 'remote:movie:1',
@@ -18,14 +17,12 @@ const release: Release = {
 }
 
 let tempDir: string
-let watchPath: string
 let completedPath: string
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'jack-downloads-service-'))
-  watchPath = join(tempDir, 'watch')
   completedPath = join(tempDir, 'completed')
-  await Bun.$`mkdir -p ${watchPath} ${completedPath}`.quiet()
+  await Bun.$`mkdir -p ${completedPath}`.quiet()
 })
 
 afterEach(async () => {
@@ -34,7 +31,6 @@ afterEach(async () => {
 
 function downloadsConfig(overrides: Partial<Record<string, number>> = {}) {
   return {
-    watchPath,
     completedPath,
     maxConcurrentDownloads: 2,
     maxDownloadAttempts: 3,
@@ -58,14 +54,10 @@ function fakePeer(overrides: Partial<Record<'getRelease' | 'downloadFile', any>>
   }
 }
 
-function fakeDestination() {
-  return { isInitialized: true, canDestination: true, name: 'Radarr', categories: [2000], triggerImport: async () => {} }
-}
-
-async function writeTorrent(filename = 'movie.torrent', itemId = 'movie:1') {
-  const filePath = join(watchPath, filename)
-  await writeFile(filePath, createTorrentStub({ name: release.title, size: release.size, peerId: 'peer-1', itemId }))
-  return filePath
+// Poll until the (single) row reaches a terminal status, or the timeout elapses.
+async function waitForStatus(repository: DownloadsRepository, status: string) {
+  for (let i = 0; i < 50 && repository.list()[0]?.status !== status; i++)
+    await Bun.sleep(10)
 }
 
 describe('DownloadsService download progress persistence', () => {
@@ -81,16 +73,15 @@ describe('DownloadsService download progress persistence', () => {
         await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
       },
     })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
-    const filePath = await writeTorrent()
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    await service.processTorrentFile(filePath, 'movie.torrent')
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await waitForStatus(repository, 'import_queued')
 
     expect(calls).toHaveLength(1)
     expect(calls[0].destPath).toBe(join(completedPath, release.filename))
     expect(calls[0].options.partPath).toBe(`${join(completedPath, release.filename)}.part`)
     expect(calls[0].options.releaseSize).toBe(10)
-    expect(calls[0].options.torrentFilename).toBe('movie.torrent')
 
     const downloads = repository.list()
     expect(downloads).toHaveLength(1)
@@ -106,31 +97,11 @@ describe('DownloadsService download progress persistence', () => {
     const peer = fakePeer({ getRelease: async () => {
       throw new Error('metadata failed')
     } })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [], repository)
-    const filePath = await writeTorrent()
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    await service.processTorrentFile(filePath, 'movie.torrent')
+    const record = await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
 
-    expect(repository.list()).toHaveLength(0)
-    handle.close()
-  })
-
-  test('rejects a peer release with a path-traversal filename', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
-    const repository = new DownloadsRepository(handle.db)
-    const writtenPaths: string[] = []
-    const peer = fakePeer({
-      getRelease: async () => ({ ...release, filename: '../../evil.mkv' }),
-      downloadFile: async (_itemId: string, destPath: string) => {
-        writtenPaths.push(destPath)
-      },
-    })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
-    const filePath = await writeTorrent()
-
-    await service.processTorrentFile(filePath, 'movie.torrent')
-
-    expect(writtenPaths).toHaveLength(0)
+    expect(record).toBeNull()
     expect(repository.list()).toHaveLength(0)
     handle.close()
   })
@@ -143,10 +114,10 @@ describe('DownloadsService download progress persistence', () => {
       calls++
       throw new FetchError('not found', new Response(null, { status: 404 }))
     } })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [], repository)
-    const filePath = await writeTorrent()
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    await service.processTorrentFile(filePath, 'movie.torrent')
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await waitForStatus(repository, 'failed')
 
     expect(calls).toBe(1) // 404 is permanent — no retry
     const downloads = repository.list()
@@ -166,10 +137,10 @@ describe('DownloadsService download progress persistence', () => {
         await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
       },
     })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
-    const filePath = await writeTorrent()
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    await service.processTorrentFile(filePath, 'movie.torrent')
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await waitForStatus(repository, 'import_queued')
 
     expect(calls).toBe(2)
     const downloads = repository.list()
@@ -192,10 +163,10 @@ describe('DownloadsService download progress persistence', () => {
         await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
       },
     })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
-    const filePath = await writeTorrent()
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    await service.processTorrentFile(filePath, 'movie.torrent')
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await waitForStatus(repository, 'import_queued')
 
     expect(resetSpy).toHaveBeenCalledTimes(1)
     expect(repository.list()[0]?.status).toBe('import_queued')
@@ -222,14 +193,12 @@ describe('DownloadsService download progress persistence', () => {
         await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
       },
     }
-    const service = new DownloadsService(downloadsConfig({ maxConcurrentDownloads: 1 }), [peer as any], [fakeDestination() as any], repository)
-    const a = await writeTorrent('a.torrent', 'movie:1')
-    const b = await writeTorrent('b.torrent', 'movie:2')
+    const service = new DownloadsService(downloadsConfig({ maxConcurrentDownloads: 1 }), [peer as any], repository)
 
-    await Promise.all([
-      service.processTorrentFile(a, 'a.torrent'),
-      service.processTorrentFile(b, 'b.torrent'),
-    ])
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:2', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    for (let i = 0; i < 100 && repository.list().filter(d => d.status === 'import_queued').length < 2; i++)
+      await Bun.sleep(10)
 
     expect(maxActive).toBe(1)
     expect(repository.list().filter(d => d.status === 'import_queued')).toHaveLength(2)
@@ -258,12 +227,11 @@ describe('DownloadsService download progress persistence', () => {
       releaseSize: release.size,
       release,
     })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
     const resumed = await service.resumeStaleDownloads()
     // resumeStaleDownloads fires in the background; wait for the row to settle.
-    for (let i = 0; i < 50 && repository.list()[0]?.status !== 'import_queued'; i++)
-      await Bun.sleep(10)
+    await waitForStatus(repository, 'import_queued')
 
     expect(resumed).toBe(1)
     expect(calls).toEqual([join(completedPath, release.filename)])
@@ -294,7 +262,7 @@ describe('DownloadsService download progress persistence', () => {
     }
     repository.create({ ...base, torrentFilename: 'first.torrent' })
     repository.create({ ...base, torrentFilename: 'second.torrent' })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
     const resumed = await service.resumeStaleDownloads()
     for (let i = 0; i < 50 && !repository.list().some(d => d.status === 'import_queued'); i++)
@@ -308,58 +276,10 @@ describe('DownloadsService download progress persistence', () => {
     handle.close()
   })
 
-  test('releases the re-enqueue claim after a successful resume so the filename can be processed again', async () => {
+  test('startQbDownload creates a row with qb fields and ends import_queued', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
-    const calls: string[] = []
-    const peer = fakePeer({
-      downloadFile: async (itemId: string, _destPath: string, options: any) => {
-        calls.push(itemId)
-        await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
-      },
-    })
-    repository.create({
-      torrentFilename: 'movie.torrent',
-      peerId: 'peer-1',
-      peerName: 'Friend Jack',
-      itemId: 'movie:1',
-      filename: release.filename,
-      destPath: join(completedPath, release.filename),
-      partPath: `${join(completedPath, release.filename)}.part`,
-      releaseSize: release.size,
-      release,
-    })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
-
-    await service.resumeStaleDownloads()
-    for (let i = 0; i < 50 && repository.list()[0]?.status !== 'import_queued'; i++)
-      await Bun.sleep(10)
-    expect(calls).toHaveLength(1)
-
-    // A later legitimate re-drop of the same torrent filename must NOT be skipped
-    // by a stale re-enqueue claim once the resume has completed.
-    const filePath = await writeTorrent('movie.torrent')
-    await service.processTorrentFile(filePath, 'movie.torrent')
-
-    expect(calls).toHaveLength(2)
-    expect(repository.list().filter(d => d.status === 'import_queued')).toHaveLength(2)
-    handle.close()
-  })
-
-  test('startQbDownload creates a row with qb fields, ends import_queued, and does NOT push import (pull model)', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
-    const repository = new DownloadsRepository(handle.db)
-    const triggered: string[] = []
-    const dest = {
-      isInitialized: true,
-      canDestination: true,
-      name: 'Radarr',
-      categories: [2000],
-      triggerImport: async () => {
-        triggered.push('Radarr')
-      },
-    }
-    const service = new DownloadsService(downloadsConfig(), [fakePeer() as any], [dest as any], repository)
+    const service = new DownloadsService(downloadsConfig(), [fakePeer() as any], repository)
 
     const record = await service.startQbDownload({
       peerId: 'peer-1',
@@ -369,16 +289,13 @@ describe('DownloadsService download progress persistence', () => {
     })
 
     expect(record).not.toBeNull()
-    for (let i = 0; i < 50 && repository.list()[0]?.status !== 'import_queued'; i++)
-      await Bun.sleep(10)
+    await waitForStatus(repository, 'import_queued')
 
     const rows = repository.list()
     expect(rows).toHaveLength(1)
     expect(rows[0]?.status).toBe('import_queued')
     expect(rows[0]?.qbCategory).toBe('jack-x')
     expect(rows[0]?.qbSourceServer).toBe('My Radarr')
-    // Pull model: jack does NOT push a scan for qB-added downloads.
-    expect(triggered).toHaveLength(0)
     handle.close()
   })
 
@@ -386,7 +303,7 @@ describe('DownloadsService download progress persistence', () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
     const peer = fakePeer({ getRelease: async () => ({ ...release, filename: '../../evil.mkv' }) })
-    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
+    const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
     const record = await service.startQbDownload({
       peerId: 'peer-1',
@@ -397,34 +314,6 @@ describe('DownloadsService download progress persistence', () => {
 
     expect(record).toBeNull()
     expect(repository.list()).toHaveLength(0)
-    handle.close()
-  })
-
-  test('only triggers import on destinations whose categories match the release', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
-    const repository = new DownloadsRepository(handle.db)
-    const triggered: string[] = []
-    function dest(name: string, categories: number[]) {
-      return {
-        isInitialized: true,
-        canDestination: true,
-        name,
-        categories,
-        triggerImport: async () => {
-          triggered.push(name)
-        },
-      }
-    }
-    // release is a movie (category 2000) — only Radarr should be scanned, not Sonarr.
-    const radarr = dest('Radarr', [2000])
-    const sonarr = dest('Sonarr', [5000])
-    const service = new DownloadsService(downloadsConfig(), [fakePeer() as any], [radarr, sonarr] as any, repository)
-    const filePath = await writeTorrent()
-
-    await service.processTorrentFile(filePath, 'movie.torrent')
-
-    expect(triggered).toEqual(['Radarr'])
-    expect(repository.list()[0]?.status).toBe('import_queued')
     handle.close()
   })
 })

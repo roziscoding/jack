@@ -72,7 +72,6 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   // Category id reported to *arr (2000 movies / 5000 tv).
   abstract get categories(): number[]
-  protected abstract get importCommandName(): string
   // qBittorrent settings use a per-app category field name.
   protected abstract get qbCategoryFieldName(): string
 
@@ -162,16 +161,6 @@ export abstract class ArrServerConnector extends ServerConnector {
   @requireInitialization
   async getHealthIssues() {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
-  }
-
-  @requiresDestination
-  @requireInitialization
-  async triggerImport(downloadPath: string) {
-    await this.fetch('/api/v3/command', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: this.importCommandName, path: downloadPath }),
-    } as any)
   }
 
   @requiresDestination

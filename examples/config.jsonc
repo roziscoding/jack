@@ -21,10 +21,10 @@
     "apiKey": { "env": "JACK_API_KEY" }
   },
 
-  // Blackhole watcher: drops .torrent files for your client to pick up,
-  // and moves finished downloads. Paths are *inside the container*.
+  // Downloads: jack registers itself in your *arr as a qBittorrent download
+  // client, so grabs are handed to jack directly (no watch folder). Finished
+  // files are written here for your *arr to import. Path is *inside the container*.
   "downloads": {
-    "watchPath": "/data/torrents/watch",
     "completedPath": "/data/torrents/completed",
     // Optional download hardening knobs — values below are the defaults, so you
     // can delete any line to keep the default. (Note the comma after

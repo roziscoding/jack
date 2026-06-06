@@ -7,7 +7,6 @@ import { getAppEnvs } from './lib/envs'
 import { FetchError } from './lib/errors/FetchError'
 import { initializeConnectors } from './lib/servers'
 import { logger } from './logger'
-import { BlackholeWatcher } from './modules/downloads/blackhole.watcher'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
@@ -34,7 +33,7 @@ const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
 
 const downloadsService = config.downloads
-  ? new DownloadsService(config.downloads, connectors.peers, destinations, downloadsRepository)
+  ? new DownloadsService(config.downloads, connectors.peers, downloadsRepository)
   : undefined
 
 const app = getApp(envs, config, connectors, { downloadsRepository, downloadsService })
@@ -108,17 +107,13 @@ if (config.jack) {
   }
 }
 
-// Start blackhole watcher (and re-drive interrupted downloads from a prior run)
-let blackholeWatcher: BlackholeWatcher | null = null
+// Re-drive interrupted downloads from a prior run.
 if (config.downloads && downloadsService) {
-  // Active re-enqueue: resume stale `downloading` rows in place before the
-  // watcher scans, so the leftover .torrent stubs are not re-processed as new rows.
+  // Active re-enqueue: resume stale `downloading` rows in place, picking up from
+  // their .part files.
   const resumed = await downloadsService.resumeStaleDownloads()
   if (resumed > 0)
     logger.warn({ downloads: resumed, databasePath: database.path }, 'Re-enqueued interrupted downloads from previous Jack run')
-
-  blackholeWatcher = new BlackholeWatcher(config.downloads, downloadsService)
-  await blackholeWatcher.start()
 }
 else {
   // No downloads config means stale rows cannot be resumed — mark them failed.
@@ -129,7 +124,6 @@ else {
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
-  blackholeWatcher?.stop()
   database.close()
   server.stop()
   await shutdownTelemetry()
@@ -138,7 +132,6 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
-  blackholeWatcher?.stop()
   database.close()
   server.stop()
   await shutdownTelemetry()

@@ -120,7 +120,7 @@ async function writeJackConfigs(radarrApiKey: string, sonarrApiKey: string) {
   // jack-beta searches jack-alpha and registers itself into its own Radarr.
   const betaConfig = {
     jack: { baseUrl: 'http://jack-beta:3000', apiKey: 'beta-test-key' },
-    downloads: { watchPath: '/downloads/watch', completedPath: '/downloads/completed' },
+    downloads: { completedPath: '/downloads/completed' },
     servers: [
       { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr', source: false, destination: true },
     ],

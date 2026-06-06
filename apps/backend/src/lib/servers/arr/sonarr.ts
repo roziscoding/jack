@@ -21,10 +21,6 @@ export class SonarrServerConnector extends ArrServerConnector {
     return [ReleaseCategory.Tv]
   }
 
-  protected override get importCommandName(): string {
-    return 'DownloadedEpisodesScan'
-  }
-
   protected override get qbCategoryFieldName(): string {
     return 'tvCategory'
   }

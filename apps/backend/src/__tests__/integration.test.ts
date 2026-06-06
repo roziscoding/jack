@@ -110,7 +110,7 @@ afterAll(() => server.close())
 
 const config = AppConfig.parse({
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
-  downloads: { watchPath: '/tmp/jack-test-watch', completedPath: '/tmp/jack-test-completed' },
+  downloads: { completedPath: '/tmp/jack-test-completed' },
   servers: [],
   peers: [],
 })

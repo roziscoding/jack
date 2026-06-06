@@ -9,7 +9,6 @@ services:
     volumes:
       - radarr-config:/config
       - ./fixtures/media:/media
-      - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
       test: [CMD, curl, -f, 'http://localhost:7878/ping']
@@ -28,7 +27,6 @@ services:
     volumes:
       - sonarr-config:/config
       - ./fixtures/media:/media
-      - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
     healthcheck:
       test: [CMD, curl, -f, 'http://localhost:8989/ping']
@@ -74,7 +72,6 @@ services:
       - PORT=3000
     volumes:
       - ./config:/config
-      - ./volumes/blackhole-watch:/downloads/watch
       - ./volumes/blackhole-completed:/downloads/completed
       - ./fixtures/media:/media:ro
     depends_on:

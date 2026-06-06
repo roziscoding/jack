@@ -20,7 +20,7 @@ function buildApp() {
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
     jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
-    downloads: { watchPath: '/tmp/watch', completedPath: '/tmp/completed' },
+    downloads: { completedPath: '/tmp/completed' },
     servers: [],
     peers: [],
   })
@@ -35,7 +35,7 @@ function buildAppWithService() {
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
     jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
-    downloads: { watchPath: '/tmp/watch', completedPath: '/tmp/completed' },
+    downloads: { completedPath: '/tmp/completed' },
     servers: [],
     peers: [],
   })
