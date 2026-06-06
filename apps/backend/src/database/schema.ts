@@ -26,6 +26,11 @@ export const downloads = sqliteTable('downloads', {
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
   error: text('error'),
+  // qBittorrent emulation: the category *arr sent on add, and the server
+  // connector that added it. Presence of qbSourceServer marks a qB-added
+  // download (→ *arr-pull import, no jack push). Null for blackhole-added rows.
+  qbCategory: text('qb_category'),
+  qbSourceServer: text('qb_source_server'),
 }, t => [
   check('downloads_status_check', sql`${t.status} in ('downloading', 'completed', 'failed', 'import_queued')`),
   check('downloads_expected_bytes_source_check', sql`${t.expectedBytesSource} is null or ${t.expectedBytesSource} = 'content_length'`),

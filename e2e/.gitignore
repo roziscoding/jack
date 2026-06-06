@@ -2,3 +2,4 @@ config/jack-alpha.jsonc
 config/jack-beta.jsonc
 config/test-env.json
 volumes/
+config/database.sqlite*

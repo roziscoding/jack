@@ -6,6 +6,7 @@ import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
 import { AppConfig } from '../lib/config'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
+import { deriveHash, qbCategoryForServer } from '../modules/qbittorrent/qbittorrent.mapper'
 
 const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
 
@@ -23,7 +24,23 @@ function buildApp() {
     peers: [],
   })
   const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository })
-  return { app }
+  return { app, repository }
+}
+
+function seedDownload(repository: DownloadsRepository, category: string) {
+  return repository.create({
+    torrentFilename: 'movie.torrent',
+    peerId: 'peer0001',
+    peerName: 'Peer',
+    itemId: 'conn:movie:42',
+    filename: 'Big Buck Bunny (2008).mkv',
+    destPath: '/tmp/completed/Big Buck Bunny (2008).mkv',
+    partPath: '/tmp/completed/Big Buck Bunny (2008).mkv.part',
+    releaseSize: 10,
+    release: { id: 'conn:movie:42', title: 'Big Buck Bunny', filename: 'Big Buck Bunny (2008).mkv', category: 2000, size: 10 } as any,
+    qbCategory: category,
+    qbSourceServer: 'My Radarr',
+  })
 }
 
 async function loginCookie(app: ReturnType<typeof buildApp>['app']): Promise<string> {
@@ -83,5 +100,42 @@ describe('qBittorrent auth + app surface', () => {
     const res = await app.request('/api/v2/torrents/categories', { headers: { cookie } })
     const body = await res.json() as Record<string, unknown>
     expect(Object.keys(body)).toContain('jack-abc12345')
+  })
+})
+
+describe('qBittorrent torrent mapping', () => {
+  let app: ReturnType<typeof buildApp>['app']
+  let repository: ReturnType<typeof buildApp>['repository']
+  beforeEach(() => {
+    const built = buildApp()
+    app = built.app
+    repository = built.repository
+  })
+
+  test('info, properties, and files reflect a seeded import_queued download', async () => {
+    const category = qbCategoryForServer('abc12345')
+    const created = seedDownload(repository, category)
+    repository.markImportQueued(created.id)
+    const hash = deriveHash('Big Buck Bunny', 10)
+    const cookie = await loginCookie(app)
+
+    const infoRes = await app.request(`/api/v2/torrents/info?category=${encodeURIComponent(category)}`, { headers: { cookie } })
+    const info = await infoRes.json() as any[]
+    expect(info).toHaveLength(1)
+    expect(info[0].hash).toBe(hash)
+    expect(info[0].state).toBe('pausedUP')
+    expect(info[0].progress).toBe(1)
+
+    const propsRes = await app.request(`/api/v2/torrents/properties?hash=${hash}`, { headers: { cookie } })
+    expect(propsRes.status).toBe(200)
+    const props = await propsRes.json() as { save_path: string }
+    expect(props.save_path).toBe('/tmp/completed')
+
+    const missingRes = await app.request('/api/v2/torrents/properties?hash=deadbeef', { headers: { cookie } })
+    expect(missingRes.status).toBe(404)
+
+    const filesRes = await app.request(`/api/v2/torrents/files?hash=${hash}`, { headers: { cookie } })
+    const files = await filesRes.json() as { name: string }[]
+    expect(files[0]?.name).toBe('Big Buck Bunny (2008).mkv')
   })
 })

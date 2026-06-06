@@ -48,6 +48,13 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     const hashes = hashesRaw ? hashesRaw.split('|') : undefined
     return c.json(controller.torrentsInfo({ category, hashes }))
   })
+  app.get('/torrents/properties', (c) => {
+    const props = controller.torrentProperties(c.req.query('hash') ?? '')
+    if (!props)
+      return c.body(null, 404)
+    return c.json(props)
+  })
+  app.get('/torrents/files', c => c.json(controller.torrentFiles(c.req.query('hash') ?? '')))
   app.get('/torrents/categories', c => c.json(controller.categories()))
 
   return app

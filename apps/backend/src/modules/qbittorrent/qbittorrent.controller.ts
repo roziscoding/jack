@@ -1,6 +1,7 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
-import type { DownloadsRepository } from '../downloads/downloads.repository'
-import { qbCategoryForServer } from './qbittorrent.mapper'
+import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
+import type { QbTorrent } from './qbittorrent.mapper'
+import { deriveHash, qbCategoryForServer, toQbTorrent } from './qbittorrent.mapper'
 import { QbSessionStore } from './qbittorrent.session'
 
 export interface QbittorrentControllerDeps {
@@ -66,8 +67,43 @@ export class QbittorrentController {
     return out
   }
 
-  // Phase 2 replaces the body with real download->torrent mapping.
-  torrentsInfo(_filter: { category?: string, hashes?: string[] }): unknown[] {
-    return []
+  private findByHash(hash: string): DownloadRecord | null {
+    const target = hash.toLowerCase()
+    return this.deps.repository.list().find(r => deriveHash(r.release.title, r.releaseSize) === target) ?? null
+  }
+
+  /**
+   * All rows sharing an infohash (the same release added by ≥1 server). Used by
+   * the session-scoped mutations so a shared hash never touches another
+   * server's row.
+   */
+  private findAllByHash(hash: string): DownloadRecord[] {
+    const target = hash.toLowerCase()
+    return this.deps.repository.list().filter(r => deriveHash(r.release.title, r.releaseSize) === target)
+  }
+
+  torrentsInfo(filter: { category?: string, hashes?: string[] }): QbTorrent[] {
+    const { completedPath } = this.deps
+    let result = this.deps.repository.list()
+      .map(r => toQbTorrent(r, { completedPath, category: r.qbCategory ?? '' }))
+    if (filter.category !== undefined)
+      result = result.filter(t => t.category === filter.category)
+    if (filter.hashes && filter.hashes.length > 0) {
+      const set = new Set(filter.hashes.map(h => h.toLowerCase()))
+      result = result.filter(t => set.has(t.hash))
+    }
+    return result
+  }
+
+  torrentProperties(hash: string): { save_path: string, seeding_time: number } | null {
+    const record = this.findByHash(hash)
+    if (!record)
+      return null
+    return { save_path: this.deps.completedPath, seeding_time: 0 }
+  }
+
+  torrentFiles(hash: string): { name: string }[] {
+    const record = this.findByHash(hash)
+    return record ? [{ name: record.filename }] : []
   }
 }

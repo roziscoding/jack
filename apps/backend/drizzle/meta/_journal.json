@@ -15,6 +15,13 @@
       "when": 1780707145431,
       "tag": "0001_tearful_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780763364775,
+      "tag": "0002_romantic_stryfe",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,8 @@ export interface DownloadRecord {
   updatedAt: string
   completedAt: string | null
   error: string | null
+  qbCategory: string | null
+  qbSourceServer: string | null
 }
 
 export interface CreateDownloadInput {
@@ -37,6 +39,8 @@ export interface CreateDownloadInput {
   partPath: string
   releaseSize: number
   release: Release
+  qbCategory?: string | null
+  qbSourceServer?: string | null
 }
 
 function nowIso() {
@@ -65,6 +69,8 @@ function toRecord(row: DownloadRow): DownloadRecord {
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
     error: row.error,
+    qbCategory: row.qbCategory ?? null,
+    qbSourceServer: row.qbSourceServer ?? null,
   }
 }
 
@@ -83,6 +89,8 @@ export class DownloadsRepository {
       partPath: input.partPath,
       releaseSize: input.releaseSize,
       releaseJson: JSON.stringify(input.release),
+      qbCategory: input.qbCategory ?? null,
+      qbSourceServer: input.qbSourceServer ?? null,
       downloadedBytes: 0,
       status: 'downloading',
       startedAt: timestamp,

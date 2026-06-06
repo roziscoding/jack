@@ -129,6 +129,8 @@ export class DownloadsService {
           updatedAt: '',
           completedAt: null,
           error: null,
+          qbCategory: null,
+          qbSourceServer: null,
         }
 
         await this.runDownload(record)
