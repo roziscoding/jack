@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
@@ -28,7 +28,7 @@ let filePath: string
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'jack-range-'))
   filePath = join(tempDir, 'Movie.mkv')
-  await writeFile(filePath, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))
+  await Bun.write(filePath, new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))
 })
 
 afterEach(async () => {
