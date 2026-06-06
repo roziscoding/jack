@@ -333,6 +333,28 @@ describe('PeerConnector.downloadFile resume', () => {
     }
   })
 
+  test('rejects non-ok resume responses without appending the response body', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
+        new Response(streamOf([9, 9]), { status: 500, statusText: 'Server Error', headers: { 'Content-Length': '2' } })),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-non-ok-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1]))
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath, releaseSize: 5 })).rejects.toThrow('Failed to resume download from peer')
+      expect(await Bun.file(partPath).exists()).toBe(true)
+      expect(new Uint8Array(await Bun.file(partPath).arrayBuffer())).toEqual(new Uint8Array([0, 1]))
+      expect(await Bun.file(destPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('preserves the .part file when a download fails mid-stream', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>

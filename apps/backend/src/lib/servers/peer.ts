@@ -220,6 +220,9 @@ export class PeerConnector extends ServerConnector {
           response = await restartFresh(response, 'range_not_satisfiable', existingBytes)
           span.setAttribute('http.response.status_code', response.status)
         }
+        else if (!response.ok) {
+          throw new FetchError(`Failed to resume download from peer: ${response.statusText}`, response)
+        }
         else if (response.ok) {
           // Peer ignored the Range header and is streaming the whole file from
           // byte 0. Discard the stale .part and use this response as-is.
