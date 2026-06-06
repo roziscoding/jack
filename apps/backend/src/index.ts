@@ -31,10 +31,6 @@ const destinations = connectors.servers.filter(s => s.canDestination)
 
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
-const reconciledDownloads = await downloadsRepository.reconcileStaleDownloads()
-
-if (reconciledDownloads > 0)
-  logger.warn({ downloads: reconciledDownloads, databasePath: database.path }, 'Reconciled stale downloads from previous Jack run')
 
 const app = getApp(envs, config, connectors, { downloadsRepository })
 const server = Bun.serve({
@@ -100,12 +96,24 @@ if (config.jack) {
   }
 }
 
-// Start blackhole watcher
+// Start blackhole watcher (and re-drive interrupted downloads from a prior run)
 let blackholeWatcher: BlackholeWatcher | null = null
 if (config.downloads) {
   const downloadsService = new DownloadsService(config.downloads, connectors.peers, destinations, downloadsRepository)
+  // Active re-enqueue: resume stale `downloading` rows in place before the
+  // watcher scans, so the leftover .torrent stubs are not re-processed as new rows.
+  const resumed = await downloadsService.resumeStaleDownloads()
+  if (resumed > 0)
+    logger.warn({ downloads: resumed, databasePath: database.path }, 'Re-enqueued interrupted downloads from previous Jack run')
+
   blackholeWatcher = new BlackholeWatcher(config.downloads, downloadsService)
   await blackholeWatcher.start()
+}
+else {
+  // No downloads config means stale rows cannot be resumed — mark them failed.
+  const failed = await downloadsRepository.reconcileStaleDownloads()
+  if (failed > 0)
+    logger.warn({ downloads: failed, databasePath: database.path }, 'Marked stale downloads failed (no downloads config to resume them)')
 }
 
 process.on('SIGINT', async () => {

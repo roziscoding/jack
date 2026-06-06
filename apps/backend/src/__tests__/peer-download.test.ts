@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import type { PeerDownloadProgressEvent } from '../lib/servers/peer'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PeerConnector } from '../lib/servers/peer'
@@ -40,6 +41,12 @@ async function waitFor(predicate: () => Promise<boolean>) {
     await Bun.sleep(20)
   }
   throw new Error('Timed out waiting for condition')
+}
+
+async function openFileDescriptorCount() {
+  if (process.platform !== 'linux')
+    return null
+  return (await readdir('/proc/self/fd')).length
 }
 
 describe('PeerConnector.downloadFile', () => {
@@ -201,6 +208,245 @@ describe('PeerConnector.downloadFile', () => {
 
       expect(await Bun.file(partPath).exists()).toBe(false)
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('does not leave the response body locked when opening the .part file fails', async () => {
+    let body: ReadableStream<Uint8Array> | null = null
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const response = new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+      body = response.body
+      return response
+    },
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-open-fails-'))
+    const destPath = join(dir, 'missing-parent', 'Movie.mkv')
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 3 })).rejects.toThrow()
+      expect(body).not.toBeNull()
+      expect(body?.locked).toBe(false)
+    }
+    finally {
+      fetchSpy.mockRestore()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('closes the .part file handle when getting the response reader fails', async () => {
+    const before = await openFileDescriptorCount()
+    if (before == null)
+      return
+
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+    })
+    const getReaderSpy = spyOn(ReadableStream.prototype, 'getReader').mockImplementation(() => {
+      throw new Error('reader failed')
+    })
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-reader-fails-'))
+    const destPath = join(dir, 'Movie.mkv')
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 3 })).rejects.toThrow('reader failed')
+      expect(await openFileDescriptorCount()).toBeLessThanOrEqual(before)
+    }
+    finally {
+      getReaderSpy.mockRestore()
+      fetchSpy.mockRestore()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('PeerConnector.downloadFile resume', () => {
+  test('resumes from an existing .part via a Range request and appends', async () => {
+    const seen: { range: string | null } = { range: null }
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
+        seen.range = request.headers.get('Range')
+        return new Response(streamOf([2, 3, 4]), {
+          status: 206,
+          headers: { 'Content-Length': '3', 'Content-Range': 'bytes 2-4/5' },
+        })
+      }),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1]))
+    const events: PeerDownloadProgressEvent[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 5,
+        onProgress: (e) => { events.push(e) },
+      })
+
+      expect(seen.range).toBe('bytes=2-')
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+      expect(events.some(e => e.type === 'restart')).toBe(false)
+      expect(events).toContainEqual({ type: 'completed', downloadedBytes: 5, expectedBytes: 5 })
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('restarts from byte 0 when the peer ignores Range and returns 200', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
+        new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-ignored-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([9, 9]))
+    const events: PeerDownloadProgressEvent[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 5,
+        onProgress: (e) => { events.push(e) },
+      })
+
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+      expect(events.some(e => e.type === 'restart' && e.reason === 'range_ignored')).toBe(true)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('restarts when the 206 Content-Range total does not match releaseSize', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
+        if (request.headers.get('Range')) {
+          return new Response(streamOf([2, 3]), { status: 206, headers: { 'Content-Length': '2', 'Content-Range': 'bytes 2-3/4' } })
+        }
+        return new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })
+      }),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-mismatch-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1]))
+    const events: PeerDownloadProgressEvent[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 5,
+        onProgress: (e) => { events.push(e) },
+      })
+
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+      expect(events.some(e => e.type === 'restart' && e.reason === 'content_range_mismatch')).toBe(true)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('restarts when the peer returns 416 for the resume range', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
+        if (request.headers.get('Range'))
+          return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */5' } })
+        return new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })
+      }),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-416-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1, 2, 3, 4, 5]))
+    const events: PeerDownloadProgressEvent[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 5,
+        onProgress: (e) => { events.push(e) },
+      })
+
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+      expect(events.some(e => e.type === 'restart' && e.reason === 'range_not_satisfiable')).toBe(true)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects non-ok resume responses without appending the response body', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
+        new Response(streamOf([9, 9]), { status: 500, statusText: 'Server Error', headers: { 'Content-Length': '2' } })),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-non-ok-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1]))
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath, releaseSize: 5 })).rejects.toThrow('Failed to resume download from peer')
+      expect(await Bun.file(partPath).exists()).toBe(true)
+      expect(new Uint8Array(await Bun.file(partPath).arrayBuffer())).toEqual(new Uint8Array([0, 1]))
+      expect(await Bun.file(destPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('preserves the .part file when a download fails mid-stream', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
+        // Declares 5 bytes but only delivers 3 → "Incomplete file download".
+        new Response(streamOf([0, 1, 2]), { headers: { 'Content-Length': '5' } })),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-preserve-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath, releaseSize: 5 })).rejects.toThrow('Incomplete')
+      expect(await Bun.file(partPath).exists()).toBe(true)
+      expect(Bun.file(partPath).size).toBe(3)
+      expect(await Bun.file(destPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a 206 returned for a non-range (fresh) request', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
+        // No .part exists, so no Range is sent — a 206 here is untrustworthy.
+        new Response(streamOf([2, 3, 4]), { status: 206, headers: { 'Content-Length': '3', 'Content-Range': 'bytes 2-4/5' } })),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-206-fresh-'))
+    const destPath = join(dir, 'Movie.mkv')
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 5 })).rejects.toThrow('206')
+      expect(await Bun.file(destPath).exists()).toBe(false)
     }
     finally {
       await rm(dir, { recursive: true, force: true })

@@ -1,4 +1,3 @@
-import type { AppConfig } from '../lib/config'
 import type { Envs } from '../lib/envs'
 import type { Release } from '../lib/release'
 import { Database } from 'bun:sqlite'
@@ -9,6 +8,7 @@ import { setupServer } from 'msw/node'
 import { getApp } from '../app'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
+import { AppConfig } from '../lib/config'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { PeerConnector } from '../lib/servers/peer'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
@@ -101,12 +101,12 @@ afterEach(() => {
 })
 afterAll(() => server.close())
 
-const config: AppConfig = {
+const config = AppConfig.parse({
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { watchPath: '/tmp/jack-test-watch', completedPath: '/tmp/jack-test-completed' },
   servers: [],
   peers: [],
-}
+})
 
 const envs: Envs = {
   APP_CONFIG_PATH: '/data/config.json',

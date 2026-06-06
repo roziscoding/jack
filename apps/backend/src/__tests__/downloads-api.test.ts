@@ -1,4 +1,3 @@
-import type { AppConfig } from '../lib/config'
 import type { Envs } from '../lib/envs'
 import type { Release } from '../lib/release'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -7,6 +6,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { getApp } from '../app'
 import { openDatabase } from '../database/connection'
+import { AppConfig } from '../lib/config'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 
 const envs: Envs = {
@@ -20,12 +20,12 @@ const envs: Envs = {
   NODE_ENV: 'test',
 }
 
-const config: AppConfig = {
+const config = AppConfig.parse({
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { watchPath: '/tmp/watch', completedPath: '/tmp/completed' },
   servers: [],
   peers: [],
-}
+})
 
 const release: Release = {
   id: 'remote:movie:1',
