@@ -1,5 +1,5 @@
 import type { PeerDownloadProgressEvent } from '../lib/servers/peer'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test'
@@ -41,6 +41,12 @@ async function waitFor(predicate: () => Promise<boolean>) {
     await Bun.sleep(20)
   }
   throw new Error('Timed out waiting for condition')
+}
+
+async function openFileDescriptorCount() {
+  if (process.platform !== 'linux')
+    return null
+  return (await readdir('/proc/self/fd')).length
 }
 
 describe('PeerConnector.downloadFile', () => {
@@ -227,6 +233,33 @@ describe('PeerConnector.downloadFile', () => {
       expect(body?.locked).toBe(false)
     }
     finally {
+      fetchSpy.mockRestore()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('closes the .part file handle when getting the response reader fails', async () => {
+    const before = await openFileDescriptorCount()
+    if (before == null)
+      return
+
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+    })
+    const getReaderSpy = spyOn(ReadableStream.prototype, 'getReader').mockImplementation(() => {
+      throw new Error('reader failed')
+    })
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-reader-fails-'))
+    const destPath = join(dir, 'Movie.mkv')
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 3 })).rejects.toThrow('reader failed')
+      expect(await openFileDescriptorCount()).toBeLessThanOrEqual(before)
+    }
+    finally {
+      getReaderSpy.mockRestore()
       fetchSpy.mockRestore()
       await rm(dir, { recursive: true, force: true })
     }
