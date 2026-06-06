@@ -2,7 +2,7 @@ import type { PeerDownloadProgressEvent } from '../lib/servers/peer'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { PeerConnector } from '../lib/servers/peer'
@@ -204,6 +204,30 @@ describe('PeerConnector.downloadFile', () => {
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
     }
     finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('does not leave the response body locked when opening the .part file fails', async () => {
+    let body: ReadableStream<Uint8Array> | null = null
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const response = new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+      body = response.body
+      return response
+    },
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-open-fails-'))
+    const destPath = join(dir, 'missing-parent', 'Movie.mkv')
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 3 })).rejects.toThrow()
+      expect(body).not.toBeNull()
+      expect(body?.locked).toBe(false)
+    }
+    finally {
+      fetchSpy.mockRestore()
       await rm(dir, { recursive: true, force: true })
     }
   })

@@ -279,8 +279,8 @@ export class PeerConnector extends ServerConnector {
       if (expectedBytes != null && expectedBytes > MAX_DOWNLOAD_BYTES)
         throw new Error(`File too large: ${expectedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
 
-      const reader = response.body.getReader()
       const handle = await open(partPath, resuming ? 'a' : 'w')
+      const reader = response.body.getReader()
       let downloadedBytes = existingBytes
       let lastLoggedAt = Date.now()
       let lastLoggedBytes = downloadedBytes
