@@ -33,16 +33,40 @@ export function getPeerRouter(controller: PeerController) {
 
   app.get('/items/:itemId/file', async (c) => {
     const { itemId } = c.req.param()
-    const result = await controller.streamFile(itemId)
+    const result = await controller.streamFile(itemId, c.req.header('Range'))
 
     if (!result) {
       return c.json({ error: 'File not found' }, 404)
+    }
+
+    if (result.type === 'unsatisfiable') {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          'Content-Range': `bytes */${result.totalSize}`,
+          'Accept-Ranges': 'bytes',
+        },
+      })
+    }
+
+    if (result.type === 'partial') {
+      return new Response(result.stream, {
+        status: 206,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(result.size),
+          'Content-Range': `bytes ${result.start}-${result.end}/${result.totalSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Disposition': `attachment; filename="${result.filename}"`,
+        },
+      })
     }
 
     return new Response(result.stream, {
       headers: {
         'Content-Type': 'application/octet-stream',
         'Content-Length': String(result.size),
+        'Accept-Ranges': 'bytes',
         'Content-Disposition': `attachment; filename="${result.filename}"`,
       },
     })

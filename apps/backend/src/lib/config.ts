@@ -133,6 +133,13 @@ export type JackConfig = z.infer<typeof JackConfig>
 export const DownloadsConfig = z.object({
   watchPath: z.string().min(1),
   completedPath: z.string().min(1),
+  // Max peer file downloads running at once (an async semaphore guards the
+  // expensive download step). Defaults keep existing configs working.
+  maxConcurrentDownloads: z.number().int().min(1).default(3),
+  // Bounded retries for transient failures, with exponential backoff + jitter.
+  maxDownloadAttempts: z.number().int().min(1).default(5),
+  retryBaseDelayMs: z.number().int().min(0).default(1000),
+  retryMaxDelayMs: z.number().int().min(0).default(60_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>

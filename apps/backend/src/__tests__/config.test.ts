@@ -277,4 +277,22 @@ describe('appConfig parsing', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  test('defaults the downloads hardening knobs', () => {
+    const parsed = AppConfig.parse({
+      downloads: { watchPath: '/w', completedPath: '/c' },
+    })
+    expect(parsed.downloads).toMatchObject({
+      maxConcurrentDownloads: 3,
+      maxDownloadAttempts: 5,
+      retryBaseDelayMs: 1000,
+      retryMaxDelayMs: 60_000,
+    })
+  })
+
+  test('respects an explicit maxConcurrentDownloads and rejects non-positive values', () => {
+    const parsed = AppConfig.parse({ downloads: { watchPath: '/w', completedPath: '/c', maxConcurrentDownloads: 8 } })
+    expect(parsed.downloads?.maxConcurrentDownloads).toBe(8)
+    expect(AppConfig.safeParse({ downloads: { watchPath: '/w', completedPath: '/c', maxConcurrentDownloads: 0 } }).success).toBe(false)
+  })
 })
