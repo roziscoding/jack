@@ -36,6 +36,9 @@ export class QbSessionStore {
       this.sessions.delete(sid)
       return null
     }
+    // Refresh TTL on each successful access, matching real qBittorrent: *arr
+    // polls continuously, so an active SID must not expire mid-session.
+    entry.expiresAt = Date.now() + SESSION_TTL_MS
     return entry.session
   }
 

@@ -70,10 +70,10 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, se
   // qBittorrent WebUI API -- Radarr/Sonarr poll us as a download client. Mounted
   // BEFORE requireApiKey because qB uses its own SID-cookie auth
   // (/api/v2/auth/login), not jack's apikey query/header.
-  if (config.jack && services.downloadsRepository) {
+  if (config.jack && config.downloads && services.downloadsRepository) {
     const qbController = new QbittorrentController({
       apiKey: config.jack.apiKey,
-      completedPath: config.downloads?.completedPath ?? '',
+      completedPath: config.downloads.completedPath,
       servers: connectors.servers,
       repository: services.downloadsRepository,
       downloadsService: services.downloadsService,
