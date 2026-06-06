@@ -164,6 +164,17 @@ export class DownloadsRepository {
       .run()
   }
 
+  setQbCategory(id: number, qbCategory: string): void {
+    this.db.update(downloads)
+      .set({ qbCategory, updatedAt: nowIso() })
+      .where(eq(downloads.id, id))
+      .run()
+  }
+
+  delete(id: number): void {
+    this.db.delete(downloads).where(eq(downloads.id, id)).run()
+  }
+
   /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */
   listStaleDownloads(): DownloadRecord[] {
     return this.db.select().from(downloads).where(eq(downloads.status, 'downloading')).all().map(toRecord)

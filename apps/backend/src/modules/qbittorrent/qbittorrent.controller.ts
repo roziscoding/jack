@@ -1,6 +1,11 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
+import type { DownloadsService } from '../downloads/downloads.service'
 import type { QbTorrent } from './qbittorrent.mapper'
+import type { QbSession } from './qbittorrent.session'
+import { Buffer } from 'node:buffer'
+import { unlink } from 'node:fs/promises'
+import { parseTorrentStub } from '../torznab/torrent'
 import { deriveHash, qbCategoryForServer, toQbTorrent } from './qbittorrent.mapper'
 import { QbSessionStore } from './qbittorrent.session'
 
@@ -9,7 +14,11 @@ export interface QbittorrentControllerDeps {
   completedPath: string
   servers: ArrServerConnector[]
   repository: DownloadsRepository
+  downloadsService?: DownloadsService
 }
+
+// Matches a jack download URL path: /torznab/download/<peerId:itemId>.torrent
+const JACK_DOWNLOAD_PATH = /\/torznab\/download\/(.+)\.torrent$/
 
 export class QbittorrentController {
   readonly sessions = new QbSessionStore()
@@ -105,5 +114,97 @@ export class QbittorrentController {
   torrentFiles(hash: string): { name: string }[] {
     const record = this.findByHash(hash)
     return record ? [{ name: record.filename }] : []
+  }
+
+  /**
+   * 'ok' or 'unsupported' (→ HTTP 415). Accepts only jack stubs (uploaded file
+   * with a `jack:` comment) or jack download URLs; rejects magnets and foreign
+   * torrents.
+   */
+  async addTorrent(input: { session: QbSession, category?: string, urls: string[], torrentFiles: Uint8Array[] }): Promise<'ok' | 'unsupported'> {
+    const service = this.deps.downloadsService
+    if (!service)
+      return 'unsupported'
+
+    const stubs: { peerId: string, itemId: string }[] = []
+    for (const bytes of input.torrentFiles) {
+      const stub = parseTorrentStub(Buffer.from(bytes))
+      if (!stub)
+        return 'unsupported'
+      stubs.push(stub)
+    }
+    for (const url of input.urls) {
+      const parsed = this.parseJackUrl(url)
+      if (!parsed)
+        return 'unsupported'
+      stubs.push(parsed)
+    }
+    if (stubs.length === 0)
+      return 'unsupported'
+
+    const category = input.category && input.category.length > 0
+      ? input.category
+      : qbCategoryForServer(input.session.serverId)
+
+    for (const stub of stubs) {
+      await service.startQbDownload({
+        peerId: stub.peerId,
+        itemId: stub.itemId,
+        qbCategory: category,
+        qbSourceServer: input.session.serverName,
+      })
+    }
+    return 'ok'
+  }
+
+  /**
+   * Parse a jack download URL into peerId/itemId. Rejects magnets and any URL
+   * that isn't a `/torznab/download/<peerId:itemId>.torrent` link.
+   */
+  private parseJackUrl(url: string): { peerId: string, itemId: string } | null {
+    if (url.startsWith('magnet:'))
+      return null
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    }
+    catch {
+      return null
+    }
+    const match = parsed.pathname.match(JACK_DOWNLOAD_PATH)
+    if (!match || !match[1])
+      return null
+    const guid = decodeURIComponent(match[1])
+    const [peerId, ...rest] = guid.split(':')
+    const itemId = rest.join(':')
+    if (!peerId || !itemId)
+      return null
+    return { peerId, itemId }
+  }
+
+  // Session-scoped: only ever touch rows added by the calling server. Because a
+  // shared release yields the SAME infohash across servers, an unscoped delete
+  // could remove another server's (or a blackhole) row.
+  async deleteTorrents(session: QbSession, hashesParam: string, deleteFiles: boolean): Promise<void> {
+    const mine = (r: DownloadRecord) => r.qbSourceServer === session.serverName
+    const records = hashesParam === 'all'
+      ? this.deps.repository.list().filter(mine)
+      : hashesParam.split('|').flatMap(h => this.findAllByHash(h)).filter(mine)
+    for (const record of records) {
+      if (deleteFiles) {
+        await unlink(record.destPath).catch(() => {})
+        await unlink(record.partPath).catch(() => {})
+      }
+      this.deps.repository.delete(record.id)
+    }
+  }
+
+  setCategory(session: QbSession, hashes: string[], category: string): void {
+    for (const hash of hashes) {
+      for (const record of this.findAllByHash(hash)) {
+        if (record.qbSourceServer === session.serverName)
+          this.deps.repository.setQbCategory(record.id, category)
+      }
+    }
   }
 }

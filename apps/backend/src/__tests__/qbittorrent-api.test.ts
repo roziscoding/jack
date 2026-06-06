@@ -7,6 +7,7 @@ import * as schema from '../database/schema'
 import { AppConfig } from '../lib/config'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 import { deriveHash, qbCategoryForServer } from '../modules/qbittorrent/qbittorrent.mapper'
+import { createTorrentStub } from '../modules/torznab/torrent'
 
 const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
 
@@ -25,6 +26,28 @@ function buildApp() {
   })
   const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository })
   return { app, repository }
+}
+
+function buildAppWithService() {
+  const sqlite = new Database(':memory:')
+  const db = drizzle({ client: sqlite, schema })
+  runMigrations(db)
+  const repository = new DownloadsRepository(db)
+  const config = AppConfig.parse({
+    jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+    downloads: { watchPath: '/tmp/watch', completedPath: '/tmp/completed' },
+    servers: [],
+    peers: [],
+  })
+  const calls: any[] = []
+  const downloadsService = {
+    startQbDownload: async (input: any) => {
+      calls.push(input)
+      return null
+    },
+  } as any
+  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, downloadsService })
+  return { app, repository, calls }
 }
 
 function seedDownload(repository: DownloadsRepository, category: string) {
@@ -137,5 +160,82 @@ describe('qBittorrent torrent mapping', () => {
     const filesRes = await app.request(`/api/v2/torrents/files?hash=${hash}`, { headers: { cookie } })
     const files = await filesRes.json() as { name: string }[]
     expect(files[0]?.name).toBe('Big Buck Bunny (2008).mkv')
+  })
+})
+
+describe('qBittorrent add/delete/setCategory', () => {
+  test('add with a valid jack stub file starts a qB download with the session category', async () => {
+    const { app, calls } = buildAppWithService()
+    const cookie = await loginCookie(app)
+    const stub = createTorrentStub({ name: 'Big Buck Bunny', size: 10, peerId: 'peer0001', itemId: 'conn:movie:42' })
+    const form = new FormData()
+    form.append('torrents', new File([stub], 'x.torrent'))
+
+    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('Ok.')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].peerId).toBe('peer0001')
+    expect(calls[0].itemId).toBe('conn:movie:42')
+    expect(calls[0].qbCategory).toBe('jack-abc12345')
+    expect(calls[0].qbSourceServer).toBe('My Radarr')
+  })
+
+  test('add with a magnet url returns 415 and starts nothing', async () => {
+    const { app, calls } = buildAppWithService()
+    const cookie = await loginCookie(app)
+    const form = new FormData()
+    form.append('urls', 'magnet:?xt=urn:btih:deadbeef')
+
+    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+
+    expect(res.status).toBe(415)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('add with non-jack torrent bytes returns 415', async () => {
+    const { app, calls } = buildAppWithService()
+    const cookie = await loginCookie(app)
+    const form = new FormData()
+    form.append('torrents', new File([new Uint8Array([1, 2, 3])], 'x.torrent'))
+
+    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+
+    expect(res.status).toBe(415)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('delete removes a session-owned row by hash', async () => {
+    const { app, repository } = buildAppWithService()
+    const category = qbCategoryForServer('abc12345')
+    const created = seedDownload(repository, category)
+    const hash = deriveHash('Big Buck Bunny', 10)
+    const cookie = await loginCookie(app)
+
+    const res = await app.request('/api/v2/torrents/delete', {
+      method: 'POST',
+      headers: { 'cookie': cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ hashes: hash }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(repository.get(created.id)).toBeNull()
+  })
+
+  test('setCategory updates a session-owned row', async () => {
+    const { app, repository } = buildAppWithService()
+    const created = seedDownload(repository, qbCategoryForServer('abc12345'))
+    const hash = deriveHash('Big Buck Bunny', 10)
+    const cookie = await loginCookie(app)
+
+    const res = await app.request('/api/v2/torrents/setCategory', {
+      method: 'POST',
+      headers: { 'cookie': cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ hashes: hash, category: 'renamed' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(repository.get(created.id)?.qbCategory).toBe('renamed')
   })
 })

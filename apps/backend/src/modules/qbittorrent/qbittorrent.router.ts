@@ -6,6 +6,9 @@ import { createMiddleware } from 'hono/factory'
 
 const SID_COOKIE = 'SID'
 
+// Splits a multiline `urls` field into individual entries (CRLF or LF).
+const NEWLINE = /\r?\n/
+
 export function getQbittorrentRouter(controller: QbittorrentController) {
   const app = new Hono<{ Variables: { qbSession: QbSession } }>()
 
@@ -56,6 +59,48 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
   })
   app.get('/torrents/files', c => c.json(controller.torrentFiles(c.req.query('hash') ?? '')))
   app.get('/torrents/categories', c => c.json(controller.categories()))
+
+  app.post('/torrents/add', async (c) => {
+    const session = c.get('qbSession')
+    const body = await c.req.parseBody({ all: true })
+
+    // Normalize: parseBody({ all: true }) returns string | File | Array of those.
+    const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v])
+    const firstString = (v: unknown): string | undefined => asList(v).find((x): x is string => typeof x === 'string')
+
+    const urls = asList(body.urls)
+      .flatMap(v => (typeof v === 'string' ? v.split(NEWLINE) : []))
+      .map(s => s.trim())
+      .filter(Boolean)
+
+    const torrentFiles: Uint8Array[] = []
+    for (const f of asList(body.torrents)) {
+      if (f instanceof File)
+        torrentFiles.push(new Uint8Array(await f.arrayBuffer()))
+    }
+
+    const category = firstString(body.category)
+    const result = await controller.addTorrent({ session, category, urls, torrentFiles })
+    if (result === 'unsupported')
+      return c.text('Unsupported torrent. Only Jack releases are accepted.', 415)
+    return c.text('Ok.', 200)
+  })
+
+  app.post('/torrents/delete', async (c) => {
+    const session = c.get('qbSession')
+    const body = await c.req.parseBody()
+    await controller.deleteTorrents(session, String(body.hashes ?? ''), String(body.deleteFiles ?? 'false') === 'true')
+    return c.text('Ok.', 200)
+  })
+
+  app.post('/torrents/setCategory', async (c) => {
+    const session = c.get('qbSession')
+    const body = await c.req.parseBody()
+    controller.setCategory(session, String(body.hashes ?? '').split('|').filter(Boolean), String(body.category ?? ''))
+    return c.text('Ok.', 200)
+  })
+
+  app.post('/torrents/createCategory', c => c.text('Ok.', 200))
 
   return app
 }

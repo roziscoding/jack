@@ -3,6 +3,7 @@ import type { Envs } from './lib/envs'
 import type { ArrServerConnector } from './lib/servers/arr/base'
 import type { PeerConnector } from './lib/servers/peer'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
+import type { DownloadsService } from './modules/downloads/downloads.service'
 import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
@@ -31,6 +32,7 @@ interface Connectors {
 
 interface AppServices {
   downloadsRepository?: DownloadsRepository
+  downloadsService?: DownloadsService
 }
 
 export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, services: AppServices = {}) {
@@ -74,6 +76,7 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, se
       completedPath: config.downloads?.completedPath ?? '',
       servers: connectors.servers,
       repository: services.downloadsRepository,
+      downloadsService: services.downloadsService,
     })
     app.route('/api/v2', getQbittorrentRouter(qbController))
   }

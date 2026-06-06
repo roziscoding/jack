@@ -32,7 +32,11 @@ const destinations = connectors.servers.filter(s => s.canDestination)
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
 
-const app = getApp(envs, config, connectors, { downloadsRepository })
+const downloadsService = config.downloads
+  ? new DownloadsService(config.downloads, connectors.peers, destinations, downloadsRepository)
+  : undefined
+
+const app = getApp(envs, config, connectors, { downloadsRepository, downloadsService })
 const server = Bun.serve({
   fetch: app.fetch,
 })
@@ -103,8 +107,7 @@ if (config.jack) {
 
 // Start blackhole watcher (and re-drive interrupted downloads from a prior run)
 let blackholeWatcher: BlackholeWatcher | null = null
-if (config.downloads) {
-  const downloadsService = new DownloadsService(config.downloads, connectors.peers, destinations, downloadsRepository)
+if (config.downloads && downloadsService) {
   // Active re-enqueue: resume stale `downloading` rows in place before the
   // watcher scans, so the leftover .torrent stubs are not re-processed as new rows.
   const resumed = await downloadsService.resumeStaleDownloads()

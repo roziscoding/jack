@@ -346,6 +346,60 @@ describe('DownloadsService download progress persistence', () => {
     handle.close()
   })
 
+  test('startQbDownload creates a row with qb fields, ends import_queued, and does NOT push import (pull model)', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const triggered: string[] = []
+    const dest = {
+      isInitialized: true,
+      canDestination: true,
+      name: 'Radarr',
+      categories: [2000],
+      triggerImport: async () => {
+        triggered.push('Radarr')
+      },
+    }
+    const service = new DownloadsService(downloadsConfig(), [fakePeer() as any], [dest as any], repository)
+
+    const record = await service.startQbDownload({
+      peerId: 'peer-1',
+      itemId: 'movie:1',
+      qbCategory: 'jack-x',
+      qbSourceServer: 'My Radarr',
+    })
+
+    expect(record).not.toBeNull()
+    for (let i = 0; i < 50 && repository.list()[0]?.status !== 'import_queued'; i++)
+      await Bun.sleep(10)
+
+    const rows = repository.list()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.status).toBe('import_queued')
+    expect(rows[0]?.qbCategory).toBe('jack-x')
+    expect(rows[0]?.qbSourceServer).toBe('My Radarr')
+    // Pull model: jack does NOT push a scan for qB-added downloads.
+    expect(triggered).toHaveLength(0)
+    handle.close()
+  })
+
+  test('startQbDownload returns null when the release filename is unsafe', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const peer = fakePeer({ getRelease: async () => ({ ...release, filename: '../../evil.mkv' }) })
+    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
+
+    const record = await service.startQbDownload({
+      peerId: 'peer-1',
+      itemId: 'movie:1',
+      qbCategory: 'jack-x',
+      qbSourceServer: 'My Radarr',
+    })
+
+    expect(record).toBeNull()
+    expect(repository.list()).toHaveLength(0)
+    handle.close()
+  })
+
   test('only triggers import on destinations whose categories match the release', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)

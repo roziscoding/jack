@@ -14,6 +14,9 @@ import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
 type DownloadsServiceConfig = NonNullable<AppConfig['downloads']>
 
+// Characters disallowed in the synthetic qB torrent filename (keep word chars, dot, dash).
+const UNSAFE_FILENAME_CHARS = /[^\w.-]/g
+
 export class DownloadsService {
   private readonly semaphore: Semaphore
   // Dest paths with a download in flight — guards two concurrent live drops that
@@ -62,84 +65,129 @@ export class DownloadsService {
         }
 
         span.setAttribute('torrent.stub.valid', true)
-        const { peerId, itemId } = stub
-        span.setAttributes({ 'peer.id': peerId, 'item.id': itemId })
-
-        const peer = this.peers.find(p => p.id === peerId)
-        if (!peer) {
-          span.setAttribute('peer.found', false)
-          logger.error({ torrentFilename: filename, peerId, filename }, 'Peer not found')
-          return
-        }
-
-        span.setAttributes({ 'peer.found': true, 'peer.name': peer.name ?? peer.url })
-
-        const release = await peer.getRelease(itemId)
-
-        // `release.filename` is peer-controlled and only validated as a string.
-        // Force it to a plain basename inside `completedPath` so a value like
-        // `../../evil.mkv` or an absolute path cannot escape the directory.
-        const safeName = basename(release.filename)
-        const isSafeName = safeName.length > 0 && safeName !== '.' && safeName !== '..'
-          && !safeName.includes('/') && !safeName.includes('\\')
-          && release.filename === safeName
-
-        if (!isSafeName)
-          throw new Error(`Unsafe release filename from peer: ${release.filename}`)
-
-        const destPath = join(this.config.completedPath, safeName)
-        const partPath = `${destPath}.part`
-        span.setAttributes({ 'release.filename': safeName, 'release.size': release.size })
-
-        if (this.active.has(destPath)) {
-          logger.debug({ torrentFilename: filename, destPath }, 'A download for this destination is already active; skipping duplicate')
-          return
-        }
-
-        const created = this.downloadsRepository?.create({
+        const record = await this.createDownload({
+          peerId: stub.peerId,
+          itemId: stub.itemId,
           torrentFilename: filename,
-          peerId,
-          peerName: peer.name ?? peer.url,
-          itemId,
-          filename: safeName,
-          destPath,
-          partPath,
-          releaseSize: release.size,
-          release,
         })
-
-        const record: DownloadRecord = created ?? {
-          id: -1,
-          torrentFilename: filename,
-          peerId,
-          peerName: peer.name ?? peer.url,
-          itemId,
-          filename: safeName,
-          destPath,
-          partPath,
-          releaseSize: release.size,
-          release,
-          expectedBytes: null,
-          expectedBytesSource: null,
-          expectedBytesMismatch: false,
-          downloadedBytes: 0,
-          attempts: 0,
-          status: 'downloading',
-          startedAt: '',
-          updatedAt: '',
-          completedAt: null,
-          error: null,
-          qbCategory: null,
-          qbSourceServer: null,
-        }
-
-        await this.runDownload(record)
+        if (record)
+          await this.runDownload(record)
       })
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ torrentFilename: filename, filename, error: message }, 'Failed to process torrent')
     }
+  }
+
+  /**
+   * Shared creation core for both the blackhole and qB add paths. Returns the
+   * created record, or null when the peer/release is unavailable or a download
+   * for the same destination is already active. Throws on an unsafe filename.
+   */
+  private async createDownload(input: {
+    peerId: string
+    itemId: string
+    torrentFilename: string
+    qbCategory?: string | null
+    qbSourceServer?: string | null
+  }): Promise<DownloadRecord | null> {
+    const { peerId, itemId, torrentFilename } = input
+    const peer = this.peers.find(p => p.id === peerId)
+    if (!peer) {
+      logger.error({ torrentFilename, peerId }, 'Peer not found')
+      return null
+    }
+
+    const release = await peer.getRelease(itemId)
+
+    // `release.filename` is peer-controlled and only validated as a string.
+    // Force it to a plain basename inside `completedPath` so a value like
+    // `../../evil.mkv` or an absolute path cannot escape the directory.
+    const safeName = basename(release.filename)
+    const isSafeName = safeName.length > 0 && safeName !== '.' && safeName !== '..'
+      && !safeName.includes('/') && !safeName.includes('\\')
+      && release.filename === safeName
+    if (!isSafeName)
+      throw new Error(`Unsafe release filename from peer: ${release.filename}`)
+
+    const destPath = join(this.config.completedPath, safeName)
+    const partPath = `${destPath}.part`
+
+    if (this.active.has(destPath)) {
+      logger.debug({ torrentFilename, destPath }, 'A download for this destination is already active; skipping duplicate')
+      return null
+    }
+
+    const created = this.downloadsRepository?.create({
+      torrentFilename,
+      peerId,
+      peerName: peer.name ?? peer.url,
+      itemId,
+      filename: safeName,
+      destPath,
+      partPath,
+      releaseSize: release.size,
+      release,
+      qbCategory: input.qbCategory ?? null,
+      qbSourceServer: input.qbSourceServer ?? null,
+    })
+
+    return created ?? {
+      id: -1,
+      torrentFilename,
+      peerId,
+      peerName: peer.name ?? peer.url,
+      itemId,
+      filename: safeName,
+      destPath,
+      partPath,
+      releaseSize: release.size,
+      release,
+      expectedBytes: null,
+      expectedBytesSource: null,
+      expectedBytesMismatch: false,
+      downloadedBytes: 0,
+      attempts: 0,
+      status: 'downloading',
+      startedAt: '',
+      updatedAt: '',
+      completedAt: null,
+      error: null,
+      qbCategory: input.qbCategory ?? null,
+      qbSourceServer: input.qbSourceServer ?? null,
+    }
+  }
+
+  /**
+   * qB `/api/v2/torrents/add` entrypoint: create the row and drive the download
+   * in the background (the HTTP handler returns immediately).
+   */
+  async startQbDownload(input: {
+    peerId: string
+    itemId: string
+    qbCategory: string
+    qbSourceServer: string
+  }): Promise<DownloadRecord | null> {
+    // qB-added downloads have no on-disk stub, but createDownload + the row still
+    // need a stable filename (also used by the no-op stubPath cleanup on success).
+    const torrentFilename = `qb-${input.peerId}-${input.itemId}.torrent`.replace(UNSAFE_FILENAME_CHARS, '_')
+    let record: DownloadRecord | null = null
+    try {
+      record = await this.createDownload({ ...input, torrentFilename })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ peerId: input.peerId, itemId: input.itemId, error: message }, 'Failed to create qB download')
+      return null
+    }
+    if (record) {
+      void this.runDownload(record).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
+      })
+    }
+    return record
   }
 
   /** Re-drive stale `downloading` rows from a prior run, resuming from their .part files. */
@@ -239,7 +287,10 @@ export class DownloadsService {
       })
 
       await unlink(stubPath).catch(() => {})
-      await this.triggerImport(record)
+      // qB-added downloads are imported by *arr pulling from the reported
+      // content_path; only blackhole-added downloads need the jack push.
+      if (!record.qbSourceServer)
+        await this.triggerImport(record)
       repo?.markImportQueued(record.id)
       // Release the startup-re-enqueue claim now that the stub is gone, so a
       // later legitimate re-drop of the same filename isn't silently skipped.
