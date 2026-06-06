@@ -81,6 +81,8 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
 
     const category = firstString(body.category)
     const result = await controller.addTorrent({ session, category, urls, torrentFiles })
+    if (result === 'unavailable')
+      return c.text('Download pipeline unavailable: jack has no downloads config.', 503)
     if (result === 'unsupported')
       return c.text('Unsupported torrent. Only Jack releases are accepted.', 415)
     return c.text('Ok.', 200)

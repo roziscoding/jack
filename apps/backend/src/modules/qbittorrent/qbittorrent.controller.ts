@@ -117,14 +117,16 @@ export class QbittorrentController {
   }
 
   /**
-   * 'ok' or 'unsupported' (→ HTTP 415). Accepts only jack stubs (uploaded file
-   * with a `jack:` comment) or jack download URLs; rejects magnets and foreign
-   * torrents.
+   * Add result:
+   * - 'ok' — accepted (jack stub upload or jack download URL).
+   * - 'unsupported' (→ HTTP 415) — a magnet or a non-jack/foreign torrent.
+   * - 'unavailable' (→ HTTP 503) — jack has no downloads config, so the add
+   *   pipeline isn't wired; a server-side misconfiguration, not a bad torrent.
    */
-  async addTorrent(input: { session: QbSession, category?: string, urls: string[], torrentFiles: Uint8Array[] }): Promise<'ok' | 'unsupported'> {
+  async addTorrent(input: { session: QbSession, category?: string, urls: string[], torrentFiles: Uint8Array[] }): Promise<'ok' | 'unsupported' | 'unavailable'> {
     const service = this.deps.downloadsService
     if (!service)
-      return 'unsupported'
+      return 'unavailable'
 
     const stubs: { peerId: string, itemId: string }[] = []
     for (const bytes of input.torrentFiles) {

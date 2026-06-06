@@ -206,6 +206,18 @@ describe('qBittorrent add/delete/setCategory', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('add returns 503 when the download pipeline is unavailable (no downloadsService)', async () => {
+    const { app } = buildApp() // built without a downloadsService
+    const cookie = await loginCookie(app)
+    const stub = createTorrentStub({ name: 'Big Buck Bunny', size: 10, peerId: 'peer0001', itemId: 'conn:movie:42' })
+    const form = new FormData()
+    form.append('torrents', new File([stub], 'x.torrent'))
+
+    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+
+    expect(res.status).toBe(503)
+  })
+
   test('delete removes a session-owned row by hash', async () => {
     const { app, repository } = buildAppWithService()
     const category = qbCategoryForServer('abc12345')
