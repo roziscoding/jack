@@ -270,4 +270,79 @@ describe('DownloadsService download progress persistence', () => {
     expect(repository.list()[0]?.status).toBe('import_queued')
     handle.close()
   })
+
+  test('marks superseded duplicate stale rows (same destPath) failed and re-drives only one', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const calls: string[] = []
+    const peer = fakePeer({
+      downloadFile: async (_itemId: string, destPath: string, options: any) => {
+        calls.push(destPath)
+        await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
+      },
+    })
+    const destPath = join(completedPath, release.filename)
+    const base = {
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath,
+      partPath: `${destPath}.part`,
+      releaseSize: release.size,
+      release,
+    }
+    repository.create({ ...base, torrentFilename: 'first.torrent' })
+    repository.create({ ...base, torrentFilename: 'second.torrent' })
+    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
+
+    const resumed = await service.resumeStaleDownloads()
+    for (let i = 0; i < 50 && !repository.list().some(d => d.status === 'import_queued'); i++)
+      await Bun.sleep(10)
+
+    expect(resumed).toBe(1)
+    expect(calls).toEqual([destPath]) // only one of the two same-destPath rows is re-driven
+    const rows = repository.list()
+    expect(rows.filter(d => d.status === 'import_queued')).toHaveLength(1)
+    expect(rows.find(d => d.status === 'failed')?.error).toContain('superseded')
+    handle.close()
+  })
+
+  test('releases the re-enqueue claim after a successful resume so the filename can be processed again', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const calls: string[] = []
+    const peer = fakePeer({
+      downloadFile: async (itemId: string, _destPath: string, options: any) => {
+        calls.push(itemId)
+        await options.onProgress({ type: 'completed', downloadedBytes: 10, expectedBytes: 10 })
+      },
+    })
+    repository.create({
+      torrentFilename: 'movie.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath: join(completedPath, release.filename),
+      partPath: `${join(completedPath, release.filename)}.part`,
+      releaseSize: release.size,
+      release,
+    })
+    const service = new DownloadsService(downloadsConfig(), [peer as any], [fakeDestination() as any], repository)
+
+    await service.resumeStaleDownloads()
+    for (let i = 0; i < 50 && repository.list()[0]?.status !== 'import_queued'; i++)
+      await Bun.sleep(10)
+    expect(calls).toHaveLength(1)
+
+    // A later legitimate re-drop of the same torrent filename must NOT be skipped
+    // by a stale re-enqueue claim once the resume has completed.
+    const filePath = await writeTorrent('movie.torrent')
+    await service.processTorrentFile(filePath, 'movie.torrent')
+
+    expect(calls).toHaveLength(2)
+    expect(repository.list().filter(d => d.status === 'import_queued')).toHaveLength(2)
+    handle.close()
+  })
 })

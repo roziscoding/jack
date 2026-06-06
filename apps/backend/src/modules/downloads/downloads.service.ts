@@ -145,12 +145,25 @@ export class DownloadsService {
     const repo = this.downloadsRepository
     if (!repo)
       return 0
-    const stale = repo.listStaleDownloads()
-    // Claim every stale stub up-front (synchronously, before the watcher starts)
-    // so the initial scan skips them regardless of re-drive timing/outcome.
-    for (const record of stale)
+    // Dedupe by destPath: a prior run could leave more than one stale row for the
+    // same destination (they share the same .part), but only one can be resumed.
+    // Re-driving two would make the second silently early-return in runDownload
+    // and stay stuck in `downloading`, so mark the superseded ones failed instead.
+    const seen = new Set<string>()
+    const resumable: DownloadRecord[] = []
+    for (const record of repo.listStaleDownloads()) {
+      if (seen.has(record.destPath)) {
+        repo.markFailed(record.id, 'superseded by another resumable download for the same destination')
+        continue
+      }
+      seen.add(record.destPath)
+      resumable.push(record)
+    }
+    // Claim every resumable stub up-front (synchronously, before the watcher
+    // starts) so the initial scan skips them regardless of re-drive timing/outcome.
+    for (const record of resumable)
       this.reenqueued.add(record.torrentFilename)
-    for (const record of stale) {
+    for (const record of resumable) {
       // Fire-and-forget: the semaphore caps concurrency, and the stub is already
       // claimed in `reenqueued` so the watcher won't duplicate it.
       void this.runDownload(record).catch((err) => {
@@ -158,9 +171,9 @@ export class DownloadsService {
         logger.error({ torrentFilename: record.torrentFilename, error: message }, 'Failed to resume stale download')
       })
     }
-    if (stale.length > 0)
-      logger.info({ downloads: stale.length }, 'Re-enqueued interrupted downloads')
-    return stale.length
+    if (resumable.length > 0)
+      logger.info({ downloads: resumable.length }, 'Re-enqueued interrupted downloads')
+    return resumable.length
   }
 
   private async runDownload(record: DownloadRecord): Promise<void> {
@@ -226,6 +239,11 @@ export class DownloadsService {
       await unlink(stubPath).catch(() => {})
       await this.triggerImport(record.torrentFilename)
       repo?.markImportQueued(record.id)
+      // Release the startup-re-enqueue claim now that the stub is gone, so a
+      // later legitimate re-drop of the same filename isn't silently skipped.
+      // Only on success: a failed re-drive keeps its stub, so it stays claimed
+      // (and is re-driven on the next restart) to avoid in-session hammering.
+      this.reenqueued.delete(record.torrentFilename)
       logger.info({ torrentFilename: record.torrentFilename, filename: record.filename }, 'Download complete, triggered import')
     }
     catch (err) {
