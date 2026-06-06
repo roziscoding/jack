@@ -237,7 +237,7 @@ export class DownloadsService {
       })
 
       await unlink(stubPath).catch(() => {})
-      await this.triggerImport(record.torrentFilename)
+      await this.triggerImport(record)
       repo?.markImportQueued(record.id)
       // Release the startup-re-enqueue claim now that the stub is gone, so a
       // later legitimate re-drop of the same filename isn't silently skipped.
@@ -255,10 +255,22 @@ export class DownloadsService {
     }
   }
 
-  private async triggerImport(torrentFilename: string) {
-    for (const dest of this.destinations.filter(d => d.isInitialized && d.canDestination)) {
+  private async triggerImport(record: DownloadRecord) {
+    const torrentFilename = record.torrentFilename
+    // Route the import to the *arr that owns this release's category (movie →
+    // Radarr, tv → Sonarr). Firing at every destination makes the wrong app scan
+    // a folder it can't match, and Sonarr in particular answers with a 500.
+    const category = record.release.category
+    const matching = this.destinations.filter(d => d.isInitialized && d.canDestination && d.categories.includes(category))
+
+    if (matching.length === 0) {
+      logger.warn({ torrentFilename, category }, 'No initialized destination handles this release category; skipping import trigger')
+      return
+    }
+
+    for (const dest of matching) {
       try {
-        await withSpan('blackhole.trigger_import', { 'torrent.filename': torrentFilename, 'destination.name': dest.name }, async () => {
+        await withSpan('blackhole.trigger_import', { 'torrent.filename': torrentFilename, 'destination.name': dest.name, 'release.category': category }, async () => {
           await dest.triggerImport(this.config.completedPath)
         })
       }

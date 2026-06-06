@@ -59,7 +59,7 @@ function fakePeer(overrides: Partial<Record<'getRelease' | 'downloadFile', any>>
 }
 
 function fakeDestination() {
-  return { isInitialized: true, canDestination: true, name: 'Radarr', triggerImport: async () => {} }
+  return { isInitialized: true, canDestination: true, name: 'Radarr', categories: [2000], triggerImport: async () => {} }
 }
 
 async function writeTorrent(filename = 'movie.torrent', itemId = 'movie:1') {
@@ -343,6 +343,34 @@ describe('DownloadsService download progress persistence', () => {
 
     expect(calls).toHaveLength(2)
     expect(repository.list().filter(d => d.status === 'import_queued')).toHaveLength(2)
+    handle.close()
+  })
+
+  test('only triggers import on destinations whose categories match the release', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const triggered: string[] = []
+    function dest(name: string, categories: number[]) {
+      return {
+        isInitialized: true,
+        canDestination: true,
+        name,
+        categories,
+        triggerImport: async () => {
+          triggered.push(name)
+        },
+      }
+    }
+    // release is a movie (category 2000) — only Radarr should be scanned, not Sonarr.
+    const radarr = dest('Radarr', [2000])
+    const sonarr = dest('Sonarr', [5000])
+    const service = new DownloadsService(downloadsConfig(), [fakePeer() as any], [radarr, sonarr] as any, repository)
+    const filePath = await writeTorrent()
+
+    await service.processTorrentFile(filePath, 'movie.torrent')
+
+    expect(triggered).toEqual(['Radarr'])
+    expect(repository.list()[0]?.status).toBe('import_queued')
     handle.close()
   })
 })

@@ -22,7 +22,7 @@ export class SonarrServerConnector extends ArrServerConnector {
   }
 
   protected override get importCommandName(): string {
-    return 'DownloadedEpisodeImport'
+    return 'DownloadedEpisodesScan'
   }
 
   private buildRelease(episode: EpisodeResource, series: SeriesResource | undefined, file: EpisodeFileResource | undefined): Release | null {
