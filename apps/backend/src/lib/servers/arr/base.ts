@@ -28,6 +28,10 @@ export const DestinationServerHealthIssue = z.array(
   }),
 )
 
+// *arr returns the saved download client on create; we only need its id to bind
+// the auto-registered indexer to it.
+const DownloadClientResource = z.object({ id: z.number().int() })
+
 export type ReleaseKind = 'movie' | 'episode'
 
 export function basename(path: string): string {
@@ -169,7 +173,7 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresDestination
   @requireInitialization
-  async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[] }) {
+  async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[], downloadClientId?: number }) {
     const existingIndexers = await this.arrGet<any[]>('/api/v3/indexer')
     const existing: any = Array.isArray(existingIndexers)
       ? existingIndexers.find((idx: any) =>
@@ -185,6 +189,9 @@ export abstract class ArrServerConnector extends ServerConnector {
       enableAutomaticSearch: true,
       enableInteractiveSearch: true,
       priority: indexerConfig.priority,
+      // Bind grabs from this indexer to jack's own blackhole client (0 = "Any").
+      // Without this, *arr may hand a Jack grab to an unrelated download client.
+      ...(indexerConfig.downloadClientId ? { downloadClientId: indexerConfig.downloadClientId } : {}),
       fields: [
         { name: 'baseUrl', value: indexerConfig.baseUrl },
         { name: 'apiPath', value: '/api' },
@@ -217,7 +224,7 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresDestination
   @requireInitialization
-  async registerDownloadClient(clientConfig: { name: string, watchPath: string, completedPath: string, priority: number }) {
+  async registerDownloadClient(clientConfig: { name: string, watchPath: string, completedPath: string, priority: number }): Promise<number> {
     const existingClients = await this.arrGet<any[]>('/api/v3/downloadclient')
     const existing: any = Array.isArray(existingClients)
       ? existingClients.find((client: any) =>
@@ -253,14 +260,16 @@ export abstract class ArrServerConnector extends ServerConnector {
         body: JSON.stringify({ ...body, id: existing.id }),
         query: { forceSave: 'false' },
       } as any)
+      return existing.id as number
     }
-    else {
-      await this.fetch('/api/v3/downloadclient', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        query: { forceSave: 'false' },
-      } as any)
-    }
+
+    const created = await this.fetch<typeof DownloadClientResource>('/api/v3/downloadclient', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      query: { forceSave: 'false' },
+      schema: DownloadClientResource,
+    } as any)
+    return created.id
   }
 }

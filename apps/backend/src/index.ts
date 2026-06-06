@@ -64,6 +64,25 @@ if (config.jack) {
 
     const registrable = destinations.filter(d => d.isInitialized && d.autoRegister.enable)
     for (const dest of registrable) {
+      // Register the download client first so we can bind the indexer to it:
+      // grabs from the Jack indexer must go to the Jack blackhole client, not
+      // whatever client *arr would otherwise pick.
+      let downloadClientId: number | undefined
+      if (downloads) {
+        try {
+          downloadClientId = await dest.registerDownloadClient({
+            name: 'Jack',
+            watchPath: downloads.watchPath,
+            completedPath: downloads.completedPath,
+            priority: dest.autoRegister.priority,
+          })
+          logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as Torrent Blackhole download client')
+        }
+        catch (err) {
+          logRegistrationFailure('download client', dest.name, err)
+        }
+      }
+
       try {
         await dest.registerIndexer({
           name: 'Jack',
@@ -71,26 +90,12 @@ if (config.jack) {
           apiKey: jackConfig.apiKey,
           priority: dest.autoRegister.priority,
           categories: dest.categories,
+          downloadClientId,
         })
-        logger.info({ destination: dest.name, categories: dest.categories }, 'Registered Jack as Torznab indexer')
+        logger.info({ destination: dest.name, categories: dest.categories, downloadClientId }, 'Registered Jack as Torznab indexer')
       }
       catch (err) {
         logRegistrationFailure('indexer', dest.name, err)
-      }
-
-      if (downloads) {
-        try {
-          await dest.registerDownloadClient({
-            name: 'Jack',
-            watchPath: downloads.watchPath,
-            completedPath: downloads.completedPath,
-            priority: dest.autoRegister.priority,
-          })
-          logger.info({ destination: dest.name }, 'Registered Jack as Torrent Blackhole download client')
-        }
-        catch (err) {
-          logRegistrationFailure('download client', dest.name, err)
-        }
       }
     }
   }

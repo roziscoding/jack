@@ -318,6 +318,49 @@ describe('Auto-registration', () => {
     // If it doesn't throw, the API call worked
   })
 
+  test('registerIndexer binds the indexer to the given download client id', async () => {
+    let createdBody: any = null
+    server.use(
+      http.post(`${RADARR_URL}/api/v3/indexer`, async ({ request }) => {
+        createdBody = await request.json()
+        return HttpResponse.json({ id: 1, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    await radarr.registerIndexer({
+      name: 'Jack',
+      baseUrl: 'http://localhost:3000/torznab',
+      apiKey: 'test-api-key',
+      priority: 1,
+      categories: [2000],
+      downloadClientId: 42,
+    })
+
+    expect(createdBody.downloadClientId).toBe(42)
+  })
+
+  test('registerIndexer omits downloadClientId when none is provided', async () => {
+    let createdBody: any = null
+    server.use(
+      http.post(`${RADARR_URL}/api/v3/indexer`, async ({ request }) => {
+        createdBody = await request.json()
+        return HttpResponse.json({ id: 1, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    await radarr.registerIndexer({
+      name: 'Jack',
+      baseUrl: 'http://localhost:3000/torznab',
+      apiKey: 'test-api-key',
+      priority: 1,
+      categories: [2000],
+    })
+
+    expect(createdBody.downloadClientId).toBeUndefined()
+  })
+
   test('registerIndexer throws when a source-only server is used as a destination', async () => {
     const radarr = markInitialized(makeRadarr({ source: true, destination: false }))
     await expect(radarr.registerIndexer({
@@ -356,13 +399,14 @@ describe('Auto-registration', () => {
     )
 
     const radarr = markInitialized(makeRadarr())
-    await radarr.registerDownloadClient({
+    const id = await radarr.registerDownloadClient({
       name: 'Jack',
       watchPath: '/data/torrents/watch',
       completedPath: '/data/torrents/completed',
       priority: 1,
     })
 
+    expect(id).toBe(1)
     expect(createdBody).toMatchObject({
       name: 'Jack',
       enable: true,
@@ -389,7 +433,7 @@ describe('Auto-registration', () => {
     )
 
     const radarr = markInitialized(makeRadarr())
-    await radarr.registerDownloadClient({
+    const id = await radarr.registerDownloadClient({
       name: 'Jack',
       watchPath: '/data/torrents/watch',
       completedPath: '/data/torrents/completed',
@@ -397,6 +441,7 @@ describe('Auto-registration', () => {
     })
 
     expect(putCalled).toBe(true)
+    expect(id).toBe(7)
   })
 })
 
