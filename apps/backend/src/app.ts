@@ -16,6 +16,8 @@ import { ItemsController } from './modules/items/items.controller'
 import { getItemsRouter } from './modules/items/items.router'
 import { PeerController } from './modules/peer/peer.controller'
 import { getPeerRouter } from './modules/peer/peer.router'
+import { QbittorrentController } from './modules/qbittorrent/qbittorrent.controller'
+import { getQbittorrentRouter } from './modules/qbittorrent/qbittorrent.router'
 import { ServersController } from './modules/servers/servers.controllers'
 import { getServersRouter } from './modules/servers/servers.router'
 import { getDownloadRouter } from './modules/torznab/download.router'
@@ -62,6 +64,20 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, se
   // Enrich the active request span with HTTP details, then emit a compact
   // request-completed log without headers, query params, or bodies.
   app.use('*', logRequests)
+
+  // qBittorrent WebUI API -- Radarr/Sonarr poll us as a download client. Mounted
+  // BEFORE requireApiKey because qB uses its own SID-cookie auth
+  // (/api/v2/auth/login), not jack's apikey query/header.
+  if (config.jack && services.downloadsRepository) {
+    const qbController = new QbittorrentController({
+      apiKey: config.jack.apiKey,
+      completedPath: config.downloads?.completedPath ?? '',
+      servers: connectors.servers,
+      repository: services.downloadsRepository,
+    })
+    app.route('/api/v2', getQbittorrentRouter(qbController))
+  }
+
   app.use('*', requireApiKey(config.jack?.apiKey ?? ''))
 
   app.route('/servers', serversRouter)
