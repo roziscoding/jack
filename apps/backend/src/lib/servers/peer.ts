@@ -1,9 +1,10 @@
 import type { ConnectorHeadersConfig } from '../config'
-import { rename, unlink } from 'node:fs/promises'
+import { open, rename, unlink } from 'node:fs/promises'
 import z from 'zod'
 import { logger } from '../../logger'
 import { requireInitialization } from '../decorators/require-initialization'
 import { FetchError } from '../errors/FetchError'
+import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
 import { normalizeImdbId, Release } from '../release'
 import { withSpan } from '../tracing'
 import { ServerConnector } from './base'
@@ -12,10 +13,12 @@ const PeerSearchResponse = z.object({ items: z.array(Release) })
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
 const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
 const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
+const CONTENT_RANGE_PATTERN = /^bytes (\d+)-(\d+)\/(\d+)$/
 
 export type PeerDownloadProgressEvent
   = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | null, expectedBytesMismatch: boolean }
     | { type: 'progress', downloadedBytes: number, expectedBytes: number | null }
+    | { type: 'restart', reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable', discardedBytes: number }
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
 
 export interface PeerDownloadOptions {
@@ -36,6 +39,20 @@ function parseContentLength(headers: Headers): number | null {
     return null
 
   return parsed
+}
+
+function parseContentRange(value: string | null): { start: number, end: number, total: number } | null {
+  if (!value)
+    return null
+  const match = CONTENT_RANGE_PATTERN.exec(value.trim())
+  if (!match)
+    return null
+  const start = Number(match[1])
+  const end = Number(match[2])
+  const total = Number(match[3])
+  if (![start, end, total].every(Number.isSafeInteger))
+    return null
+  return { start, end, total }
 }
 
 /**
@@ -153,41 +170,100 @@ export class PeerConnector extends ServerConnector {
       const torrentFilename = options.torrentFilename
       const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
       const partPath = options.partPath ?? `${destPath}.part`
-      span.setAttributes({
-        'http.request.timeout_ms': timeoutMs,
-        'url.path': url.pathname,
-      })
+      const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey }
+      span.setAttributes({ 'http.request.timeout_ms': timeoutMs, 'url.path': url.pathname })
 
-      const response = await fetch(url, {
-        headers: { ...this.headers, 'X-Api-Key': this.apiKey },
+      const partFile = Bun.file(partPath)
+      let existingBytes = await partFile.exists() ? partFile.size : 0
+
+      const doFetch = (withRange: boolean) => fetch(url, {
+        headers: withRange ? { ...baseHeaders, Range: `bytes=${existingBytes}-` } : baseHeaders,
         signal: AbortSignal.timeout(timeoutMs),
       })
 
+      const emitRestart = async (reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable', discardedBytes: number) => {
+        logger.warn({ id, torrentFilename, partPath, discardedBytes, reason, peer: this.name }, 'Resume validation failed; restarting download from byte 0')
+        try {
+          await options.onProgress?.({ type: 'restart', reason, discardedBytes })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.error({ id, torrentFilename, reason, error: message }, 'Restart progress callback failed')
+        }
+      }
+
+      const restartFresh = async (response: Response, reason: 'content_range_mismatch' | 'range_not_satisfiable', discardedBytes: number): Promise<Response> => {
+        // Discard the unwanted partial response. Don't await the cancel: under
+        // some fetch/stream implementations a closed body's cancel() never
+        // settles, which would stall the restart.
+        void response.body?.cancel().catch(() => {})
+        await unlink(partPath).catch(() => {})
+        existingBytes = 0
+        await emitRestart(reason, discardedBytes)
+        return doFetch(false)
+      }
+
+      let response = await doFetch(existingBytes > 0)
       span.setAttribute('http.response.status_code', response.status)
 
-      if (!response.ok) {
-        throw new FetchError(`Failed to download file from peer: ${response.statusText}`, response)
+      if (existingBytes > 0) {
+        if (response.status === 206) {
+          const cr = parseContentRange(response.headers.get('Content-Range'))
+          const valid = cr != null && cr.start === existingBytes
+            && (options.releaseSize == null || cr.total === options.releaseSize)
+          if (!valid) {
+            response = await restartFresh(response, 'content_range_mismatch', existingBytes)
+            span.setAttribute('http.response.status_code', response.status)
+          }
+        }
+        else if (response.status === 416) {
+          response = await restartFresh(response, 'range_not_satisfiable', existingBytes)
+          span.setAttribute('http.response.status_code', response.status)
+        }
+        else if (response.ok) {
+          // Peer ignored the Range header and is streaming the whole file from
+          // byte 0. Discard the stale .part and use this response as-is.
+          const discarded = existingBytes
+          await unlink(partPath).catch(() => {})
+          existingBytes = 0
+          await emitRestart('range_ignored', discarded)
+        }
       }
 
-      if (!response.body) {
+      const resuming = existingBytes > 0
+
+      if (resuming) {
+        // We only reach here with a 206 that was already validated above.
+      }
+      else {
+        // Fresh download: require a clean 200. A 206 here is untrustworthy — we
+        // did not send a satisfiable Range, so a partial body must not be
+        // treated as the whole file (it would rename a truncated file into place).
+        if (!response.ok)
+          throw new FetchError(`Failed to download file from peer: ${response.statusText}`, response)
+        if (response.status === 206)
+          throw new Error('Peer returned 206 Partial Content for a non-range request')
+      }
+
+      if (!response.body)
         throw new Error('Peer returned a file response without a body')
-      }
 
-      const expectedBytes = parseContentLength(response.headers)
+      // Total file size: from Content-Range on a resume (206), else Content-Length.
+      const expectedBytes = resuming
+        ? parseContentRange(response.headers.get('Content-Range'))?.total ?? null
+        : parseContentLength(response.headers)
       const expectedBytesMismatch = expectedBytes != null && options.releaseSize != null && expectedBytes !== options.releaseSize
       if (expectedBytes != null)
         span.setAttribute('download.expected_bytes', expectedBytes)
-      span.setAttribute('download.expected_bytes_source', expectedBytes == null ? 'unknown' : 'content_length')
-      span.setAttribute('download.expected_bytes_mismatch', expectedBytesMismatch)
+      span.setAttributes({
+        'download.resuming': resuming,
+        'download.resume_from_bytes': existingBytes,
+        'download.expected_bytes_source': expectedBytes == null ? 'unknown' : 'content_length',
+        'download.expected_bytes_mismatch': expectedBytesMismatch,
+      })
 
       if (expectedBytesMismatch) {
-        logger.warn({
-          id,
-          torrentFilename,
-          releaseSize: options.releaseSize,
-          expectedBytes,
-          peer: this.name,
-        }, 'Peer file Content-Length differs from release metadata size')
+        logger.warn({ id, torrentFilename, releaseSize: options.releaseSize, expectedBytes, peer: this.name }, 'Peer file total size differs from release metadata size')
       }
 
       await options.onProgress?.({
@@ -201,17 +277,17 @@ export class PeerConnector extends ServerConnector {
         throw new Error(`File too large: ${expectedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
 
       const reader = response.body.getReader()
-      const writer = Bun.file(partPath).writer()
-      let downloadedBytes = 0
+      const handle = await open(partPath, resuming ? 'a' : 'w')
+      let downloadedBytes = existingBytes
       let lastLoggedAt = Date.now()
-      let lastLoggedBytes = 0
-      let writerEnded = false
+      let lastLoggedBytes = downloadedBytes
+      let handleClosed = false
 
-      const endWriter = () => {
-        if (writerEnded)
+      const closeHandle = async () => {
+        if (handleClosed)
           return
-        writer.end()
-        writerEnded = true
+        handleClosed = true
+        await handle.close().catch(() => {})
       }
 
       try {
@@ -223,16 +299,15 @@ export class PeerConnector extends ServerConnector {
             continue
 
           downloadedBytes += value.byteLength
-          if (downloadedBytes > MAX_DOWNLOAD_BYTES) {
+          if (downloadedBytes > MAX_DOWNLOAD_BYTES)
             throw new Error(`File too large: downloaded ${downloadedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
-          }
 
-          writer.write(value)
+          await handle.write(value)
 
           const now = Date.now()
           const shouldLogProgress = downloadedBytes - lastLoggedBytes >= DOWNLOAD_PROGRESS_BYTES || now - lastLoggedAt >= DOWNLOAD_PROGRESS_INTERVAL_MS
-          if (lastLoggedBytes === 0 || shouldLogProgress) {
-            await writer.flush()
+          if (lastLoggedBytes === existingBytes || shouldLogProgress) {
+            await handle.datasync().catch(() => {})
             logger.debug({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes, peer: this.name }, 'Download progress from peer')
             await options.onProgress?.({ type: 'progress', downloadedBytes, expectedBytes })
             lastLoggedAt = now
@@ -240,11 +315,12 @@ export class PeerConnector extends ServerConnector {
           }
         }
 
-        endWriter()
+        await handle.datasync().catch(() => {})
+        await closeHandle()
         reader.releaseLock()
 
         if (expectedBytes != null && downloadedBytes !== expectedBytes)
-          throw new Error(`Incomplete file download: got ${downloadedBytes} bytes, expected ${expectedBytes}`)
+          throw new IncompleteDownloadError(`Incomplete file download: got ${downloadedBytes} bytes, expected ${expectedBytes}`)
 
         await rename(partPath, destPath)
         span.setAttribute('download.downloaded_bytes', downloadedBytes)
@@ -257,15 +333,14 @@ export class PeerConnector extends ServerConnector {
         }
       }
       catch (err) {
-        try {
-          endWriter()
-        }
-        catch {}
+        await closeHandle()
         try {
           reader.releaseLock()
         }
         catch {}
-        await unlink(partPath).catch(() => {})
+        // Leave the .part file in place so the next attempt can resume from the
+        // durable bytes written so far. The atomic rename above means an
+        // incomplete download never reaches `destPath`.
         throw err
       }
     })

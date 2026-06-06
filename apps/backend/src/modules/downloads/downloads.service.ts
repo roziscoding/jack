@@ -94,6 +94,12 @@ export class DownloadsService {
             return
           }
 
+          if (event.type === 'restart') {
+            // Resume validation failed; the download restarts from byte 0.
+            // Persisting this is handled in a later phase.
+            return
+          }
+
           this.downloadsRepository?.markCompleted(download.id, event.downloadedBytes)
         }
 
