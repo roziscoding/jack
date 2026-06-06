@@ -1,7 +1,7 @@
 import type { AppDatabase } from '../../database/connection'
 import type { DownloadRow, DownloadStatus, ExpectedBytesSource, NewDownloadRow } from '../../database/schema'
 import type { Release } from '../../lib/release'
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { downloads } from '../../database/schema'
 
 export interface DownloadRecord {
@@ -19,6 +19,7 @@ export interface DownloadRecord {
   expectedBytesSource: ExpectedBytesSource | null
   expectedBytesMismatch: boolean
   downloadedBytes: number
+  attempts: number
   status: DownloadStatus
   startedAt: string
   updatedAt: string
@@ -58,6 +59,7 @@ function toRecord(row: DownloadRow): DownloadRecord {
     expectedBytesSource: row.expectedBytesSource ?? null,
     expectedBytesMismatch: row.expectedBytesMismatch,
     downloadedBytes: row.downloadedBytes,
+    attempts: row.attempts,
     status: row.status,
     startedAt: row.startedAt,
     updatedAt: row.updatedAt,
@@ -136,6 +138,27 @@ export class DownloadsRepository {
       .set({ status: 'failed', error, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+  }
+
+  incrementAttempts(id: number): number {
+    const row = this.db.update(downloads)
+      .set({ attempts: sql`${downloads.attempts} + 1`, updatedAt: nowIso() })
+      .where(eq(downloads.id, id))
+      .returning()
+      .get()
+    return row?.attempts ?? 0
+  }
+
+  markResumeReset(id: number): void {
+    this.db.update(downloads)
+      .set({ downloadedBytes: 0, error: 'resume validation failed; restarted from byte 0', updatedAt: nowIso() })
+      .where(eq(downloads.id, id))
+      .run()
+  }
+
+  /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */
+  listStaleDownloads(): DownloadRecord[] {
+    return this.db.select().from(downloads).where(eq(downloads.status, 'downloading')).all().map(toRecord)
   }
 
   async reconcileStaleDownloads(): Promise<number> {
