@@ -3,6 +3,36 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 
+const RANGE_HEADER_PATTERN = /^bytes=(\d*)-(\d*)$/
+
+/**
+ * Parse a single-range HTTP `Range` header. Returns `null` (→ serve full 200)
+ * for an absent, malformed, or multi-range header; a `{ start?, end? }` for a
+ * well-formed single range. `start === undefined` means a suffix range
+ * (`bytes=-N` → last N bytes); `end === undefined` means open-ended
+ * (`bytes=N-` → to end of file).
+ */
+export function parseRangeHeader(value: string | undefined | null): { start?: number, end?: number } | null {
+  if (!value)
+    return null
+  const match = RANGE_HEADER_PATTERN.exec(value.trim())
+  if (!match)
+    return null
+  const [, rawStart, rawEnd] = match
+  if (rawStart === '' && rawEnd === '')
+    return null
+  const start = rawStart === '' ? undefined : Number(rawStart)
+  const end = rawEnd === '' ? undefined : Number(rawEnd)
+  if ((start != null && !Number.isSafeInteger(start)) || (end != null && !Number.isSafeInteger(end)))
+    return null
+  return { start, end }
+}
+
+export type StreamFileResult
+  = | { type: 'full', stream: ReadableStream, size: number, filename: string }
+    | { type: 'partial', stream: ReadableStream, size: number, totalSize: number, start: number, end: number, filename: string }
+    | { type: 'unsatisfiable', totalSize: number }
+
 /**
  * Serves the /peer API that other jacks talk to. Reads availability from the
  * local arr sources (the `source: true` Radarr/Sonarr servers) and streams the
@@ -85,7 +115,7 @@ export class PeerController {
     return this.sourceServers.find(s => s.id === connectorId)
   }
 
-  async streamFile(id: string): Promise<{ stream: ReadableStream, size: number, filename: string } | null> {
+  async streamFile(id: string, rangeHeader?: string | null): Promise<StreamFileResult | null> {
     return withSpan('peer.stream_file', {
       'item.id': id,
     }, async (span) => {
@@ -115,16 +145,40 @@ export class PeerController {
         return null
       }
 
-      span.setAttributes({
-        'file.exists': true,
-        'file.size': file.size,
-      })
+      const totalSize = file.size
+      const filename = filePath.split('/').pop() ?? 'unknown'
+      span.setAttributes({ 'file.exists': true, 'file.size': totalSize })
 
-      return {
-        stream: file.stream(),
-        size: file.size,
-        filename: filePath.split('/').pop() ?? 'unknown',
+      const range = parseRangeHeader(rangeHeader)
+      if (!range) {
+        return { type: 'full', stream: file.stream(), size: totalSize, filename }
       }
+
+      let start: number
+      let end: number
+      if (range.start == null) {
+        // Suffix range: `bytes=-N` → last N bytes.
+        const suffix = range.end ?? 0
+        if (suffix <= 0) {
+          span.setAttribute('range.satisfiable', false)
+          return { type: 'unsatisfiable', totalSize }
+        }
+        start = Math.max(totalSize - suffix, 0)
+        end = totalSize - 1
+      }
+      else {
+        start = range.start
+        end = Math.min(range.end ?? totalSize - 1, totalSize - 1)
+      }
+
+      if (start > end || start >= totalSize) {
+        span.setAttribute('range.satisfiable', false)
+        return { type: 'unsatisfiable', totalSize }
+      }
+
+      span.setAttributes({ 'range.satisfiable': true, 'range.start': start, 'range.end': end })
+      // Bun.file().slice is half-open [start, end), so +1 to include `end`.
+      return { type: 'partial', stream: file.slice(start, end + 1).stream(), size: end - start + 1, totalSize, start, end, filename }
     })
   }
 }
