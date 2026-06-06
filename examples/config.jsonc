@@ -39,10 +39,13 @@
   // chars (Settings -> General). Each server can be a:
   //   - "source":      its library is shared with your peers (read via /peer).
   //   - "destination": jack registers itself there as a Torznab indexer +
-  //                    Torrent Blackhole download client, and triggers imports.
+  //                    qBittorrent download client, and triggers imports.
   //   - both:          share your library AND search your friends', symmetric.
   // "autoregister" controls the indexer/client registration (destinations only):
-  //   { "enable": true, "priority": 1 }
+  //   { "enable": true, "priority": 1, "tag": "jack-internal" }
+  // "tag" is put on the qBittorrent client so *arr never routes real torrents
+  // (from your other indexers) to jack; Jack grabs still reach it via the
+  // indexer binding. jack creates the tag if missing. Set "" to disable.
   "servers": [
     // {
     //   "name": "Main Radarr",
@@ -52,7 +55,7 @@
     //   "headers": { "X-Forwarded-User": "jack" },
     //   "source": true,
     //   "destination": true,
-    //   "autoregister": { "enable": true, "priority": 1 }
+    //   "autoregister": { "enable": true, "priority": 1, "tag": "jack-internal" }
     // },
     // { "name": "Main Sonarr", "type": "sonarr", "url": "http://sonarr:8989", "apiKey": "0123456789abcdef0123456789abcdef" }
   ],

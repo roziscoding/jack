@@ -59,7 +59,7 @@ VOLUME ["/config"]
 
 # Run as the image's non-root `bun` user (uid/gid 1000). This matches the
 # PUID/PGID the *arr / linuxserver.io images default to, so files jack writes
-# (e.g. finished downloads in the blackhole completed folder) are owned by the
+# (e.g. finished downloads in the completed folder) are owned by the
 # same user that imports them. Bind-mounted /config and download folders must
 # therefore be readable/writable by uid 1000.
 USER bun

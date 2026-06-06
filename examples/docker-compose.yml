@@ -23,12 +23,21 @@ services:
       # *arr's media path(s), and add one mount per path if they use several
       # (e.g. /movies and /tv).
       - ${MEDIA_PATH:-./data/media}:/data/media
-      # Blackhole download dirs — must match `downloads.*` in config.jsonc.
-      # IMPORTANT: mount this SAME folder into your Radarr and Sonarr containers
-      # at the SAME path (e.g. /data/torrents). jack registers the Torrent
-      # Blackhole client with these literal paths, and *arr resolves them in its
-      # own filesystem — if they don't match, *arr can't drop stubs or import.
+      # Completed downloads dir — must match `downloads.completedPath` in
+      # config.jsonc. IMPORTANT: mount this SAME folder into your Radarr and
+      # Sonarr containers at the SAME path (e.g. /data/torrents). jack writes
+      # finished files here and *arr resolves that literal path in its own
+      # filesystem to import them — if they don't match, *arr can't import.
+      # (No watch folder: *arr hands grabs to jack over the qBittorrent API.)
       - ${TORRENTS_PATH:-./data/torrents}:/data/torrents
+    # If Radarr / Sonarr are defined in this same compose file, wait for them to
+    # be healthy before starting jack. Auto-registration only runs at startup, so
+    # this makes the Torznab indexer + qBittorrent client register on first boot
+    # instead of needing a jack restart. (Needs `healthcheck` blocks on those
+    # services — the linuxserver.io images ship with them.)
+    # depends_on:
+    #   radarr: {condition: service_healthy}
+    #   sonarr: {condition: service_healthy}
     # If Radarr / Sonarr run in their own compose network, attach this service
     # to it so `jack.baseUrl` / server URLs resolve by container name.
     # Otherwise reach them via host IP.
