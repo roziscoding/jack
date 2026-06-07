@@ -3,6 +3,10 @@ name: Create Release
 # Manual only — run it from the Actions tab via "Run workflow".
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 0.1.0)"
+        required: true
 
 permissions:
   contents: write
@@ -17,9 +21,11 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # Dry run: only compute the next version + notes from the commit history.
-      # Tag format and plugins come from .releaserc.json.
-      - name: Determine next version with semantic-release
+      # We supply the version ourselves (input above); semantic-release is used
+      # ONLY to format the changelog from commit history. Dry run so it never
+      # tags or releases on its own. Plugins come from .releaserc.json; whatever
+      # version it would have computed is ignored.
+      - name: Generate changelog notes with semantic-release
         id: semantic
         uses: cycjimmy/semantic-release-action@v5
         with:
@@ -27,20 +33,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Nothing to release
-        if: steps.semantic.outputs.new_release_published != 'true'
-        run: echo "No release-worthy commits since the last tag — skipping."
-
       - name: Bump package.json, commit and create the release
-        if: steps.semantic.outputs.new_release_published == 'true'
         env:
-          VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          VERSION: ${{ inputs.version }}
           NOTES: ${{ steps.semantic.outputs.new_release_notes }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          # 1. Write the computed version into the local package.json.
+          # 1. Write the supplied version into the local package.json.
           npm pkg set version="$VERSION"
 
           # 2. Commit the bump to main, skipping CI for this push.
@@ -51,9 +52,12 @@ jobs:
           git push origin HEAD:main
           SHA="$(git rev-parse HEAD)"
 
-          # 3. Create the GitHub release; the tag is the version prefixed with "v".
+          # 3. Create the GitHub release tagged v<version>. Prefer semantic-release's
+          #    notes, but strip its auto-generated version header — it reflects the
+          #    version semantic-release computed (not ours), and the release title
+          #    already shows the version. Fall back to GitHub's notes if empty.
           if [ -n "${NOTES:-}" ]; then
-            printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.md"
+            printf '%s\n' "$NOTES" | sed -E '/^#+ \[?v?[0-9]+\.[0-9]+\.[0-9]+/d' > "$RUNNER_TEMP/notes.md"
             gh release create "v$VERSION" --title "v$VERSION" --target "$SHA" --notes-file "$RUNNER_TEMP/notes.md"
           else
             gh release create "v$VERSION" --title "v$VERSION" --target "$SHA" --generate-notes
