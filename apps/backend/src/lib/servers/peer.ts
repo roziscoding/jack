@@ -111,7 +111,7 @@ export class PeerConnector extends ServerConnector {
         ? handshake.version
         : undefined
       if (!version || !isPeerVersionCompatible(version)) {
-        throw new IncompatiblePeerError(`Peer "${this.name}" runs an incompatible peer-protocol version: expected >= ${MIN_PEER_PROTOCOL_VERSION}, got ${version ?? 'none'}`)
+        throw new IncompatiblePeerError(`Peer "${this.name}" runs an incompatible peer-protocol version: expected >= ${MIN_PEER_PROTOCOL_VERSION}, got ${version || 'none'}`)
       }
 
       this._peerVersion = version
