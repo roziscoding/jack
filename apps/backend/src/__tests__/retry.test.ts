@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test'
+import { DownloadsConfig } from '../lib/config'
 import { FetchError } from '../lib/errors/FetchError'
 import { IncompleteDownloadError } from '../lib/errors/IncompleteDownloadError'
 import { retry } from '../lib/retry'
@@ -101,6 +102,58 @@ describe('retry', () => {
       sleep: noSleep,
     })).rejects.toThrow('maxAttempts must be at least 1')
     expect(calls).toBe(0)
+  })
+})
+
+describe('download retry backoff schedule', () => {
+  // The defaults must keep retrying long enough to outlast a ~15-30 min peer
+  // outage (the .part stays resumable), so a transient peer restart doesn't
+  // terminally fail the download.
+  const defaults = DownloadsConfig.parse({ watchPath: '/w', completedPath: '/c' })
+
+  // Drive the real retry() with random()=1 (worst-case full-jitter delay) and
+  // a no-op sleep, collecting the delay it would have waited before each retry.
+  async function collectMaxDelays(): Promise<number[]> {
+    const delays: number[] = []
+    await expect(retry(async () => {
+      throw new Error('peer unreachable')
+    }, {
+      maxAttempts: defaults.maxDownloadAttempts,
+      baseDelayMs: defaults.retryBaseDelayMs,
+      maxDelayMs: defaults.retryMaxDelayMs,
+      isRetryable: () => true,
+      random: () => 1,
+      sleep: async (ms) => {
+        delays.push(ms)
+      },
+    })).rejects.toThrow('peer unreachable')
+    return delays
+  }
+
+  test('retries enough times to bridge a multi-minute outage', async () => {
+    const delays = await collectMaxDelays()
+    // maxAttempts total attempts => maxAttempts - 1 retries (one sleep each).
+    expect(delays.length).toBe(defaults.maxDownloadAttempts - 1)
+  })
+
+  test('worst-case total retry window comfortably exceeds 20 minutes', async () => {
+    const delays = await collectMaxDelays()
+    const totalMs = delays.reduce((sum, ms) => sum + ms, 0)
+    expect(totalMs).toBeGreaterThan(20 * 60 * 1000)
+  })
+
+  test('the delay grows exponentially toward the configured max', async () => {
+    const delays = await collectMaxDelays()
+    // Early retry is small (network-blip friendly).
+    expect(delays[0]).toBe(defaults.retryBaseDelayMs)
+    // Each subsequent max delay doubles until it saturates at the cap.
+    for (let i = 1; i < delays.length; i++)
+      expect(delays[i]!).toBe(Math.min(defaults.retryMaxDelayMs, delays[i - 1]! * 2))
+    // The latest retries reach the long cap (~30 min) so the schedule spans an outage.
+    expect(delays.at(-1)).toBe(defaults.retryMaxDelayMs)
+    // At least one retry waits ~15 min (the largest pre-cap step) before saturating.
+    const maxBelowCap = Math.max(...delays.filter(ms => ms < defaults.retryMaxDelayMs))
+    expect(maxBelowCap).toBeGreaterThanOrEqual(15 * 60 * 1000)
   })
 })
 

@@ -284,9 +284,9 @@ describe('appConfig parsing', () => {
     })
     expect(parsed.downloads).toMatchObject({
       maxConcurrentDownloads: 3,
-      maxDownloadAttempts: 5,
+      maxDownloadAttempts: 13,
       retryBaseDelayMs: 1000,
-      retryMaxDelayMs: 60_000,
+      retryMaxDelayMs: 1_800_000,
       idleTimeoutMs: 60_000,
     })
   })
