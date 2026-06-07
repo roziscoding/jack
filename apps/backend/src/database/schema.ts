@@ -3,7 +3,7 @@ import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-cor
 
 export const DOWNLOAD_STATUSES = ['downloading', 'completed', 'failed', 'import_queued'] as const
 export type DownloadStatus = typeof DOWNLOAD_STATUSES[number]
-export type ExpectedBytesSource = 'content_length'
+export type ExpectedBytesSource = 'content_length' | 'release_size'
 
 export const downloads = sqliteTable('downloads', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -33,7 +33,7 @@ export const downloads = sqliteTable('downloads', {
   qbSourceServer: text('qb_source_server'),
 }, t => [
   check('downloads_status_check', sql`${t.status} in ('downloading', 'completed', 'failed', 'import_queued')`),
-  check('downloads_expected_bytes_source_check', sql`${t.expectedBytesSource} is null or ${t.expectedBytesSource} = 'content_length'`),
+  check('downloads_expected_bytes_source_check', sql`${t.expectedBytesSource} is null or ${t.expectedBytesSource} in ('content_length', 'release_size')`),
   index('downloads_status_idx').on(t.status),
   index('downloads_updated_at_idx').on(t.updatedAt),
 ])

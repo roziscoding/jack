@@ -5,6 +5,7 @@ import { logger } from '../../logger'
 import { requireInitialization } from '../decorators/require-initialization'
 import { FetchError } from '../errors/FetchError'
 import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
+import { UnknownSizeError } from '../errors/UnknownSizeError'
 import { normalizeImdbId, Release } from '../release'
 import { withSpan } from '../tracing'
 import { ServerConnector } from './base'
@@ -16,9 +17,9 @@ const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
 const CONTENT_RANGE_PATTERN = /^bytes (\d+)-(\d+)\/(\d+)$/
 
 export type PeerDownloadProgressEvent
-  = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | null, expectedBytesMismatch: boolean }
+  = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | 'release_size' | null, expectedBytesMismatch: boolean }
     | { type: 'progress', downloadedBytes: number, expectedBytes: number | null }
-    | { type: 'restart', reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable', discardedBytes: number }
+    | { type: 'restart', reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number }
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
 
 export interface PeerDownloadOptions {
@@ -181,7 +182,7 @@ export class PeerConnector extends ServerConnector {
         signal: AbortSignal.timeout(timeoutMs),
       })
 
-      const emitRestart = async (reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable', discardedBytes: number) => {
+      const emitRestart = async (reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number) => {
         logger.warn({ id, torrentFilename, partPath, discardedBytes, reason, peer: this.name }, 'Resume validation failed; restarting download from byte 0')
         try {
           await options.onProgress?.({ type: 'restart', reason, discardedBytes })
@@ -201,6 +202,26 @@ export class PeerConnector extends ServerConnector {
         existingBytes = 0
         await emitRestart(reason, discardedBytes)
         return doFetch(false)
+      }
+
+      // Resume sanity vs the known release size (available before the request):
+      // a .part larger than the whole file is corrupt → discard; a .part already
+      // equal to the file is complete → finalize without re-downloading.
+      if (existingBytes > 0 && options.releaseSize != null) {
+        if (existingBytes > options.releaseSize) {
+          await unlink(partPath).catch(() => {})
+          await emitRestart('part_oversize', existingBytes)
+          existingBytes = 0
+        }
+        else if (existingBytes === options.releaseSize) {
+          await rename(partPath, destPath)
+          span.setAttribute('download.downloaded_bytes', existingBytes)
+          // Emit headers too so the service persists expectedBytes/source (the
+          // fast path otherwise skips the headers event).
+          await options.onProgress?.({ type: 'headers', expectedBytes: options.releaseSize, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
+          await options.onProgress?.({ type: 'completed', downloadedBytes: existingBytes, expectedBytes: options.releaseSize })
+          return
+        }
       }
 
       let response = await doFetch(existingBytes > 0)
@@ -251,32 +272,43 @@ export class PeerConnector extends ServerConnector {
       if (!response.body)
         throw new Error('Peer returned a file response without a body')
 
-      // Total file size: from Content-Range on a resume (206), else Content-Length.
-      const expectedBytes = resuming
+      // Expected total size: the transfer header (Content-Range total on resume,
+      // else Content-Length), falling back to the *arr release size. Fail-fast if
+      // none is known — we never import a file we can't size-check.
+      const transferSize = resuming
         ? parseContentRange(response.headers.get('Content-Range'))?.total ?? null
         : parseContentLength(response.headers)
-      const expectedBytesMismatch = expectedBytes != null && options.releaseSize != null && expectedBytes !== options.releaseSize
-      if (expectedBytes != null)
-        span.setAttribute('download.expected_bytes', expectedBytes)
+      const expectedBytes = transferSize ?? options.releaseSize ?? null
+      // Source = where the TRANSFER advertised the size; 'release_size' means it
+      // came only from *arr metadata (the peer sent no Content-Length).
+      const expectedBytesSource: 'content_length' | 'release_size' | null
+        = transferSize != null ? 'content_length' : (expectedBytes != null ? 'release_size' : null)
+      const expectedBytesMismatch = transferSize != null && options.releaseSize != null && transferSize !== options.releaseSize
       span.setAttributes({
         'download.resuming': resuming,
         'download.resume_from_bytes': existingBytes,
-        'download.expected_bytes_source': expectedBytes == null ? 'unknown' : 'content_length',
+        'download.expected_bytes_source': expectedBytesSource ?? 'unknown',
         'download.expected_bytes_mismatch': expectedBytesMismatch,
       })
 
+      if (expectedBytes == null) {
+        void response.body.cancel().catch(() => {})
+        throw new UnknownSizeError(`Cannot verify download for item ${id}: no Content-Length/Content-Range and no release size`)
+      }
+      span.setAttribute('download.expected_bytes', expectedBytes)
+
       if (expectedBytesMismatch) {
-        logger.warn({ id, torrentFilename, releaseSize: options.releaseSize, expectedBytes, peer: this.name }, 'Peer file total size differs from release metadata size')
+        logger.warn({ id, torrentFilename, releaseSize: options.releaseSize, expectedBytes: transferSize, peer: this.name }, 'Peer file total size differs from release metadata size')
       }
 
       await options.onProgress?.({
         type: 'headers',
         expectedBytes,
-        expectedBytesSource: expectedBytes == null ? null : 'content_length',
+        expectedBytesSource,
         expectedBytesMismatch,
       })
 
-      if (expectedBytes != null && expectedBytes > MAX_DOWNLOAD_BYTES)
+      if (expectedBytes > MAX_DOWNLOAD_BYTES)
         throw new Error(`File too large: ${expectedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
 
       const handle = await open(partPath, resuming ? 'a' : 'w')
@@ -329,7 +361,7 @@ export class PeerConnector extends ServerConnector {
         await closeHandle()
         reader.releaseLock()
 
-        if (expectedBytes != null && downloadedBytes !== expectedBytes)
+        if (downloadedBytes !== expectedBytes)
           throw new IncompleteDownloadError(`Incomplete file download: got ${downloadedBytes} bytes, expected ${expectedBytes}`)
 
         await rename(partPath, destPath)

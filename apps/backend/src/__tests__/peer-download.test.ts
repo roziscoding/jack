@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
+import { UnknownSizeError } from '../lib/errors/UnknownSizeError'
 import { PeerConnector } from '../lib/servers/peer'
 
 const PEER_JACK_URL = 'http://download-peer.test:3000'
@@ -134,7 +135,7 @@ describe('PeerConnector.downloadFile', () => {
     }
   })
 
-  test('reports indeterminate expected bytes when Content-Length is missing or invalid', async () => {
+  test('falls back to releaseSize for expected bytes when Content-Length is missing or invalid', async () => {
     for (const contentLength of [null, 'not-a-number']) {
       server.resetHandlers()
       server.use(
@@ -145,20 +146,44 @@ describe('PeerConnector.downloadFile', () => {
       )
 
       const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
-      const dir = await mkdtemp(join(tmpdir(), 'jack-peer-indeterminate-'))
+      const dir = await mkdtemp(join(tmpdir(), 'jack-peer-fallback-'))
       const events: unknown[] = []
 
       try {
         await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), {
+          releaseSize: 2,
           onProgress: (event) => { events.push(event) },
         })
 
-        expect(events).toContainEqual({ type: 'headers', expectedBytes: null, expectedBytesSource: null, expectedBytesMismatch: false })
-        expect(events).toContainEqual({ type: 'completed', downloadedBytes: 2, expectedBytes: null })
+        expect(events).toContainEqual({ type: 'headers', expectedBytes: 2, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
+        expect(events).toContainEqual({ type: 'completed', downloadedBytes: 2, expectedBytes: 2 })
       }
       finally {
         await rm(dir, { recursive: true, force: true })
       }
+    }
+  })
+
+  test('fails fast with UnknownSizeError when neither Content-Length nor releaseSize is known', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+        return new Response(streamOf([1, 2]), { headers: {} })
+      }),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-nosize-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath })).rejects.toThrow(UnknownSizeError)
+      // Fail-fast: nothing is written before the size is known.
+      expect(await Bun.file(destPath).exists()).toBe(false)
+      expect(await Bun.file(partPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
     }
   })
 
@@ -360,7 +385,9 @@ describe('PeerConnector.downloadFile resume', () => {
     }
   })
 
-  test('restarts when the peer returns 416 for the resume range', async () => {
+  test('restarts when the peer returns 416 for the resume range (releaseSize unknown)', async () => {
+    // releaseSize omitted so the pre-fetch oversize guard is skipped and the
+    // Range is actually sent — exercising the 416 restart path.
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
         if (request.headers.get('Range'))
@@ -378,12 +405,76 @@ describe('PeerConnector.downloadFile resume', () => {
     try {
       await peer.downloadFile('remote1:movie:99', destPath, {
         partPath,
-        releaseSize: 5,
         onProgress: (e) => { events.push(e) },
       })
 
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
       expect(events.some(e => e.type === 'restart' && e.reason === 'range_not_satisfiable')).toBe(true)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('discards and restarts when the .part is larger than releaseSize', async () => {
+    let rangeSent = false
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
+        if (request.headers.get('Range'))
+          rangeSent = true
+        return new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })
+      }),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-oversize-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1, 2, 3, 4, 5, 6])) // 7 > releaseSize 5
+    const events: PeerDownloadProgressEvent[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 5,
+        onProgress: (e) => { events.push(e) },
+      })
+
+      expect(rangeSent).toBe(false) // discarded before requesting; fresh download
+      expect(events.some(e => e.type === 'restart' && e.reason === 'part_oversize')).toBe(true)
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('finalizes without re-downloading when the .part already equals releaseSize', async () => {
+    let fetched = false
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+        fetched = true
+        return new Response(streamOf([0, 1, 2]), { headers: { 'Content-Length': '3' } })
+      }),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-exact-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([7, 8, 9])) // 3 === releaseSize 3
+    const events: PeerDownloadProgressEvent[] = []
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 3,
+        onProgress: (e) => { events.push(e) },
+      })
+
+      expect(fetched).toBe(false) // no HTTP request at all
+      expect(await Bun.file(partPath).exists()).toBe(false)
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]))
+      expect(events).toContainEqual({ type: 'headers', expectedBytes: 3, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
+      expect(events).toContainEqual({ type: 'completed', downloadedBytes: 3, expectedBytes: 3 })
     }
     finally {
       await rm(dir, { recursive: true, force: true })

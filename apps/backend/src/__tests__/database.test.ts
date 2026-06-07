@@ -125,6 +125,29 @@ describe('DownloadsRepository', () => {
     handle.close()
   })
 
+  test('persists release_size as an expected-bytes source (CHECK accepts it)', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const created = repository.create({
+      torrentFilename: 'movie.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath: join(tempDir, release.filename),
+      partPath: join(tempDir, `${release.filename}.part`),
+      releaseSize: release.size,
+      release,
+    })
+
+    repository.setExpectedBytes(created.id, 123, 'release_size', false)
+
+    const row = repository.get(created.id)!
+    expect(row.expectedBytes).toBe(123)
+    expect(row.expectedBytesSource).toBe('release_size')
+    handle.close()
+  })
+
   test('reconciles stale downloading rows using .part file size', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
