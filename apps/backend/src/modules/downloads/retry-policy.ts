@@ -1,4 +1,5 @@
 import { FetchError } from '../../lib/errors/FetchError'
+import { IdleTimeoutError } from '../../lib/errors/IdleTimeoutError'
 import { IncompleteDownloadError } from '../../lib/errors/IncompleteDownloadError'
 
 /**
@@ -8,6 +9,8 @@ import { IncompleteDownloadError } from '../../lib/errors/IncompleteDownloadErro
  */
 export function isTransientDownloadError(error: unknown): boolean {
   if (error instanceof IncompleteDownloadError)
+    return true
+  if (error instanceof IdleTimeoutError)
     return true
   if (error instanceof FetchError) {
     const status = error.response?.status ?? error.extras.status

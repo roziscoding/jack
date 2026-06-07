@@ -88,7 +88,7 @@ export const ConnectorHeadersConfig = z.record(z.string(), ConfigSecret()).defau
 
 export type ConnectorHeadersConfig = z.infer<typeof ConnectorHeadersConfig>
 
-// Auto-registration of jack as a Torznab indexer + Torrent Blackhole download
+// Auto-registration of jack as a Torznab indexer + qBittorrent download
 // client inside the *arr. `priority` is the indexer/client priority used there.
 export const AutoRegisterConfig = z.object({
   enable: z.boolean().default(true),
@@ -131,15 +131,29 @@ export const JackConfig = z.object({
 export type JackConfig = z.infer<typeof JackConfig>
 
 export const DownloadsConfig = z.object({
-  watchPath: z.string().min(1),
   completedPath: z.string().min(1),
   // Max peer file downloads running at once (an async semaphore guards the
   // expensive download step). Defaults keep existing configs working.
   maxConcurrentDownloads: z.number().int().min(1).default(3),
   // Bounded retries for transient failures, with exponential backoff + jitter.
-  maxDownloadAttempts: z.number().int().min(1).default(5),
+  // A peer (another jack) can go unreachable for ~15-30 min (restart, tunnel
+  // hiccup); since the .part is preserved and fully resumable, the schedule must
+  // span long enough to outlast such an outage rather than fail fast.
+  //
+  // The backoff (see lib/retry.ts) is full-jitter exponential: each retry waits
+  // up to `min(maxDelayMs, baseDelayMs * 2^(attempt-1))`. Starting at 1s and
+  // capped at 30min, the uncapped backoff reaches the cap at attempt 12
+  // (2^11 = 2048 >= 1800). With 13 total attempts there are 12 retries whose
+  // max delays are 1s,2s,4s,...,512s,1024s(~17m),1800s(30m cap) — a worst-case
+  // total retry window of ~64min (≈32min on average with jitter). That keeps a
+  // ~17min outage well within reach while early retries stay snappy (≈1s) for
+  // ordinary network blips.
+  maxDownloadAttempts: z.number().int().min(1).default(13),
   retryBaseDelayMs: z.number().int().min(0).default(1000),
-  retryMaxDelayMs: z.number().int().min(0).default(60_000),
+  retryMaxDelayMs: z.number().int().min(0).default(1_800_000),
+  // Abort a peer download if no bytes arrive for this long (inactivity timeout).
+  // Resets on every received chunk; replaces the old whole-request deadline.
+  idleTimeoutMs: z.number().int().min(1000).default(60_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>

@@ -22,7 +22,7 @@ const envs: Envs = {
 
 const config = AppConfig.parse({
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
-  downloads: { watchPath: '/tmp/watch', completedPath: '/tmp/completed' },
+  downloads: { completedPath: '/tmp/completed' },
   servers: [],
   peers: [],
 })

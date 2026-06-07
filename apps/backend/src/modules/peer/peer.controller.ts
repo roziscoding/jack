@@ -28,9 +28,14 @@ export function parseRangeHeader(value: string | undefined | null): { start?: nu
   return { start, end }
 }
 
+// `body` is the raw BunFile (or a sliced view of it), NOT a manual ReadableStream.
+// Handing the BunFile straight to `new Response` lets Bun.serve stream it with native
+// backpressure (sendfile): if the consumer stalls or aborts mid-download, we stop
+// reading from disk instead of buffering the whole file into RAM. Pumping `.stream()`
+// ourselves does NOT backpressure and lets one stalled peer OOM the process.
 export type StreamFileResult
-  = | { type: 'full', stream: ReadableStream, size: number, filename: string }
-    | { type: 'partial', stream: ReadableStream, size: number, totalSize: number, start: number, end: number, filename: string }
+  = | { type: 'full', body: Blob, size: number, filename: string }
+    | { type: 'partial', body: Blob, size: number, totalSize: number, start: number, end: number, filename: string }
     | { type: 'unsatisfiable', totalSize: number }
 
 /**
@@ -151,7 +156,7 @@ export class PeerController {
 
       const range = parseRangeHeader(rangeHeader)
       if (!range) {
-        return { type: 'full', stream: file.stream(), size: totalSize, filename }
+        return { type: 'full', body: file, size: totalSize, filename }
       }
 
       let start: number
@@ -178,7 +183,7 @@ export class PeerController {
 
       span.setAttributes({ 'range.satisfiable': true, 'range.start': start, 'range.end': end })
       // Bun.file().slice is half-open [start, end), so +1 to include `end`.
-      return { type: 'partial', stream: file.slice(start, end + 1).stream(), size: end - start + 1, totalSize, start, end, filename }
+      return { type: 'partial', body: file.slice(start, end + 1), size: end - start + 1, totalSize, start, end, filename }
     })
   }
 }

@@ -21,10 +21,10 @@
     "apiKey": { "env": "JACK_API_KEY" }
   },
 
-  // Blackhole watcher: drops .torrent files for your client to pick up,
-  // and moves finished downloads. Paths are *inside the container*.
+  // Downloads: jack registers itself in your *arr as a qBittorrent download
+  // client, so grabs are handed to jack directly (no watch folder). Finished
+  // files are written here for your *arr to import. Path is *inside the container*.
   "downloads": {
-    "watchPath": "/data/torrents/watch",
     "completedPath": "/data/torrents/completed",
     // Optional download hardening knobs — values below are the defaults, so you
     // can delete any line to keep the default. (Note the comma after
@@ -39,10 +39,13 @@
   // chars (Settings -> General). Each server can be a:
   //   - "source":      its library is shared with your peers (read via /peer).
   //   - "destination": jack registers itself there as a Torznab indexer +
-  //                    Torrent Blackhole download client, and triggers imports.
+  //                    qBittorrent download client, and triggers imports.
   //   - both:          share your library AND search your friends', symmetric.
   // "autoregister" controls the indexer/client registration (destinations only):
   //   { "enable": true, "priority": 1 }
+  // The qBittorrent client is always registered at *arr's lowest priority so real
+  // torrents from your other indexers never get routed to jack (Jack grabs still
+  // reach it via the indexer binding, which *arr resolves before priority).
   "servers": [
     // {
     //   "name": "Main Radarr",

@@ -25,6 +25,8 @@ export interface DownloadRecord {
   updatedAt: string
   completedAt: string | null
   error: string | null
+  qbCategory: string | null
+  qbSourceServer: string | null
 }
 
 export interface CreateDownloadInput {
@@ -37,6 +39,8 @@ export interface CreateDownloadInput {
   partPath: string
   releaseSize: number
   release: Release
+  qbCategory?: string | null
+  qbSourceServer?: string | null
 }
 
 function nowIso() {
@@ -65,6 +69,8 @@ function toRecord(row: DownloadRow): DownloadRecord {
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
     error: row.error,
+    qbCategory: row.qbCategory ?? null,
+    qbSourceServer: row.qbSourceServer ?? null,
   }
 }
 
@@ -83,6 +89,8 @@ export class DownloadsRepository {
       partPath: input.partPath,
       releaseSize: input.releaseSize,
       releaseJson: JSON.stringify(input.release),
+      qbCategory: input.qbCategory ?? null,
+      qbSourceServer: input.qbSourceServer ?? null,
       downloadedBytes: 0,
       status: 'downloading',
       startedAt: timestamp,
@@ -154,6 +162,17 @@ export class DownloadsRepository {
       .set({ downloadedBytes: 0, error: 'resume validation failed; restarted from byte 0', updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+  }
+
+  setQbCategory(id: number, qbCategory: string): void {
+    this.db.update(downloads)
+      .set({ qbCategory, updatedAt: nowIso() })
+      .where(eq(downloads.id, id))
+      .run()
+  }
+
+  delete(id: number): void {
+    this.db.delete(downloads).where(eq(downloads.id, id)).run()
   }
 
   /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */

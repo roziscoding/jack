@@ -37,3 +37,6 @@ config.jsonc
 
 # AI working docs (research, scratch design notes)
 ai_docs
+
+# Harness / generated files committed by mistake
+.claude/

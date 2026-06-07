@@ -18,20 +18,33 @@ function getPieceCount(size: number): number {
   return Math.ceil(size / PIECE_LENGTH)
 }
 
-export function createTorrentStub(options: TorrentStubOptions): Buffer {
-  const pieces = Buffer.alloc(getPieceCount(options.size) * SHA1_HASH_LENGTH)
+// Shared so the served stub and the reported hash bencode the SAME info dict.
+function buildStubInfo(name: string, size: number) {
+  return {
+    'name': Buffer.from(name),
+    'piece length': PIECE_LENGTH,
+    'length': size,
+    'pieces': Buffer.alloc(getPieceCount(size) * SHA1_HASH_LENGTH),
+  }
+}
 
+export function createTorrentStub(options: TorrentStubOptions): Buffer {
   const torrent = {
-    info: {
-      'name': Buffer.from(options.name),
-      'piece length': PIECE_LENGTH,
-      'length': options.size,
-      'pieces': pieces, // Dummy hashes. Radarr validates count/shape before writing to blackhole.
-    },
+    info: buildStubInfo(options.name, options.size),
     comment: Buffer.from(`jack:${options.peerId}:${options.itemId}`),
   }
-
   return Buffer.from(bencode.encode(torrent))
+}
+
+/**
+ * The stub's BitTorrent v1 infohash (lowercase 40-hex) = sha1(bencode(info)).
+ * arr computes this same hash from the .torrent it grabbed and matches
+ * torrents/info by it, so jack MUST report exactly this. bencode is
+ * deterministic (sorted keys), so re-encoding the same info dict reproduces the
+ * bytes *arr hashed.
+ */
+export function getStubInfoHash(name: string, size: number): string {
+  return new Bun.CryptoHasher('sha1').update(bencode.encode(buildStubInfo(name, size))).digest('hex')
 }
 
 export function parseTorrentStub(data: Buffer): { peerId: string, itemId: string } | null {

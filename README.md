@@ -35,7 +35,7 @@ flags (it can be either, or both):
 | Role | What it does | You need it to… |
 | --- | --- | --- |
 | **`source`** | jack reads your Radarr/Sonarr library and serves it to peers: it searches your movies/episodes that have files and streams those files. | **Share** your library with friends. |
-| **`destination`** | jack registers itself in that Radarr/Sonarr as a Torznab indexer + Torrent Blackhole client and triggers imports of finished downloads. | **Consume** — drive everything from your existing *arr UI. |
+| **`destination`** | jack registers itself in that Radarr/Sonarr as a Torznab indexer + qBittorrent download client and triggers imports of finished downloads. | **Consume** — drive everything from your existing *arr UI. |
 | **Peer** | Another **jack** instance — a friend. You list their URL + API key under `peers`; jack queries them when your *arr searches. | **Consume** media your friends have. |
 
 So a typical "both" setup has your Radarr/Sonarr as `source: true` **and**
@@ -69,7 +69,7 @@ docker compose logs -f
 ```
 
 You should see `Server listening` and, if you configured destinations,
-`Registered Jack as Torznab indexer` and `Registered Jack as Torrent Blackhole
+`Registered Jack as Torznab indexer` and `Registered Jack as qBittorrent
 download client` lines.
 
 The compose file mounts three host paths — adjust them for your setup:
@@ -78,21 +78,22 @@ The compose file mounts three host paths — adjust them for your setup:
 | --- | --- | --- |
 | `./config` → `/config` | App config | `APP_CONFIG_PATH` |
 | `${MEDIA_PATH:-./data/media}` → `/data/media` | Your media, so jack can stream it to peers | must match the paths Radarr/Sonarr report |
-| `${TORRENTS_PATH:-./data/torrents}` → `/data/torrents` | Blackhole watch/completed dirs | `downloads.watchPath`, `downloads.completedPath` |
+| `${TORRENTS_PATH:-./data/torrents}` → `/data/torrents` | Completed downloads dir | `downloads.completedPath` |
 
-> **Networking:** if Radarr/Sonarr run in their own Docker network,
-> uncomment the `networks:` block in the compose file so jack can reach them by
-> container name (and set `jack.baseUrl` to something they can resolve, e.g.
-> `http://jack:5225`). Otherwise use the host IP.
+> **Networking:** Radarr/Sonarr reach jack's qBittorrent API at `jack.baseUrl`,
+> so it must be resolvable from *their* side. If they run in their own Docker
+> network, uncomment the `networks:` block in the compose file so jack joins it,
+> and set `jack.baseUrl` to something they can resolve (e.g. `http://jack:5225`).
+> Otherwise use the host IP.
 
-> ⚠️ **Mount the blackhole folder into Radarr/Sonarr too.** jack registers the
-> Torrent Blackhole download client using the **literal** `downloads.watchPath`
-> and `downloads.completedPath`, and your Radarr/Sonarr resolve those paths in
-> *their own* filesystem. So the same blackhole watch/completed folder must be
-> mounted into your **Radarr and Sonarr** containers at the **exact same paths**
-> jack uses (e.g. `/data/torrents/watch` and `/data/torrents/completed`).
-> If they don't line up, *arr can't drop the stub `.torrent` or import the
-> finished file, and every grab fails.
+> ⚠️ **Mount the completed folder into Radarr/Sonarr too.** jack writes finished
+> downloads to the **literal** `downloads.completedPath`, and your Radarr/Sonarr
+> import them by resolving that path in *their own* filesystem. So the same
+> completed folder must be mounted into your **Radarr and Sonarr** containers at
+> the **exact same path** jack uses (e.g. `/data/torrents/completed`). If they
+> don't line up, *arr can't import the finished file, and every grab fails.
+> (There's no watch folder anymore —*arr hands grabs to jack over the
+> qBittorrent API, not through a dropped `.torrent`.)
 
 > ⚠️ **Mount your media at the same path Radarr/Sonarr report.** jack streams
 > files straight from disk using the absolute path each *arr stores for the file
@@ -106,9 +107,9 @@ The compose file mounts three host paths — adjust them for your setup:
 ## How it works
 
 There are two flows: **searching** for media (Torznab) and **downloading** it
-(the blackhole). The `.torrent` files involved are *not real torrents* — they're
-tiny stubs jack uses to ride on the *arr "torrent blackhole" workflow. Nothing
-ever touches BitTorrent.
+(the qBittorrent API). The `.torrent` files involved are *not real torrents* —
+they're tiny stubs jack hands to *arr, which sends them back to jack through the
+qBittorrent download-client API. Nothing ever touches BitTorrent.
 
 ### 1. Search flow (Torznab)
 
@@ -129,9 +130,9 @@ sequenceDiagram
 
 1. On startup jack **registers itself as a Torznab indexer** in each `destination`
    server (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`, and
-   **registers a Torrent Blackhole download client** pointed at your
-   `downloads` paths (only if `downloads` is configured). (Auto, unless you set
-   that server's `autoregister.enable: false`.)
+   **registers a qBittorrent download client** pointing back at jack's own
+   qBittorrent API (`jack.baseUrl`, only if `downloads` is configured). (Auto,
+   unless you set that server's `autoregister.enable: false`.)
 2. When you search or monitor something, Radarr/Sonarr query jack's `/torznab`
    endpoint with that API key.
 3. jack **fans the query out to every `peer`** you've configured, calling their
@@ -143,7 +144,7 @@ sequenceDiagram
 6. Radarr/Sonarr show these as grabbable releases — indistinguishable from a
    normal indexer's results.
 
-### 2. Download flow (blackhole)
+### 2. Download flow (qBittorrent API)
 
 ```mermaid
 sequenceDiagram
@@ -152,27 +153,27 @@ sequenceDiagram
     participant FJACK as jack (friend)
 
     ARR->>JACK: grab release → fetch stub .torrent
-    Note over ARR,JACK: *arr drops the stub into downloads.watchPath
-    Note over JACK: watcher detects file, parses stub (peerId + itemId)
+    ARR->>JACK: POST /api/v2/torrents/add (stub)
+    Note over JACK: parse stub (peerId + itemId), queue download
     JACK->>FJACK: GET /peer/items/:id/file
     FJACK-->>JACK: streams real file from disk<br/>→ downloads.completedPath
-    Note over JACK: delete stub
-    JACK->>ARR: import command (scan completed folder)
-    Note over ARR: file lands in your library
+    ARR->>JACK: GET /api/v2/torrents/info (poll progress)
+    JACK-->>ARR: completed → content_path = finished file
+    Note over ARR: scans completed folder, imports into library
 ```
 
-1. You grab a release. Your *arr's download client is a **Torrent Blackhole**
-   client pointed at jack's `downloads.watchPath` (jack registers this client
-   for you on startup), so*arr fetches the `.torrent` from jack and drops it
-   there.
+1. You grab a release. Your *arr's download client is a **qBittorrent** client
+   pointed at jack's own qBittorrent API (jack registers this client for you on
+   startup), so*arr fetches the stub `.torrent` from jack and immediately POSTs
+   it back to jack at `/api/v2/torrents/add`.
 2. That `.torrent` is a **stub** — bencoded data that just encodes the
-   `peerId` and `itemId`. No trackers, no pieces.
-3. jack's **blackhole watcher** notices the new file, parses the stub, and finds
-   the matching peer.
+   `peerId` and `itemId`. No trackers, no pieces; it's never written to disk.
+3. jack parses the stub, finds the matching peer, and queues the download.
 4. jack **downloads the real file over HTTP** from that peer's
    `/peer/items/:id/file` endpoint into `downloads.completedPath`.
-5. jack deletes the stub and tells your Radarr/Sonarr to **scan the completed
-   folder and import**, so the file lands in your library, renamed and tracked.
+5. *arr polls jack's qBittorrent API (`/api/v2/torrents/info`) for progress;
+   once jack reports the torrent complete,*arr scans the completed folder and
+   imports the file into your library, renamed and tracked.
 
 ### 3. Serving (being a peer to others)
 
@@ -257,10 +258,10 @@ you're doing.
     "apiKey": "a-long-random-string" // openssl rand -hex 32 — see "The API key"
   },
 
-  // Blackhole watcher. Needed to *consume* (download) from peers.
-  // Paths are inside the container; jack creates them if missing.
+  // Downloads. Needed to *consume* (download) from peers — jack registers
+  // itself as a qBittorrent download client and writes finished files here.
+  // Path is inside the container; jack creates it if missing.
   "downloads": {
-    "watchPath": "/data/torrents/watch", // *arr drops stub .torrents here
     "completedPath": "/data/torrents/completed" // jack writes finished files here
   },
 
@@ -319,10 +320,18 @@ Field notes:
   Authelia, or a custom gateway. These are outbound connector headers only; jack
   still adds the required *arr `X-Api-Key` or peer `X-Api-Key` auth header
   separately.
-- **`downloads.watchPath` / `downloads.completedPath`** must also be mounted into
-  your **Radarr and Sonarr** containers at the **same paths** — jack registers
-  the Torrent Blackhole client with these literal paths and *arr resolves them in
-  its own filesystem (see the callout in [Quick start](#quick-start-docker-compose)).
+- **`downloads.completedPath`** must also be mounted into your **Radarr and
+  Sonarr** containers at the **same path** — jack writes finished files there and
+  *arr resolves that path in its own filesystem to import them (see the callout in
+  [Quick start](#quick-start-docker-compose)). The other `downloads.*` keys are
+  optional tuning knobs (concurrency and retry backoff).
+- **Download client isolation.** jack registers its qBittorrent client at *arr's
+  **lowest** priority (50).*arr's general client pool only round-robins among the
+  best-priority group, so real torrents grabbed from your other indexers never get
+  routed to jack's client (they'd be rejected anyway). Grabs from the Jack indexer
+  still reach it because the indexer is bound to the client explicitly
+  (`downloadClientId`), which *arr resolves before applying priority. No tags or
+  extra config needed.
 
 ### Secrets from environment variables or files
 
@@ -441,28 +450,32 @@ mise run dev     # bun --cwd apps/backend --hot src/index.ts
 Registration runs on every startup and logs the *arr response body, so check
 `docker compose logs jack` first. The common failures:
 
-### `Failed to register download client` — "Folder does not exist" (`TorrentFolder` / `WatchFolder`)
+### qBittorrent download client test fails / `Failed to register download client`
 
-```jsonc
-{
-  "propertyName": "TorrentFolder", "errorMessage": "Folder does not exist"
-  // …
-}
-```
+The qBittorrent client *arr registers (or the "Test" button in
+Settings → Download Clients) connects to jack's qBittorrent API at the host/port
+jack derives from `jack.baseUrl`. A failing test almost always means*arr can't
+reach that address.
 
-jack registers the Torrent Blackhole client using the **literal**
-`downloads.watchPath` / `downloads.completedPath`, and Radarr/Sonarr resolve
-those paths in **their own** filesystem. This error means those paths don't
-exist *inside the Radarr/Sonarr containers* — almost always because the
-blackhole folders are only mounted into jack, not into *arr.
+**Fix:** make sure `jack.baseUrl` is resolvable **from the Radarr/Sonarr side**.
+On a shared Docker network use the container name (`http://jack:5225`); otherwise
+the host IP/domain. If *arr and jack are on different networks, attach jack to
+*arr's network (the `networks:` block in the example compose).
 
-**Fix:** mount the **same host folders** into Radarr **and** Sonarr at the
-**same container paths** jack uses. If jack has:
+### Grabs download but never import
+
+The download completes in jack (you see it finish in the logs) but Radarr/Sonarr
+never pick the file up. jack writes finished files to the **literal**
+`downloads.completedPath`, and *arr imports them by resolving that path in **its
+own** filesystem — so the completed folder must exist at the **same path** inside
+the Radarr/Sonarr containers.
+
+**Fix:** mount the **same host folder** into Radarr **and** Sonarr at the **same
+container path** jack uses. If jack has:
 
 ```yaml
 # jack
 volumes:
-  - /srv/media/jack-watch:/data/torrents/watch
   - /srv/media/jack-completed:/data/torrents/completed
 ```
 
@@ -471,41 +484,36 @@ then Radarr and Sonarr each need:
 ```yaml
 # radarr AND sonarr
 volumes:
-  - /srv/media/jack-watch:/data/torrents/watch
   - /srv/media/jack-completed:/data/torrents/completed
 ```
 
 Two gotchas:
 
 - **Use a dedicated completed folder.** Don't point `completedPath` at a folder
-  another download client (e.g. qBittorrent's `/downloads`) already writes to,
-  or *arr's blackhole client will try to import unrelated files.
-- **Watch permissions.** jack runs as **uid/gid 1000**, matching the `PUID/PGID`
-  the linuxserver.io *arr images default to, so files jack writes are owned by
-  the same user that imports them. Make sure the watch/completed folders (and the
-  `/config` mount) are readable/writable by uid 1000 — `chown -R 1000:1000` them
-  if your*arr uses a different `PUID`, set it to match.
+  another download client (e.g. a real qBittorrent's `/downloads`) already writes
+  to, or *arr will try to import unrelated files.
+- **Permissions.** jack runs as **uid/gid 1000**, matching the `PUID/PGID` the
+  linuxserver.io *arr images default to, so files jack writes are owned by the
+  same user that imports them. Make sure the completed folder (and the `/config`
+  mount) are readable/writable by uid 1000 — `chown -R 1000:1000` them; if your
+*arr uses a different `PUID`, set it to match.
 
-### No indexer or download client registered
+### `No "downloads" config set` — no download client registered
 
 ```
-No peers configured; skipping indexer and download client registration (nothing to search or grab yet).
+No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.
 ```
 
-jack only registers itself in Radarr/Sonarr when you have at least one `peer` —
-without peers there's nothing to search and nothing to grab, and Radarr/Sonarr
-reject an indexer whose test query returns no results anyway. So with **no
-`peers` configured** jack deliberately skips registration (look for `"peers":0`
-in the `Server listening` log line).
+jack only registers the qBittorrent download client when a `downloads` block is
+present in your config (it needs `completedPath` to know where to write files).
+Without it, the Torznab indexer is still registered so searches work, but grabs
+have nowhere to go.
 
-**Fix:** configure at least one entry under `peers`. The indexer and
-download client are registered on the next startup once there's a peer behind
-them.
+**Fix:** add a `downloads` block with `completedPath` and restart jack.
 
-If you *do* have peers but registration still fails with
-`Failed to register indexer` / *"no results in the configured categories"*, it
-means the test query returned nothing — check that the peer is reachable and its
-library actually contains matching items.
+If registration fails with `Failed to register indexer`, check that the
+destination server is reachable and its API key is correct — registration logs
+the raw *arr response body at `error` level.
 
 ### `ConnectionRefused` on startup
 
@@ -520,9 +528,9 @@ retried lazily the next time a search/download needs them, so they can recover
 without a restart once the remote service is up.
 
 Auto-registration still runs only during startup, so a destination that was down
-at boot may need a jack restart before the Torznab indexer or Torrent Blackhole
-client is created in Radarr/Sonarr. To make startup deterministic, wait for the
-dependencies to be healthy:
+at boot may need a jack restart before the Torznab indexer or qBittorrent
+download client is created in Radarr/Sonarr. To make startup deterministic, wait
+for the dependencies to be healthy:
 
 ```yaml
 # jack
@@ -558,7 +566,7 @@ mise run clients   # regenerate packages/schemas/src/generated
 ## Project layout
 
 ```
-apps/backend       # the Hono server (Torznab, peer API, blackhole watcher)
+apps/backend       # the Hono server (Torznab, peer API, qBittorrent API)
 packages/schemas   # generated Radarr/Sonarr API types
 examples/          # docker-compose.yml + config.jsonc template
 Dockerfile         # multi-stage production image

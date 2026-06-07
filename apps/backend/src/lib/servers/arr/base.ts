@@ -7,6 +7,7 @@ import { requiresDestination, requiresSource } from '../../decorators/requires-c
 import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
+const TRAILING_SLASH_REGEX = /\/$/
 
 export const DestinationServerHealthIssue = z.array(
   z.object({
@@ -31,6 +32,13 @@ export const DestinationServerHealthIssue = z.array(
 // *arr returns the saved download client on create; we only need its id to bind
 // the auto-registered indexer to it.
 const DownloadClientResource = z.object({ id: z.number().int() })
+
+// Register the Jack client at *arr's lowest selectable priority (the UI caps it
+// at 50). *arr's general client pool only round-robins among the best-priority
+// group, so a worst-priority Jack client is never picked for real torrents from
+// other indexers — while grabs from the Jack indexer still reach it, because the
+// indexer→client binding is resolved before *arr applies the priority grouping.
+const JACK_DOWNLOAD_CLIENT_PRIORITY = 50
 
 export type ReleaseKind = 'movie' | 'episode'
 
@@ -71,7 +79,8 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   // Category id reported to *arr (2000 movies / 5000 tv).
   abstract get categories(): number[]
-  protected abstract get importCommandName(): string
+  // qBittorrent settings use a per-app category field name.
+  protected abstract get qbCategoryFieldName(): string
 
   protected override async runInit(): Promise<void> {
     const apiInfo = await this.ping(z.object({ appName: z.string(), version: z.string() }))
@@ -163,16 +172,6 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresDestination
   @requireInitialization
-  async triggerImport(downloadPath: string) {
-    await this.fetch('/api/v3/command', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: this.importCommandName, path: downloadPath }),
-    } as any)
-  }
-
-  @requiresDestination
-  @requireInitialization
   async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[], downloadClientId?: number }) {
     const existingIndexers = await this.arrGet<any[]>('/api/v3/indexer')
     const existing: any = Array.isArray(existingIndexers)
@@ -201,15 +200,16 @@ export abstract class ArrServerConnector extends ServerConnector {
       ],
     }
 
-    // forceSave: false keeps *arr's validation test on save. We deliberately do
-    // NOT want to register when it fails — better to fail loudly (the caller logs
-    // the *arr error) than to silently register a broken indexer.
+    // forceSave: true registers the indexer even when *arr's test query returns
+    // no results (e.g. no peers / empty catalog yet). We always want the Jack
+    // indexer present and bound to the Jack client; it starts returning results
+    // as soon as peers come online.
     if (existing) {
       await this.fetch(`/api/v3/indexer/${existing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, id: existing.id }),
-        query: { forceSave: 'false' },
+        query: { forceSave: 'true' },
       } as any)
     }
     else {
@@ -217,48 +217,61 @@ export abstract class ArrServerConnector extends ServerConnector {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        query: { forceSave: 'false' },
+        query: { forceSave: 'true' },
       } as any)
     }
   }
 
   @requiresDestination
   @requireInitialization
-  async registerDownloadClient(clientConfig: { name: string, watchPath: string, completedPath: string, priority: number }): Promise<number> {
+  async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string }): Promise<number> {
+    const url = new URL(clientConfig.baseUrl)
+    const host = url.hostname
+    const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80)
+    const useSsl = url.protocol === 'https:'
+    // urlBase is the path prefix BEFORE /api/v2 (qB's proxy appends /api/v2).
+    const urlBase = url.pathname.replace(TRAILING_SLASH_REGEX, '')
+
+    // Match by NAME regardless of implementation so an existing TorrentBlackhole
+    // "Jack" client from a previous version is upgraded in place (PUT switches it
+    // to QBittorrent/QBittorrentSettings) instead of leaving a duplicate.
     const existingClients = await this.arrGet<any[]>('/api/v3/downloadclient')
     const existing: any = Array.isArray(existingClients)
-      ? existingClients.find((client: any) =>
-          client.fields?.some((f: any) => f.name === 'torrentFolder' && f.value === clientConfig.watchPath))
+      ? existingClients.find((client: any) => client.name === clientConfig.name)
       : null
 
     const body = {
       name: clientConfig.name,
       enable: true,
       protocol: 'torrent',
-      priority: clientConfig.priority,
-      implementation: 'TorrentBlackhole',
-      implementationName: 'Torrent Blackhole',
-      configContract: 'TorrentBlackholeSettings',
+      priority: JACK_DOWNLOAD_CLIENT_PRIORITY,
+      implementation: 'QBittorrent',
+      implementationName: 'qBittorrent',
+      configContract: 'QBittorrentSettings',
+      // Explicitly clear tags: an earlier version tagged this client, which broke
+      // grabs (*arr filters the indexer-bound client by movie tags too).
+      tags: [],
       fields: [
-        // *arr writes the stub .torrent here; jack's watcher picks it up.
-        { name: 'torrentFolder', value: clientConfig.watchPath },
-        // jack writes the finished file here; *arr scans it to import.
-        { name: 'watchFolder', value: clientConfig.completedPath },
-        { name: 'saveMagnetFiles', value: false },
-        { name: 'readOnly', value: false },
+        { name: 'host', value: host },
+        { name: 'port', value: port },
+        { name: 'useSsl', value: useSsl },
+        { name: 'urlBase', value: urlBase },
+        { name: 'username', value: clientConfig.username },
+        { name: 'password', value: clientConfig.password },
+        { name: this.qbCategoryFieldName, value: clientConfig.category },
       ],
     }
 
-    // forceSave: false keeps *arr's folder-accessibility test on save. We
-    // deliberately do NOT want to register when it fails — better to fail loudly
-    // (the caller logs the *arr error) than to silently register a download
-    // client whose watch/completed folders *arr can't actually reach.
+    // forceSave: true registers the client even if *arr's connection test can't
+    // reach jack at registration time. This guarantees the client is saved and
+    // its id returned, so the indexer can always be bound to it (an unbound
+    // indexer is the failure mode when the test throws here).
     if (existing) {
       await this.fetch(`/api/v3/downloadclient/${existing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, id: existing.id }),
-        query: { forceSave: 'false' },
+        query: { forceSave: 'true' },
       } as any)
       return existing.id as number
     }
@@ -267,7 +280,7 @@ export abstract class ArrServerConnector extends ServerConnector {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      query: { forceSave: 'false' },
+      query: { forceSave: 'true' },
       schema: DownloadClientResource,
     } as any)
     return created.id

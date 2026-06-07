@@ -125,6 +125,29 @@ describe('DownloadsRepository', () => {
     handle.close()
   })
 
+  test('persists release_size as an expected-bytes source (CHECK accepts it)', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const created = repository.create({
+      torrentFilename: 'movie.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath: join(tempDir, release.filename),
+      partPath: join(tempDir, `${release.filename}.part`),
+      releaseSize: release.size,
+      release,
+    })
+
+    repository.setExpectedBytes(created.id, 123, 'release_size', false)
+
+    const row = repository.get(created.id)!
+    expect(row.expectedBytes).toBe(123)
+    expect(row.expectedBytesSource).toBe('release_size')
+    handle.close()
+  })
+
   test('reconciles stale downloading rows using .part file size', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
@@ -177,6 +200,46 @@ describe('DownloadsRepository', () => {
     expect(row.downloadedBytes).toBe(0)
     expect(row.status).toBe('downloading')
     expect(row.error).toContain('resume validation failed')
+    handle.close()
+  })
+
+  test('persists qbCategory and qbSourceServer round-trip; defaults to null', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+
+    const withQb = repository.create({
+      torrentFilename: 'movie.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath: join(tempDir, release.filename),
+      partPath: join(tempDir, `${release.filename}.part`),
+      releaseSize: release.size,
+      release,
+      qbCategory: 'jack-abc12345',
+      qbSourceServer: 'My Radarr',
+    })
+
+    expect(withQb.qbCategory).toBe('jack-abc12345')
+    expect(withQb.qbSourceServer).toBe('My Radarr')
+    expect(repository.get(withQb.id)?.qbCategory).toBe('jack-abc12345')
+    expect(repository.get(withQb.id)?.qbSourceServer).toBe('My Radarr')
+
+    const withoutQb = repository.create({
+      torrentFilename: 'second.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'movie:2',
+      filename: 'Second.mkv',
+      destPath: join(tempDir, 'Second.mkv'),
+      partPath: join(tempDir, 'Second.mkv.part'),
+      releaseSize: 200,
+      release: { ...release, id: 'remote:movie:2', filename: 'Second.mkv', size: 200 },
+    })
+
+    expect(withoutQb.qbCategory).toBeNull()
+    expect(withoutQb.qbSourceServer).toBeNull()
     handle.close()
   })
 

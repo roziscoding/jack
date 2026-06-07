@@ -15,6 +15,27 @@
       "when": 1780707145431,
       "tag": "0001_tearful_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780763364775,
+      "tag": "0002_romantic_stryfe",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1780791754764,
+      "tag": "0003_high_makkari",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1780819908039,
+      "tag": "0004_sleepy_retro_girl",
+      "breakpoints": true
     }
   ]
 }

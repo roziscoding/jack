@@ -1,143 +1,160 @@
 import type { AppConfig } from '../../lib/config'
-import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector, PeerDownloadProgressEvent } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
-import { Buffer } from 'node:buffer'
-import { unlink } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { retry } from '../../lib/retry'
 import { Semaphore } from '../../lib/semaphore'
-import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
-import { parseTorrentStub } from '../torznab/torrent'
 import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
 type DownloadsServiceConfig = NonNullable<AppConfig['downloads']>
+
+// Characters disallowed in the synthetic qB torrent filename (keep word chars, dot, dash).
+const UNSAFE_FILENAME_CHARS = /[^\w.-]/g
+
+/**
+ * Outcome of a qB add:
+ * - 'started' — a new download row was created and is running.
+ * - 'duplicate' — a download for the same destination is already in flight; the
+ *   add is a no-op but still a success (the release is being fetched).
+ * - 'failed' — no row could be created (unknown peer or an unsafe peer filename).
+ */
+export type StartQbDownloadResult = 'started' | 'duplicate' | 'failed'
+
+// createDownload's internal outcome: a record to run, a benign duplicate, or no peer.
+type CreateDownloadOutcome
+  = | { kind: 'created', record: DownloadRecord }
+    | { kind: 'duplicate' }
+    | { kind: 'no-peer' }
 
 export class DownloadsService {
   private readonly semaphore: Semaphore
   // Dest paths with a download in flight — guards two concurrent live drops that
   // resolve to the same destination (no duplicate rows / writers).
   private readonly active = new Set<string>()
-  // Torrent filenames owned by the startup re-enqueue. Their leftover stubs are
-  // skipped by the watcher's initial scan for the rest of the run, so a re-drive
-  // that fails fast cannot be re-processed into a duplicate row.
-  private readonly reenqueued = new Set<string>()
 
   constructor(
     private readonly config: DownloadsServiceConfig,
     private readonly peers: PeerConnector[],
-    private readonly destinations: ArrServerConnector[],
     private readonly downloadsRepository?: DownloadsRepository,
   ) {
     this.semaphore = new Semaphore(config.maxConcurrentDownloads)
   }
 
-  async processTorrentFile(filePath: string, filename: string) {
+  /**
+   * Shared creation core for the qB add path. Returns the created record, a
+   * benign duplicate (a download for the same destination is already active),
+   * or no-peer when the peer is unknown. Throws on an unsafe filename.
+   */
+  private async createDownload(input: {
+    peerId: string
+    itemId: string
+    torrentFilename: string
+    qbCategory?: string | null
+    qbSourceServer?: string | null
+  }): Promise<CreateDownloadOutcome> {
+    const { peerId, itemId, torrentFilename } = input
+    const peer = this.peers.find(p => p.id === peerId)
+    if (!peer) {
+      logger.error({ torrentFilename, peerId }, 'Peer not found')
+      return { kind: 'no-peer' }
+    }
+
+    const release = await peer.getRelease(itemId)
+
+    // `release.filename` is peer-controlled and only validated as a string.
+    // Force it to a plain basename inside `completedPath` so a value like
+    // `../../evil.mkv` or an absolute path cannot escape the directory.
+    const safeName = basename(release.filename)
+    const isSafeName = safeName.length > 0 && safeName !== '.' && safeName !== '..'
+      && !safeName.includes('/') && !safeName.includes('\\')
+      && release.filename === safeName
+    if (!isSafeName)
+      throw new Error(`Unsafe release filename from peer: ${release.filename}`)
+
+    const destPath = join(this.config.completedPath, safeName)
+    const partPath = `${destPath}.part`
+
+    if (this.active.has(destPath)) {
+      logger.debug({ torrentFilename, destPath }, 'A download for this destination is already active; skipping duplicate')
+      return { kind: 'duplicate' }
+    }
+
+    const created = this.downloadsRepository?.create({
+      torrentFilename,
+      peerId,
+      peerName: peer.name ?? peer.url,
+      itemId,
+      filename: safeName,
+      destPath,
+      partPath,
+      releaseSize: release.size,
+      release,
+      qbCategory: input.qbCategory ?? null,
+      qbSourceServer: input.qbSourceServer ?? null,
+    })
+
+    return {
+      kind: 'created',
+      record: created ?? {
+        id: -1,
+        torrentFilename,
+        peerId,
+        peerName: peer.name ?? peer.url,
+        itemId,
+        filename: safeName,
+        destPath,
+        partPath,
+        releaseSize: release.size,
+        release,
+        expectedBytes: null,
+        expectedBytesSource: null,
+        expectedBytesMismatch: false,
+        downloadedBytes: 0,
+        attempts: 0,
+        status: 'downloading',
+        startedAt: '',
+        updatedAt: '',
+        completedAt: null,
+        error: null,
+        qbCategory: input.qbCategory ?? null,
+        qbSourceServer: input.qbSourceServer ?? null,
+      },
+    }
+  }
+
+  /**
+   * qB `/api/v2/torrents/add` entrypoint: create the row and drive the download
+   * in the background (the HTTP handler returns immediately).
+   */
+  async startQbDownload(input: {
+    peerId: string
+    itemId: string
+    qbCategory: string
+    qbSourceServer: string
+  }): Promise<StartQbDownloadResult> {
+    // qB-added downloads have no on-disk stub, but createDownload + the row still
+    // need a stable filename.
+    const torrentFilename = `qb-${input.peerId}-${input.itemId}.torrent`.replace(UNSAFE_FILENAME_CHARS, '_')
+    let outcome: CreateDownloadOutcome
     try {
-      await withSpan('blackhole.process_torrent', { 'torrent.filename': filename }, async (span) => {
-        // The startup re-enqueue owns this stub — it is being (or will be)
-        // re-driven from the persisted row. Skip it so we never create a
-        // duplicate row, even if that re-drive already failed and cleared `active`.
-        if (this.reenqueued.has(filename)) {
-          span.setAttribute('torrent.reenqueued', true)
-          logger.debug({ torrentFilename: filename }, 'Stub owned by startup re-enqueue; skipping watcher processing')
-          return
-        }
-
-        const file = Bun.file(filePath)
-        if (!await file.exists()) {
-          span.setAttribute('torrent.exists', false)
-          return
-        }
-
-        span.setAttribute('torrent.exists', true)
-        const data = Buffer.from(await file.arrayBuffer())
-        const stub = parseTorrentStub(data)
-
-        if (!stub) {
-          span.setAttribute('torrent.stub.valid', false)
-          logger.warn({ torrentFilename: filename, filename }, 'Could not parse torrent stub, skipping')
-          return
-        }
-
-        span.setAttribute('torrent.stub.valid', true)
-        const { peerId, itemId } = stub
-        span.setAttributes({ 'peer.id': peerId, 'item.id': itemId })
-
-        const peer = this.peers.find(p => p.id === peerId)
-        if (!peer) {
-          span.setAttribute('peer.found', false)
-          logger.error({ torrentFilename: filename, peerId, filename }, 'Peer not found')
-          return
-        }
-
-        span.setAttributes({ 'peer.found': true, 'peer.name': peer.name ?? peer.url })
-
-        const release = await peer.getRelease(itemId)
-
-        // `release.filename` is peer-controlled and only validated as a string.
-        // Force it to a plain basename inside `completedPath` so a value like
-        // `../../evil.mkv` or an absolute path cannot escape the directory.
-        const safeName = basename(release.filename)
-        const isSafeName = safeName.length > 0 && safeName !== '.' && safeName !== '..'
-          && !safeName.includes('/') && !safeName.includes('\\')
-          && release.filename === safeName
-
-        if (!isSafeName)
-          throw new Error(`Unsafe release filename from peer: ${release.filename}`)
-
-        const destPath = join(this.config.completedPath, safeName)
-        const partPath = `${destPath}.part`
-        span.setAttributes({ 'release.filename': safeName, 'release.size': release.size })
-
-        if (this.active.has(destPath)) {
-          logger.debug({ torrentFilename: filename, destPath }, 'A download for this destination is already active; skipping duplicate')
-          return
-        }
-
-        const created = this.downloadsRepository?.create({
-          torrentFilename: filename,
-          peerId,
-          peerName: peer.name ?? peer.url,
-          itemId,
-          filename: safeName,
-          destPath,
-          partPath,
-          releaseSize: release.size,
-          release,
-        })
-
-        const record: DownloadRecord = created ?? {
-          id: -1,
-          torrentFilename: filename,
-          peerId,
-          peerName: peer.name ?? peer.url,
-          itemId,
-          filename: safeName,
-          destPath,
-          partPath,
-          releaseSize: release.size,
-          release,
-          expectedBytes: null,
-          expectedBytesSource: null,
-          expectedBytesMismatch: false,
-          downloadedBytes: 0,
-          attempts: 0,
-          status: 'downloading',
-          startedAt: '',
-          updatedAt: '',
-          completedAt: null,
-          error: null,
-        }
-
-        await this.runDownload(record)
-      })
+      outcome = await this.createDownload({ ...input, torrentFilename })
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      logger.error({ torrentFilename: filename, filename, error: message }, 'Failed to process torrent')
+      logger.error({ peerId: input.peerId, itemId: input.itemId, error: message }, 'Failed to create qB download')
+      return 'failed'
     }
+    if (outcome.kind === 'no-peer')
+      return 'failed'
+    // A duplicate is already in flight: no new row, but a success — don't make *arr retry.
+    if (outcome.kind === 'duplicate')
+      return 'duplicate'
+    void this.runDownload(outcome.record).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
+    })
+    return 'started'
   }
 
   /** Re-drive stale `downloading` rows from a prior run, resuming from their .part files. */
@@ -159,13 +176,8 @@ export class DownloadsService {
       seen.add(record.destPath)
       resumable.push(record)
     }
-    // Claim every resumable stub up-front (synchronously, before the watcher
-    // starts) so the initial scan skips them regardless of re-drive timing/outcome.
-    for (const record of resumable)
-      this.reenqueued.add(record.torrentFilename)
     for (const record of resumable) {
-      // Fire-and-forget: the semaphore caps concurrency, and the stub is already
-      // claimed in `reenqueued` so the watcher won't duplicate it.
+      // Fire-and-forget: the semaphore caps concurrency.
       void this.runDownload(record).catch((err) => {
         const message = err instanceof Error ? err.message : String(err)
         logger.error({ torrentFilename: record.torrentFilename, error: message }, 'Failed to resume stale download')
@@ -213,8 +225,6 @@ export class DownloadsService {
       repo?.markCompleted(record.id, event.downloadedBytes)
     }
 
-    const stubPath = join(this.config.watchPath, record.torrentFilename)
-
     try {
       await retry(async () => {
         repo?.incrementAttempts(record.id)
@@ -222,6 +232,7 @@ export class DownloadsService {
           torrentFilename: record.torrentFilename,
           partPath: record.partPath,
           releaseSize: record.releaseSize,
+          idleTimeoutMs: this.config.idleTimeoutMs,
           onProgress,
         })
       }, {
@@ -236,15 +247,8 @@ export class DownloadsService {
         },
       })
 
-      await unlink(stubPath).catch(() => {})
-      await this.triggerImport(record)
       repo?.markImportQueued(record.id)
-      // Release the startup-re-enqueue claim now that the stub is gone, so a
-      // later legitimate re-drop of the same filename isn't silently skipped.
-      // Only on success: a failed re-drive keeps its stub, so it stays claimed
-      // (and is re-driven on the next restart) to avoid in-session hammering.
-      this.reenqueued.delete(record.torrentFilename)
-      logger.info({ torrentFilename: record.torrentFilename, filename: record.filename }, 'Download complete, triggered import')
+      logger.info({ torrentFilename: record.torrentFilename, filename: record.filename }, 'Download complete')
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -252,32 +256,6 @@ export class DownloadsService {
       // restart re-enqueue can resume from it.
       repo?.markFailed(record.id, message)
       logger.error({ torrentFilename: record.torrentFilename, filename: record.filename, error: message }, 'Download failed')
-    }
-  }
-
-  private async triggerImport(record: DownloadRecord) {
-    const torrentFilename = record.torrentFilename
-    // Route the import to the *arr that owns this release's category (movie →
-    // Radarr, tv → Sonarr). Firing at every destination makes the wrong app scan
-    // a folder it can't match, and Sonarr in particular answers with a 500.
-    const category = record.release.category
-    const matching = this.destinations.filter(d => d.isInitialized && d.canDestination && d.categories.includes(category))
-
-    if (matching.length === 0) {
-      logger.warn({ torrentFilename, category }, 'No initialized destination handles this release category; skipping import trigger')
-      return
-    }
-
-    for (const dest of matching) {
-      try {
-        await withSpan('blackhole.trigger_import', { 'torrent.filename': torrentFilename, 'destination.name': dest.name, 'release.category': category }, async () => {
-          await dest.triggerImport(this.config.completedPath)
-        })
-      }
-      catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        logger.error({ torrentFilename, destination: dest.name, error: message }, 'Failed to trigger import')
-      }
     }
   }
 }
