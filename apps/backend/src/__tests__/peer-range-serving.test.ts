@@ -46,17 +46,10 @@ function controllerForFile() {
   return new PeerController([source as any])
 }
 
-async function streamBytes(stream: ReadableStream): Promise<number[]> {
-  const reader = stream.getReader()
-  const chunks: number[] = []
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done)
-      break
-    if (value)
-      chunks.push(...value)
-  }
-  return chunks
+// `body` is now a BunFile/Blob (served via Bun's native backpressure) rather than a
+// hand-pumped ReadableStream, so read its bytes directly.
+async function bodyBytes(body: Blob): Promise<number[]> {
+  return [...new Uint8Array(await body.arrayBuffer())]
 }
 
 describe('PeerController.streamFile range handling', () => {
@@ -66,14 +59,14 @@ describe('PeerController.streamFile range handling', () => {
     if (result?.type !== 'partial')
       throw new Error('expected partial')
     expect({ start: result.start, end: result.end, size: result.size, totalSize: result.totalSize }).toEqual({ start: 2, end: 4, size: 3, totalSize: 10 })
-    expect(await streamBytes(result.stream)).toEqual([2, 3, 4])
+    expect(await bodyBytes(result.body)).toEqual([2, 3, 4])
   })
 
   test('returns the last N bytes for a suffix range', async () => {
     const result = await controllerForFile().streamFile('remote1:movie:1', 'bytes=-3')
     if (result?.type !== 'partial')
       throw new Error('expected partial')
-    expect(await streamBytes(result.stream)).toEqual([7, 8, 9])
+    expect(await bodyBytes(result.body)).toEqual([7, 8, 9])
   })
 
   test('clamps an open-ended range to the file end', async () => {
@@ -81,7 +74,7 @@ describe('PeerController.streamFile range handling', () => {
     if (result?.type !== 'partial')
       throw new Error('expected partial')
     expect(result.end).toBe(9)
-    expect(await streamBytes(result.stream)).toEqual([8, 9])
+    expect(await bodyBytes(result.body)).toEqual([8, 9])
   })
 
   test('reports unsatisfiable when start is beyond the file', async () => {
@@ -94,7 +87,7 @@ describe('PeerController.streamFile range handling', () => {
     if (result?.type !== 'full')
       throw new Error('expected full')
     expect(result.size).toBe(10)
-    expect(await streamBytes(result.stream)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(await bodyBytes(result.body)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
   })
 
   test('returns null when the source is unknown', async () => {

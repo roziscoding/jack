@@ -50,7 +50,7 @@ export function getPeerRouter(controller: PeerController) {
     }
 
     if (result.type === 'partial') {
-      return new Response(result.stream, {
+      return new Response(result.body, {
         status: 206,
         headers: {
           'Content-Type': 'application/octet-stream',
@@ -62,7 +62,7 @@ export function getPeerRouter(controller: PeerController) {
       })
     }
 
-    return new Response(result.stream, {
+    return new Response(result.body, {
       headers: {
         'Content-Type': 'application/octet-stream',
         'Content-Length': String(result.size),
