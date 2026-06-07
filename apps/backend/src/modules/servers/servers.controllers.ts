@@ -1,5 +1,6 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { ServerConnector } from '../../lib/servers/base'
+import type { PeerConnector } from '../../lib/servers/peer'
 import { SonarrServerConnector } from '../../lib/servers/arr/sonarr'
 
 function stringifyConnector(c: ServerConnector) {
@@ -20,9 +21,16 @@ function stringifyServer(c: ArrServerConnector) {
   }
 }
 
+function stringifyPeer(c: PeerConnector) {
+  return {
+    ...stringifyConnector(c),
+    version: c.peerVersion,
+  }
+}
+
 export class ServersController {
   constructor(
-    private readonly connectors: { servers: ArrServerConnector[], peers: ServerConnector[] },
+    private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
   ) {}
 
   async getIssues(serverUrl?: string) {
@@ -50,7 +58,7 @@ export class ServersController {
   listServers() {
     return {
       servers: this.connectors.servers.map(stringifyServer),
-      peers: this.connectors.peers.map(stringifyConnector),
+      peers: this.connectors.peers.map(stringifyPeer),
     }
   }
 }

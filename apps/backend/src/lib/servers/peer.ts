@@ -5,10 +5,12 @@ import { logger } from '../../logger'
 import { requireInitialization } from '../decorators/require-initialization'
 import { FetchError } from '../errors/FetchError'
 import { IdleTimeoutError } from '../errors/IdleTimeoutError'
+import { IncompatiblePeerError } from '../errors/IncompatiblePeerError'
 import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
 import { UnknownSizeError } from '../errors/UnknownSizeError'
 import { normalizeImdbId, Release } from '../release'
 import { withSpan } from '../tracing'
+import { isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION } from '../version'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({ items: z.array(Release) })
@@ -63,9 +65,11 @@ function parseContentRange(value: string | null): { start: number, end: number, 
  * `Release`s, just like a local arr source.
  */
 export class PeerConnector extends ServerConnector {
+  private _peerVersion: string | null = null
+
   constructor(config: { url: string, apiKey: string, name: string, headers?: ConnectorHeadersConfig }) {
     super({
-      pingPath: '/peer/search',
+      pingPath: '/handshake',
       pingMethod: 'GET',
       authHeader: 'X-Api-Key',
     }, { ...config, type: 'jack' })
@@ -75,15 +79,44 @@ export class PeerConnector extends ServerConnector {
     return this.apiKey
   }
 
+  /** The peer's reported protocol version, set on a successful handshake. */
+  get peerVersion(): string | null {
+    return this._peerVersion
+  }
+
   protected override async runInit(): Promise<void> {
     await withSpan('peer.init', {
       'peer.name': this.name,
       'peer.id': this.id,
       'server.url': this.url,
     }, async (span) => {
-      await this.ping()
-      span.setAttribute('peer.initialized', true)
-      logger.debug(`Connected to Jack peer ${this.name}`)
+      let handshake: unknown
+      try {
+        handshake = await this.ping()
+      }
+      catch (err) {
+        // An old peer (pre-0.1.0) has no /handshake route → 404. Treat that as
+        // an incompatible/unsupported protocol version rather than a generic
+        // fetch failure, so the cause is unmistakable. Network/timeout/401/5xx
+        // propagate unchanged (auth/connectivity stay distinct from version).
+        if (err instanceof FetchError && err.response.status === 404) {
+          throw new IncompatiblePeerError(`Peer "${this.name}" runs an incompatible peer-protocol version: expected >= ${MIN_PEER_PROTOCOL_VERSION}, got none (no handshake endpoint)`)
+        }
+        throw err
+      }
+
+      // Read the version defensively: any non-string/missing value collapses to
+      // `undefined` so a malformed or unversioned peer fails the same clean way.
+      const version = typeof handshake === 'object' && handshake !== null && 'version' in handshake && typeof handshake.version === 'string'
+        ? handshake.version
+        : undefined
+      if (!version || !isPeerVersionCompatible(version)) {
+        throw new IncompatiblePeerError(`Peer "${this.name}" runs an incompatible peer-protocol version: expected >= ${MIN_PEER_PROTOCOL_VERSION}, got ${version || 'none'}`)
+      }
+
+      this._peerVersion = version
+      span.setAttributes({ 'peer.version': version, 'peer.initialized': true })
+      logger.debug({ peer: this.name, version }, `Connected to Jack peer ${this.name}`)
     })
   }
 
