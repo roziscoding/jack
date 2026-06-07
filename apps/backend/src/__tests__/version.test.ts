@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { compareVersions, isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION, SERVER_VERSION } from '../lib/version'
+import { compareVersions, isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION, PROTOCOL_VERSION } from '../lib/version'
 
 describe('compareVersions', () => {
   test('returns 0 for equal versions', () => {
@@ -36,7 +36,7 @@ describe('isPeerVersionCompatible', () => {
     expect(isPeerVersionCompatible('nope')).toBe(false)
   })
 
-  test('SERVER_VERSION is itself compatible', () => {
-    expect(isPeerVersionCompatible(SERVER_VERSION)).toBe(true)
+  test('PROTOCOL_VERSION is itself compatible', () => {
+    expect(isPeerVersionCompatible(PROTOCOL_VERSION)).toBe(true)
   })
 })

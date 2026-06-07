@@ -1,6 +1,6 @@
 // jack's own version, reported to peers over /handshake. This doubles as the
 // peer-protocol version: a bump here signals a potential protocol change.
-export const SERVER_VERSION = '0.1.0'
+export const PROTOCOL_VERSION = '0.1.0'
 
 // Oldest peer version we can still talk to. Peers below this — or peers too old
 // to expose a version at all — are rejected at init time as incompatible.

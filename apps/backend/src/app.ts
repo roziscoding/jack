@@ -8,7 +8,7 @@ import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { getAppEnvs, isOtelEnabled } from './lib/envs'
-import { SERVER_VERSION } from './lib/version'
+import { PROTOCOL_VERSION } from './lib/version'
 import { handleError } from './middleware/handle-error'
 import { logRequests } from './middleware/log-requests'
 import { requireApiKey } from './middleware/require-auth'
@@ -101,7 +101,7 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, se
     // protocol version, then check it against their minimum compatible version.
     // Authenticated (mounted after requireApiKey) so a bad API key still fails
     // loudly at connect time, unlike the unauthenticated /ping health check.
-    app.get('/handshake', c => c.json({ name: 'jack', version: SERVER_VERSION }, 200))
+    app.get('/handshake', c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
 
     // Peer API — other Jacks talk to us. Serves empty results
     // when there's no local source to read from.
