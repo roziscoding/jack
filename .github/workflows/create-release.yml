@@ -33,7 +33,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bump package.json, commit and create the release
+      - name: Create the GitHub release
         env:
           VERSION: ${{ inputs.version }}
           NOTES: ${{ steps.semantic.outputs.new_release_notes }}
@@ -41,24 +41,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1. Write the supplied version into the local package.json.
-          npm pkg set version="$VERSION"
-
-          # 2. Commit the bump to main, skipping CI for this push.
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "chore(release): $VERSION [skip ci]"
-          git push origin HEAD:main
-          SHA="$(git rev-parse HEAD)"
-
-          # 3. Create the GitHub release tagged v<version>. Prefer semantic-release's
-          #    notes, but strip its auto-generated version header — it reflects the
-          #    version semantic-release computed (not ours), and the release title
-          #    already shows the version. Fall back to GitHub's notes if empty.
+          # Create the GitHub release tagged v<version> on the current main HEAD.
+          # No package.json bump, no commit back to main — just the tag + release.
+          # Prefer semantic-release's notes, but strip its auto-generated version
+          # header (it reflects the version semantic-release computed, not ours,
+          # and the release title already shows the version). Fall back to
+          # GitHub's generated notes if empty.
           if [ -n "${NOTES:-}" ]; then
             printf '%s\n' "$NOTES" | sed -E '/^#+ \[?v?[0-9]+\.[0-9]+\.[0-9]+/d' > "$RUNNER_TEMP/notes.md"
-            gh release create "v$VERSION" --title "v$VERSION" --target "$SHA" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "v$VERSION" --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
           else
-            gh release create "v$VERSION" --title "v$VERSION" --target "$SHA" --generate-notes
+            gh release create "v$VERSION" --title "v$VERSION" --generate-notes
           fi
