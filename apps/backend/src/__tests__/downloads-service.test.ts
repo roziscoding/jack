@@ -36,6 +36,7 @@ function downloadsConfig(overrides: Partial<Record<string, number>> = {}) {
     maxDownloadAttempts: 3,
     retryBaseDelayMs: 0,
     retryMaxDelayMs: 0,
+    idleTimeoutMs: 60_000,
     ...overrides,
   }
 }
@@ -99,9 +100,9 @@ describe('DownloadsService download progress persistence', () => {
     } })
     const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    const record = await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    const result = await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
 
-    expect(record).toBeNull()
+    expect(result).toBe('failed')
     expect(repository.list()).toHaveLength(0)
     handle.close()
   })
@@ -281,14 +282,14 @@ describe('DownloadsService download progress persistence', () => {
     const repository = new DownloadsRepository(handle.db)
     const service = new DownloadsService(downloadsConfig(), [fakePeer() as any], repository)
 
-    const record = await service.startQbDownload({
+    const result = await service.startQbDownload({
       peerId: 'peer-1',
       itemId: 'movie:1',
       qbCategory: 'jack-x',
       qbSourceServer: 'My Radarr',
     })
 
-    expect(record).not.toBeNull()
+    expect(result).toBe('started')
     await waitForStatus(repository, 'import_queued')
 
     const rows = repository.list()
@@ -299,20 +300,20 @@ describe('DownloadsService download progress persistence', () => {
     handle.close()
   })
 
-  test('startQbDownload returns null when the release filename is unsafe', async () => {
+  test('startQbDownload returns failed when the release filename is unsafe', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
     const peer = fakePeer({ getRelease: async () => ({ ...release, filename: '../../evil.mkv' }) })
     const service = new DownloadsService(downloadsConfig(), [peer as any], repository)
 
-    const record = await service.startQbDownload({
+    const result = await service.startQbDownload({
       peerId: 'peer-1',
       itemId: 'movie:1',
       qbCategory: 'jack-x',
       qbSourceServer: 'My Radarr',
     })
 
-    expect(record).toBeNull()
+    expect(result).toBe('failed')
     expect(repository.list()).toHaveLength(0)
     handle.close()
   })

@@ -28,7 +28,7 @@ function buildApp() {
   return { app, repository }
 }
 
-function buildAppWithService() {
+function buildAppWithService(startResult: 'started' | 'duplicate' | 'failed' = 'started') {
   const sqlite = new Database(':memory:')
   const db = drizzle({ client: sqlite, schema })
   runMigrations(db)
@@ -43,7 +43,7 @@ function buildAppWithService() {
   const downloadsService = {
     startQbDownload: async (input: any) => {
       calls.push(input)
-      return null
+      return startResult
     },
   } as any
   const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, downloadsService })
@@ -180,6 +180,19 @@ describe('qBittorrent add/delete/setCategory', () => {
     expect(calls[0].itemId).toBe('conn:movie:42')
     expect(calls[0].qbCategory).toBe('jack-abc12345')
     expect(calls[0].qbSourceServer).toBe('My Radarr')
+  })
+
+  test('add returns 503 when startQbDownload fails so *arr retries promptly', async () => {
+    const { app, calls } = buildAppWithService('failed')
+    const cookie = await loginCookie(app)
+    const stub = createTorrentStub({ name: 'Big Buck Bunny', size: 10, peerId: 'peer0001', itemId: 'conn:movie:42' })
+    const form = new FormData()
+    form.append('torrents', new File([stub], 'x.torrent'))
+
+    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+
+    expect(res.status).toBe(503)
+    expect(calls).toHaveLength(1)
   })
 
   test('add with a magnet url returns 415 and starts nothing', async () => {

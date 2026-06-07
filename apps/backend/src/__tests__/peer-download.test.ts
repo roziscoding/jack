@@ -241,22 +241,21 @@ describe('PeerConnector.downloadFile', () => {
   })
 
   test('does not leave the response body locked when opening the .part file fails', async () => {
-    let body: ReadableStream<Uint8Array> | null = null
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    let body: Response['body'] = null
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => {
       const response = new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
       body = response.body
       return response
-    },
-    )
+    }) as unknown as typeof fetch)
 
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-peer-open-fails-'))
     const destPath = join(dir, 'missing-parent', 'Movie.mkv')
 
     try {
-      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 3 })).rejects.toThrow()
+      expect(peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 3 })).rejects.toThrow()
       expect(body).not.toBeNull()
-      expect(body?.locked).toBe(false)
+      expect(body!.locked).toBe(false)
     }
     finally {
       fetchSpy.mockRestore()
@@ -269,9 +268,9 @@ describe('PeerConnector.downloadFile', () => {
     if (before == null)
       return
 
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => {
       return new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
-    })
+    }) as unknown as typeof fetch)
     const getReaderSpy = spyOn(ReadableStream.prototype, 'getReader').mockImplementation(() => {
       throw new Error('reader failed')
     })
@@ -295,7 +294,7 @@ describe('PeerConnector.downloadFile', () => {
     // Use a fetch spy so the body stream reliably errors when the connector's
     // idle abort fires (MSW's mock doesn't propagate the fetch signal mid-body).
     // Real fetch rejects an in-flight read on abort, which this mirrors.
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init?: RequestInit) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (_url, init?: RequestInit) => {
       const signal = init?.signal
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -306,7 +305,7 @@ describe('PeerConnector.downloadFile', () => {
         },
       })
       return new Response(body, { headers: { 'Content-Length': '5' } })
-    })
+    }) as typeof fetch)
 
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-peer-stall-'))

@@ -122,8 +122,11 @@ export class QbittorrentController {
    * - 'unsupported' (→ HTTP 415) — a magnet or a non-jack/foreign torrent.
    * - 'unavailable' (→ HTTP 503) — jack has no downloads config, so the add
    *   pipeline isn't wired; a server-side misconfiguration, not a bad torrent.
+   * - 'failed' (→ HTTP 503) — the torrent was accepted but no download row could
+   *   be created (e.g. unknown peer or an unsafe peer-supplied filename). Surfaced
+   *   as 503 so *arr retries promptly instead of waiting out its stuck-download grace period.
    */
-  async addTorrent(input: { session: QbSession, category?: string, urls: string[], torrentFiles: Uint8Array[] }): Promise<'ok' | 'unsupported' | 'unavailable'> {
+  async addTorrent(input: { session: QbSession, category?: string, urls: string[], torrentFiles: Uint8Array[] }): Promise<'ok' | 'unsupported' | 'unavailable' | 'failed'> {
     const service = this.deps.downloadsService
     if (!service)
       return 'unavailable'
@@ -149,12 +152,16 @@ export class QbittorrentController {
       : qbCategoryForServer(input.session.serverId)
 
     for (const stub of stubs) {
-      await service.startQbDownload({
+      // 'started' and 'duplicate' are both successes; only 'failed' (unknown peer
+      // or unsafe peer filename) leaves no row, so surface that to *arr.
+      const result = await service.startQbDownload({
         peerId: stub.peerId,
         itemId: stub.itemId,
         qbCategory: category,
         qbSourceServer: input.session.serverName,
       })
+      if (result === 'failed')
+        return 'failed'
     }
     return 'ok'
   }

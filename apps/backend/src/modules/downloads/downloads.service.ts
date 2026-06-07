@@ -12,6 +12,21 @@ type DownloadsServiceConfig = NonNullable<AppConfig['downloads']>
 // Characters disallowed in the synthetic qB torrent filename (keep word chars, dot, dash).
 const UNSAFE_FILENAME_CHARS = /[^\w.-]/g
 
+/**
+ * Outcome of a qB add:
+ * - 'started' — a new download row was created and is running.
+ * - 'duplicate' — a download for the same destination is already in flight; the
+ *   add is a no-op but still a success (the release is being fetched).
+ * - 'failed' — no row could be created (unknown peer or an unsafe peer filename).
+ */
+export type StartQbDownloadResult = 'started' | 'duplicate' | 'failed'
+
+// createDownload's internal outcome: a record to run, a benign duplicate, or no peer.
+type CreateDownloadOutcome
+  = | { kind: 'created', record: DownloadRecord }
+    | { kind: 'duplicate' }
+    | { kind: 'no-peer' }
+
 export class DownloadsService {
   private readonly semaphore: Semaphore
   // Dest paths with a download in flight — guards two concurrent live drops that
@@ -27,9 +42,9 @@ export class DownloadsService {
   }
 
   /**
-   * Shared creation core for the qB add path. Returns the created record, or
-   * null when the peer/release is unavailable or a download for the same
-   * destination is already active. Throws on an unsafe filename.
+   * Shared creation core for the qB add path. Returns the created record, a
+   * benign duplicate (a download for the same destination is already active),
+   * or no-peer when the peer is unknown. Throws on an unsafe filename.
    */
   private async createDownload(input: {
     peerId: string
@@ -37,12 +52,12 @@ export class DownloadsService {
     torrentFilename: string
     qbCategory?: string | null
     qbSourceServer?: string | null
-  }): Promise<DownloadRecord | null> {
+  }): Promise<CreateDownloadOutcome> {
     const { peerId, itemId, torrentFilename } = input
     const peer = this.peers.find(p => p.id === peerId)
     if (!peer) {
       logger.error({ torrentFilename, peerId }, 'Peer not found')
-      return null
+      return { kind: 'no-peer' }
     }
 
     const release = await peer.getRelease(itemId)
@@ -62,7 +77,7 @@ export class DownloadsService {
 
     if (this.active.has(destPath)) {
       logger.debug({ torrentFilename, destPath }, 'A download for this destination is already active; skipping duplicate')
-      return null
+      return { kind: 'duplicate' }
     }
 
     const created = this.downloadsRepository?.create({
@@ -79,29 +94,32 @@ export class DownloadsService {
       qbSourceServer: input.qbSourceServer ?? null,
     })
 
-    return created ?? {
-      id: -1,
-      torrentFilename,
-      peerId,
-      peerName: peer.name ?? peer.url,
-      itemId,
-      filename: safeName,
-      destPath,
-      partPath,
-      releaseSize: release.size,
-      release,
-      expectedBytes: null,
-      expectedBytesSource: null,
-      expectedBytesMismatch: false,
-      downloadedBytes: 0,
-      attempts: 0,
-      status: 'downloading',
-      startedAt: '',
-      updatedAt: '',
-      completedAt: null,
-      error: null,
-      qbCategory: input.qbCategory ?? null,
-      qbSourceServer: input.qbSourceServer ?? null,
+    return {
+      kind: 'created',
+      record: created ?? {
+        id: -1,
+        torrentFilename,
+        peerId,
+        peerName: peer.name ?? peer.url,
+        itemId,
+        filename: safeName,
+        destPath,
+        partPath,
+        releaseSize: release.size,
+        release,
+        expectedBytes: null,
+        expectedBytesSource: null,
+        expectedBytesMismatch: false,
+        downloadedBytes: 0,
+        attempts: 0,
+        status: 'downloading',
+        startedAt: '',
+        updatedAt: '',
+        completedAt: null,
+        error: null,
+        qbCategory: input.qbCategory ?? null,
+        qbSourceServer: input.qbSourceServer ?? null,
+      },
     }
   }
 
@@ -114,26 +132,29 @@ export class DownloadsService {
     itemId: string
     qbCategory: string
     qbSourceServer: string
-  }): Promise<DownloadRecord | null> {
+  }): Promise<StartQbDownloadResult> {
     // qB-added downloads have no on-disk stub, but createDownload + the row still
     // need a stable filename.
     const torrentFilename = `qb-${input.peerId}-${input.itemId}.torrent`.replace(UNSAFE_FILENAME_CHARS, '_')
-    let record: DownloadRecord | null = null
+    let outcome: CreateDownloadOutcome
     try {
-      record = await this.createDownload({ ...input, torrentFilename })
+      outcome = await this.createDownload({ ...input, torrentFilename })
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ peerId: input.peerId, itemId: input.itemId, error: message }, 'Failed to create qB download')
-      return null
+      return 'failed'
     }
-    if (record) {
-      void this.runDownload(record).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
-      })
-    }
-    return record
+    if (outcome.kind === 'no-peer')
+      return 'failed'
+    // A duplicate is already in flight: no new row, but a success — don't make *arr retry.
+    if (outcome.kind === 'duplicate')
+      return 'duplicate'
+    void this.runDownload(outcome.record).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
+    })
+    return 'started'
   }
 
   /** Re-drive stale `downloading` rows from a prior run, resuming from their .part files. */

@@ -350,7 +350,7 @@ export class PeerConnector extends ServerConnector {
       const handle = await open(partPath, resuming ? 'a' : 'w')
       let reader: ReadableStreamDefaultReader<Uint8Array>
       try {
-        reader = response.body.getReader()
+        reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>
       }
       catch (err) {
         await handle.close().catch(() => {})
