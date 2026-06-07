@@ -287,6 +287,7 @@ describe('appConfig parsing', () => {
       maxDownloadAttempts: 5,
       retryBaseDelayMs: 1000,
       retryMaxDelayMs: 60_000,
+      idleTimeoutMs: 60_000,
     })
   })
 
