@@ -18,7 +18,7 @@ const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
 const CONTENT_RANGE_PATTERN = /^bytes (\d+)-(\d+)\/(\d+)$/
 
 export type PeerDownloadProgressEvent
-  = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | 'release_size' | null, expectedBytesMismatch: boolean }
+  = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null, expectedBytesMismatch: boolean }
     | { type: 'progress', downloadedBytes: number, expectedBytes: number | null }
     | { type: 'restart', reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number }
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
@@ -314,10 +314,11 @@ export class PeerConnector extends ServerConnector {
         ? parseContentRange(response.headers.get('Content-Range'))?.total ?? null
         : parseContentLength(response.headers)
       const expectedBytes = transferSize ?? options.releaseSize ?? null
-      // Source = where the TRANSFER advertised the size; 'release_size' means it
-      // came only from *arr metadata (the peer sent no Content-Length).
-      const expectedBytesSource: 'content_length' | 'release_size' | null
-        = transferSize != null ? 'content_length' : (expectedBytes != null ? 'release_size' : null)
+      // Source = where the TRANSFER advertised the size: Content-Range on a resume
+      // (206), else Content-Length; 'release_size' means it came only from *arr
+      // metadata (the peer advertised no size).
+      const expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null
+        = transferSize != null ? (resuming ? 'content_range' : 'content_length') : (expectedBytes != null ? 'release_size' : null)
       const expectedBytesMismatch = transferSize != null && options.releaseSize != null && transferSize !== options.releaseSize
       span.setAttributes({
         'download.resuming': resuming,
@@ -406,10 +407,13 @@ export class PeerConnector extends ServerConnector {
 
         await handle.datasync().catch(() => {})
         await closeHandle()
-        reader.releaseLock()
 
+        // Release the lock only after the completeness check passes, so the catch
+        // block's cancel+release runs against a still-locked reader on the
+        // IncompleteDownloadError path (which is the one that gets retried).
         if (downloadedBytes !== expectedBytes)
           throw new IncompleteDownloadError(`Incomplete file download: got ${downloadedBytes} bytes, expected ${expectedBytes}`)
+        reader.releaseLock()
 
         await rename(partPath, destPath)
         span.setAttribute('download.downloaded_bytes', downloadedBytes)

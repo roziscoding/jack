@@ -384,6 +384,8 @@ describe('PeerConnector.downloadFile resume', () => {
       expect(seen.range).toBe('bytes=2-')
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
       expect(events.some(e => e.type === 'restart')).toBe(false)
+      // On a 206 resume the size comes from Content-Range, not Content-Length.
+      expect(events).toContainEqual({ type: 'headers', expectedBytes: 5, expectedBytesSource: 'content_range', expectedBytesMismatch: false })
       expect(events).toContainEqual({ type: 'completed', downloadedBytes: 5, expectedBytes: 5 })
     }
     finally {
