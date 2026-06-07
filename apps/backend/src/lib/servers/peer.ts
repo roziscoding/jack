@@ -4,6 +4,7 @@ import z from 'zod'
 import { logger } from '../../logger'
 import { requireInitialization } from '../decorators/require-initialization'
 import { FetchError } from '../errors/FetchError'
+import { IdleTimeoutError } from '../errors/IdleTimeoutError'
 import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
 import { UnknownSizeError } from '../errors/UnknownSizeError'
 import { normalizeImdbId, Release } from '../release'
@@ -23,7 +24,7 @@ export type PeerDownloadProgressEvent
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
 
 export interface PeerDownloadOptions {
-  timeoutMs?: number
+  idleTimeoutMs?: number
   torrentFilename?: string
   partPath?: string
   releaseSize?: number
@@ -167,20 +168,54 @@ export class PeerConnector extends ServerConnector {
       'item.id': id,
       'torrent.filename': options.torrentFilename,
     }, async (span) => {
-      const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000
+      const idleTimeoutMs = options.idleTimeoutMs ?? 60_000
       const torrentFilename = options.torrentFilename
       const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
       const partPath = options.partPath ?? `${destPath}.part`
       const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey }
-      span.setAttributes({ 'http.request.timeout_ms': timeoutMs, 'url.path': url.pathname })
+      span.setAttributes({ 'http.request.idle_timeout_ms': idleTimeoutMs, 'url.path': url.pathname })
+
+      // Idle (inactivity) timeout, armed ONLY around network waits (fetch + each
+      // read) and cleared before local file/progress work, so slow disk I/O never
+      // trips it. The abort carries a sentinel reason so only it — not a later real
+      // error — is reclassified as a retryable IdleTimeoutError.
+      const controller = new AbortController()
+      const IDLE_ABORT_REASON = 'jack:idle-timeout'
+      let idleTimer: ReturnType<typeof setTimeout> | undefined
+      const clearIdle = () => {
+        if (idleTimer) {
+          clearTimeout(idleTimer)
+          idleTimer = undefined
+        }
+      }
+      const armIdle = () => {
+        clearIdle()
+        idleTimer = setTimeout(() => controller.abort(IDLE_ABORT_REASON), idleTimeoutMs)
+        idleTimer.unref?.()
+      }
+      const isIdleAbort = () => controller.signal.aborted && controller.signal.reason === IDLE_ABORT_REASON
+      const idleTimeout = () => new IdleTimeoutError(`Peer download stalled: no data received for ${idleTimeoutMs}ms`)
 
       const partFile = Bun.file(partPath)
       let existingBytes = await partFile.exists() ? partFile.size : 0
 
-      const doFetch = (withRange: boolean) => fetch(url, {
-        headers: withRange ? { ...baseHeaders, Range: `bytes=${existingBytes}-` } : baseHeaders,
-        signal: AbortSignal.timeout(timeoutMs),
-      })
+      const doFetch = async (withRange: boolean): Promise<Response> => {
+        armIdle()
+        try {
+          return await fetch(url, {
+            headers: withRange ? { ...baseHeaders, Range: `bytes=${existingBytes}-` } : baseHeaders,
+            signal: controller.signal,
+          })
+        }
+        catch (err) {
+          if (isIdleAbort())
+            throw idleTimeout()
+          throw err
+        }
+        finally {
+          clearIdle()
+        }
+      }
 
       const emitRestart = async (reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number) => {
         logger.warn({ id, torrentFilename, partPath, discardedBytes, reason, peer: this.name }, 'Resume validation failed; restarting download from byte 0')
@@ -334,7 +369,19 @@ export class PeerConnector extends ServerConnector {
 
       try {
         while (true) {
-          const { done, value } = await reader.read()
+          // Arm the idle timer only for the network read; clear it immediately
+          // after so disk writes / progress callbacks don't count as "idle".
+          armIdle()
+          let done: boolean
+          let value: Uint8Array | undefined
+          try {
+            const result = await reader.read()
+            done = result.done
+            value = result.value
+          }
+          finally {
+            clearIdle()
+          }
           if (done)
             break
           if (!value)
@@ -376,13 +423,15 @@ export class PeerConnector extends ServerConnector {
       }
       catch (err) {
         await closeHandle()
+        // Cancel the reader so the remote stream is torn down (not left to GC),
+        // then release. Leave the .part in place so the next attempt resumes.
+        await reader.cancel().catch(() => {})
         try {
           reader.releaseLock()
         }
         catch {}
-        // Leave the .part file in place so the next attempt can resume from the
-        // durable bytes written so far. The atomic rename above means an
-        // incomplete download never reaches `destPath`.
+        if (isIdleAbort())
+          throw idleTimeout()
         throw err
       }
     })

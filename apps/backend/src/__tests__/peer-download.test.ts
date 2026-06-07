@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
+import { IdleTimeoutError } from '../lib/errors/IdleTimeoutError'
 import { UnknownSizeError } from '../lib/errors/UnknownSizeError'
 import { PeerConnector } from '../lib/servers/peer'
 
@@ -286,6 +287,69 @@ describe('PeerConnector.downloadFile', () => {
     finally {
       getReaderSpy.mockRestore()
       fetchSpy.mockRestore()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('aborts with IdleTimeoutError when the peer stops sending bytes', async () => {
+    // Use a fetch spy so the body stream reliably errors when the connector's
+    // idle abort fires (MSW's mock doesn't propagate the fetch signal mid-body).
+    // Real fetch rejects an in-flight read on abort, which this mirrors.
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (_url, init?: RequestInit) => {
+      const signal = init?.signal
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2]))
+          // No further chunks → the transfer stalls. Error the stream when the
+          // connector aborts (its idle timer), like real fetch would.
+          signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')))
+        },
+      })
+      return new Response(body, { headers: { 'Content-Length': '5' } })
+    })
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-stall-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, { partPath, releaseSize: 5, idleTimeoutMs: 50 }))
+        .rejects
+        .toThrow(IdleTimeoutError)
+      expect(await Bun.file(destPath).exists()).toBe(false)
+      expect(await Bun.file(partPath).exists()).toBe(true) // preserved for resume
+    }
+    finally {
+      fetchSpy.mockRestore()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('does not abort a slow but active download (chunks within the idle window)', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
+        return new Response(new ReadableStream({
+          async start(controller) {
+            for (const b of [1, 2, 3, 4]) {
+              await Bun.sleep(20)
+              controller.enqueue(new Uint8Array([b]))
+            }
+            controller.close()
+          },
+        }), { headers: { 'Content-Length': '4' } })
+      }),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-slow-'))
+    const destPath = join(dir, 'Movie.mkv')
+
+    try {
+      await peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 4, idleTimeoutMs: 200 })
+      expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+    }
+    finally {
       await rm(dir, { recursive: true, force: true })
     }
   })

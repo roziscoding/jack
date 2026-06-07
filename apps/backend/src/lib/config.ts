@@ -139,6 +139,9 @@ export const DownloadsConfig = z.object({
   maxDownloadAttempts: z.number().int().min(1).default(5),
   retryBaseDelayMs: z.number().int().min(0).default(1000),
   retryMaxDelayMs: z.number().int().min(0).default(60_000),
+  // Abort a peer download if no bytes arrive for this long (inactivity timeout).
+  // Resets on every received chunk; replaces the old whole-request deadline.
+  idleTimeoutMs: z.number().int().min(1000).default(60_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>

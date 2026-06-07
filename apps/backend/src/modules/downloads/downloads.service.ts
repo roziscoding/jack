@@ -211,6 +211,7 @@ export class DownloadsService {
           torrentFilename: record.torrentFilename,
           partPath: record.partPath,
           releaseSize: record.releaseSize,
+          idleTimeoutMs: this.config.idleTimeoutMs,
           onProgress,
         })
       }, {
