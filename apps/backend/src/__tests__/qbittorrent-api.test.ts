@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { getApp } from '../app'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 import { deriveHash, qbCategoryForServer } from '../modules/qbittorrent/qbittorrent.mapper'
 import { createTorrentStub } from '../modules/torznab/torrent'
@@ -19,6 +19,7 @@ function buildApp() {
   runMigrations(db)
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
+    version: MIGRATIONS.length,
     jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     downloads: { completedPath: '/tmp/completed' },
     servers: [],
@@ -34,6 +35,7 @@ function buildAppWithService(startResult: 'started' | 'duplicate' | 'failed' = '
   runMigrations(db)
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
+    version: MIGRATIONS.length,
     jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     downloads: { completedPath: '/tmp/completed' },
     servers: [],

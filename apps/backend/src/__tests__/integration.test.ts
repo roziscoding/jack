@@ -8,7 +8,7 @@ import { setupServer } from 'msw/node'
 import { getApp } from '../app'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { SonarrServerConnector } from '../lib/servers/arr/sonarr'
 import { PeerConnector } from '../lib/servers/peer'
@@ -109,6 +109,7 @@ afterEach(() => {
 afterAll(() => server.close())
 
 const config = AppConfig.parse({
+  version: MIGRATIONS.length,
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { completedPath: '/tmp/jack-test-completed' },
   servers: [],

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { getApp } from '../app'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { PeerConnector } from '../lib/servers/peer'
 import { ServersController } from '../modules/servers/servers.controllers'
 
@@ -125,6 +125,7 @@ describe('ServersController surfaces peer version', () => {
     await peer.initialization
 
     const config = AppConfig.parse({
+      version: MIGRATIONS.length,
       jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
       servers: [],
       peers: [],

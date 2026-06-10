@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { getApp } from '../app'
 import { openDatabase } from '../database/connection'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 
 const envs: Envs = {
@@ -21,6 +21,7 @@ const envs: Envs = {
 }
 
 const config = AppConfig.parse({
+  version: MIGRATIONS.length,
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { completedPath: '/tmp/completed' },
   servers: [],

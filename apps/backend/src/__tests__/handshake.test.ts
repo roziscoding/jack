@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { getApp } from '../app'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { PROTOCOL_VERSION } from '../lib/version'
 
 const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
 
 function buildApp() {
   const config = AppConfig.parse({
+    version: MIGRATIONS.length,
     jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     servers: [],
     peers: [],
