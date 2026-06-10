@@ -4,6 +4,7 @@ import { trace } from '@opentelemetry/api'
 import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { levels, multistream, pino } from 'pino'
 import { getAppEnvs, isOtelEnabled } from './lib/envs'
+import { redactObject } from './lib/redact'
 
 const envs = getAppEnvs()
 const otelEnabled = isOtelEnabled(envs)
@@ -21,6 +22,13 @@ const PINO_LEVEL_TO_SEVERITY: Record<number, SeverityNumber> = {
 const logFormatters = {
   level(label: string, level: number) {
     return { level, severity: label }
+  },
+  // Runs on the fully-merged record just before serialization, so it scrubs
+  // sensitive values regardless of where they entered the log (bindings, mixin,
+  // or the logged object itself) — something a mixin can't do, since its fields
+  // are overridden by the logged object rather than the other way around.
+  log(object: Record<string, unknown>) {
+    return redactObject(object)
   },
 }
 
