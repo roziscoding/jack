@@ -1,6 +1,7 @@
 import type { AppConfig } from '../../lib/config'
 import type { Release } from '../../lib/release'
 import type { PeerConnector } from '../../lib/servers/peer'
+import { setSpanAttribute } from '../../lib/span-attributes'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 
@@ -64,7 +65,7 @@ export class TorznabController {
       'peer.count': this.peers.length,
     }, async (span) => {
       if (this.peers.length === 0) {
-        span.setAttribute('release.count', 0)
+        setSpanAttribute(span, 'release.count', 0)
         return []
       }
 
@@ -77,7 +78,7 @@ export class TorznabController {
               'peer.id': peer.id,
             }, async (peerSpan) => {
               const releases = await search(peer)
-              peerSpan.setAttribute('release.count', releases.length)
+              setSpanAttribute(peerSpan, 'release.count', releases.length)
               return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey))
             })
           }
@@ -89,7 +90,7 @@ export class TorznabController {
       )
 
       const items = results.flat()
-      span.setAttribute('release.count', items.length)
+      setSpanAttribute(span, 'release.count', items.length)
       return items
     })
   }

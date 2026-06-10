@@ -1,15 +1,12 @@
-import type { Attributes, AttributeValue, Span } from '@opentelemetry/api'
+import type { Span } from '@opentelemetry/api'
 import { SpanStatusCode, trace } from '@opentelemetry/api'
+import { sanitizeAttributes } from './span-attributes'
 
-type SpanAttributes = Record<string, AttributeValue | undefined>
+// Values are unknown because they're sanitized (redacted/serialized) at creation
+// time by `sanitizeAttributes` — the same funnel `setSpanAttribute` uses.
+type SpanAttributes = Record<string, unknown>
 
 const tracer = trace.getTracer('jack-backend')
-
-function definedAttributes(attributes: SpanAttributes = {}): Attributes {
-  return Object.fromEntries(
-    Object.entries(attributes).filter((entry): entry is [string, AttributeValue] => entry[1] !== undefined),
-  )
-}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -25,7 +22,7 @@ export async function withSpan<T>(
   attributes: SpanAttributes,
   fn: (span: Span) => Promise<T> | T,
 ): Promise<T> {
-  return tracer.startActiveSpan(name, { attributes: definedAttributes(attributes) }, async (span) => {
+  return tracer.startActiveSpan(name, { attributes: sanitizeAttributes(attributes) }, async (span) => {
     try {
       const result = await fn(span)
       span.setStatus({ code: SpanStatusCode.OK })

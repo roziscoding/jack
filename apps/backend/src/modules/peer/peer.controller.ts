@@ -1,5 +1,6 @@
 import type { Release } from '../../lib/release'
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import { setSpanAttribute, setSpanAttributes } from '../../lib/span-attributes'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 
@@ -69,7 +70,7 @@ export class PeerController {
       const sources = this.sourceServers
 
       if (sources.length === 0) {
-        span.setAttribute('release.count', 0)
+        setSpanAttribute(span, 'release.count', 0)
         return []
       }
 
@@ -90,7 +91,7 @@ export class PeerController {
                 : params.tvdbId
                   ? await source.searchByTvdbId(params.tvdbId, params.season, params.episode)
                   : await source.listReleases()
-            sourceSpan.setAttribute('release.count', items.length)
+            setSpanAttribute(sourceSpan, 'release.count', items.length)
             return items
           })
         }
@@ -101,7 +102,7 @@ export class PeerController {
       }))
 
       const flat = results.flat()
-      span.setAttribute('release.count', flat.length)
+      setSpanAttribute(span, 'release.count', flat.length)
       return flat
     })
   }
@@ -126,11 +127,11 @@ export class PeerController {
     }, async (span) => {
       const source = this.findSource(id)
       if (!source) {
-        span.setAttribute('source.found', false)
+        setSpanAttribute(span, 'source.found', false)
         return null
       }
 
-      span.setAttributes({
+      setSpanAttributes(span, {
         'source.found': true,
         'source.name': source.name,
         'source.type': source.type,
@@ -138,21 +139,21 @@ export class PeerController {
 
       const filePath = await source.getFilePath(id)
       if (!filePath) {
-        span.setAttribute('file.path_found', false)
+        setSpanAttribute(span, 'file.path_found', false)
         return null
       }
 
-      span.setAttribute('file.path_found', true)
+      setSpanAttribute(span, 'file.path_found', true)
       const file = Bun.file(filePath)
       if (!await file.exists()) {
-        span.setAttribute('file.exists', false)
+        setSpanAttribute(span, 'file.exists', false)
         logger.warn({ filePath, id }, 'File not found on disk')
         return null
       }
 
       const totalSize = file.size
       const filename = filePath.split('/').pop() ?? 'unknown'
-      span.setAttributes({ 'file.exists': true, 'file.size': totalSize })
+      setSpanAttributes(span, { 'file.exists': true, 'file.size': totalSize })
 
       const range = parseRangeHeader(rangeHeader)
       if (!range) {
@@ -165,7 +166,7 @@ export class PeerController {
         // Suffix range: `bytes=-N` → last N bytes.
         const suffix = range.end ?? 0
         if (suffix <= 0) {
-          span.setAttribute('range.satisfiable', false)
+          setSpanAttribute(span, 'range.satisfiable', false)
           return { type: 'unsatisfiable', totalSize }
         }
         start = Math.max(totalSize - suffix, 0)
@@ -177,11 +178,11 @@ export class PeerController {
       }
 
       if (start > end || start >= totalSize) {
-        span.setAttribute('range.satisfiable', false)
+        setSpanAttribute(span, 'range.satisfiable', false)
         return { type: 'unsatisfiable', totalSize }
       }
 
-      span.setAttributes({ 'range.satisfiable': true, 'range.start': start, 'range.end': end })
+      setSpanAttributes(span, { 'range.satisfiable': true, 'range.start': start, 'range.end': end })
       // Bun.file().slice is half-open [start, end), so +1 to include `end`.
       return { type: 'partial', body: file.slice(start, end + 1), size: end - start + 1, totalSize, start, end, filename }
     })

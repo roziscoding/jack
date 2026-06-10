@@ -2,6 +2,7 @@ import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
 import { ReleaseCategory } from '../../release'
+import { setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
@@ -90,7 +91,7 @@ export class SonarrServerConnector extends ArrServerConnector {
       const matching = series.filter(s => !needle || (s.title ?? '').toLowerCase().includes(needle))
       const perSeries = await Promise.all(matching.map(s => this.releasesForSeries(s)))
       const releases = perSeries.flat()
-      span.setAttributes({ 'series.count': series.length, 'series.matched_count': matching.length, 'release.count': releases.length })
+      setSpanAttributes(span, { 'series.count': series.length, 'series.matched_count': matching.length, 'release.count': releases.length })
       return releases
     })
   }
@@ -127,7 +128,7 @@ export class SonarrServerConnector extends ArrServerConnector {
         return true
       })))
       const releases = perSeries.flat()
-      span.setAttributes({ 'series.matched_count': series.length, 'release.count': releases.length })
+      setSpanAttributes(span, { 'series.matched_count': series.length, 'release.count': releases.length })
       return releases
     })
   }

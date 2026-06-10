@@ -3,7 +3,7 @@ import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
 import { FetchError } from '../errors/FetchError'
-import { redactRecord } from '../redact'
+import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
 
 const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
@@ -103,7 +103,7 @@ export abstract class ServerConnector {
       'connector.type': this.type,
       'http.request.method': method,
       'http.request.timeout_ms': timeoutMs,
-      'http.request.headers': JSON.stringify(redactRecord(initWithAuth.headers)),
+      'http.request.headers': initWithAuth.headers,
       'server.address': url.hostname,
       'url.path': url.pathname,
       'url.query': url.search ? url.search.slice(1) : undefined,
@@ -114,12 +114,12 @@ export abstract class ServerConnector {
       }
       catch (err) {
         const timedOut = err instanceof DOMException && err.name === 'TimeoutError'
-        span.setAttribute('error.timeout', timedOut)
+        setSpanAttribute(span, 'error.timeout', timedOut)
         logger.warn({ connector: this.name, method, url: url.toString(), timeoutMs, timedOut, err }, timedOut ? `Request timed out after ${timeoutMs}ms` : 'Request failed (network error)')
         throw err
       }
 
-      span.setAttributes({
+      setSpanAttributes(span, {
         'http.response.status_code': response.status,
         'http.response.content_type': response.headers.get('content-type') ?? '',
         'http.response.content_length': response.headers.get('content-length') ?? '',
@@ -127,7 +127,7 @@ export abstract class ServerConnector {
 
       if (!response.ok) {
         const body = await response.text().catch(() => 'Could not fetch body')
-        span.setAttribute('http.response.body', truncateBody(body))
+        setSpanAttribute(span, 'http.response.body', body)
         logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body: truncateBody(body) }, 'Request failed (non-2xx)')
         throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
       }
@@ -141,7 +141,7 @@ export abstract class ServerConnector {
 
       if (!success) {
         const prettyError = z.prettifyError(error)
-        span.setAttributes({
+        setSpanAttributes(span, {
           'schema.validation.success': false,
           'schema.validation.error': prettyError,
         })
@@ -149,7 +149,7 @@ export abstract class ServerConnector {
         throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${prettyError}`, response, { body: JSON.stringify(body), method: init.method })
       }
 
-      span.setAttribute('schema.validation.success', true)
+      setSpanAttribute(span, 'schema.validation.success', true)
       return data
     })
   }
@@ -196,7 +196,7 @@ export abstract class ServerConnector {
       'init.previous_error': previousError,
     }, async (span) => {
       await this.runInit()
-      span.setAttribute('connector.initialized', true)
+      setSpanAttribute(span, 'connector.initialized', true)
     })
       .then(() => {
         this._isInitialized = true

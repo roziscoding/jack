@@ -2,6 +2,7 @@ import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/type
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
 import { normalizeImdbId, ReleaseCategory } from '../../release'
+import { setSpanAttribute, setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
@@ -72,7 +73,7 @@ export class RadarrServerConnector extends ArrServerConnector {
         .filter(m => m.hasFile && (!needle || (m.title ?? '').toLowerCase().includes(needle)))
         .map(m => this.toRelease(m))
         .filter((r): r is Release => r != null)
-      span.setAttributes({ 'movie.count': movies.length, 'movie.with_file_count': withFile, 'release.count': releases.length })
+      setSpanAttributes(span, { 'movie.count': movies.length, 'movie.with_file_count': withFile, 'release.count': releases.length })
       return releases
     })
   }
@@ -91,9 +92,9 @@ export class RadarrServerConnector extends ArrServerConnector {
         .filter(m => m.imdbId != null && normalizeImdbId(m.imdbId) === target)
         .map(m => this.toRelease(m))
         .filter((r): r is Release => r != null)
-      span.setAttributes({ 'movie.count': movies.length, 'movie.with_file_count': withFileMovies.length, 'release.count': releases.length })
+      setSpanAttributes(span, { 'movie.count': movies.length, 'movie.with_file_count': withFileMovies.length, 'release.count': releases.length })
       if (releases.length === 0) {
-        span.setAttribute('search.sample_imdb_ids', withFileMovies.map(m => m.imdbId).filter((id): id is string => !!id).slice(0, 10))
+        setSpanAttribute(span, 'search.sample_imdb_ids', withFileMovies.map(m => m.imdbId).filter((id): id is string => !!id).slice(0, 10))
       }
       return releases
     })
@@ -111,7 +112,7 @@ export class RadarrServerConnector extends ArrServerConnector {
         .filter(m => m.hasFile)
         .map(m => this.toRelease(m))
         .filter((r): r is Release => r != null)
-      span.setAttribute('release.count', releases.length)
+      setSpanAttribute(span, 'release.count', releases.length)
       return releases
     })
   }

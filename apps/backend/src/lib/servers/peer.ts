@@ -9,6 +9,7 @@ import { IncompatiblePeerError } from '../errors/IncompatiblePeerError'
 import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
 import { UnknownSizeError } from '../errors/UnknownSizeError'
 import { normalizeImdbId, Release } from '../release'
+import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
 import { isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION } from '../version'
 import { ServerConnector } from './base'
@@ -115,7 +116,7 @@ export class PeerConnector extends ServerConnector {
       }
 
       this._peerVersion = version
-      span.setAttributes({ 'peer.version': version, 'peer.initialized': true })
+      setSpanAttributes(span, { 'peer.version': version, 'peer.initialized': true })
       logger.debug({ peer: this.name, version }, `Connected to Jack peer ${this.name}`)
     })
   }
@@ -132,7 +133,7 @@ export class PeerConnector extends ServerConnector {
       // whole catalog), so keep only the releases that actually match the id.
       const target = normalizeImdbId(imdbId)
       const matched = items.filter(r => r.imdbId != null && normalizeImdbId(r.imdbId) === target)
-      span.setAttributes({ 'release.returned_count': items.length, 'release.matched_count': matched.length })
+      setSpanAttributes(span, { 'release.returned_count': items.length, 'release.matched_count': matched.length })
       return matched
     })
   }
@@ -146,7 +147,7 @@ export class PeerConnector extends ServerConnector {
     }, async (span) => {
       const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
       const matched = items.filter(r => r.tmdbId != null && String(r.tmdbId) === tmdbId)
-      span.setAttributes({ 'release.returned_count': items.length, 'release.matched_count': matched.length })
+      setSpanAttributes(span, { 'release.returned_count': items.length, 'release.matched_count': matched.length })
       return matched
     })
   }
@@ -159,7 +160,7 @@ export class PeerConnector extends ServerConnector {
       'peer.id': this.id,
     }, async (span) => {
       const { items } = await this.fetch('/peer/search', { method: 'GET', schema: PeerSearchResponse })
-      span.setAttribute('release.count', items.length)
+      setSpanAttribute(span, 'release.count', items.length)
       return items
     })
   }
@@ -183,7 +184,7 @@ export class PeerConnector extends ServerConnector {
         r.tvdbId != null && String(r.tvdbId) === tvdbId
         && (season == null || r.season === season)
         && (episode == null || r.episode === episode))
-      span.setAttributes({ 'release.returned_count': items.length, 'release.matched_count': matched.length })
+      setSpanAttributes(span, { 'release.returned_count': items.length, 'release.matched_count': matched.length })
       return matched
     })
   }
@@ -206,7 +207,7 @@ export class PeerConnector extends ServerConnector {
       const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
       const partPath = options.partPath ?? `${destPath}.part`
       const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey }
-      span.setAttributes({ 'http.request.idle_timeout_ms': idleTimeoutMs, 'url.path': url.pathname })
+      setSpanAttributes(span, { 'http.request.idle_timeout_ms': idleTimeoutMs, 'url.path': url.pathname })
 
       // Idle (inactivity) timeout, armed ONLY around network waits (fetch + each
       // read) and cleared before local file/progress work, so slow disk I/O never
@@ -283,7 +284,7 @@ export class PeerConnector extends ServerConnector {
         }
         else if (existingBytes === options.releaseSize) {
           await rename(partPath, destPath)
-          span.setAttribute('download.downloaded_bytes', existingBytes)
+          setSpanAttribute(span, 'download.downloaded_bytes', existingBytes)
           // Emit headers too so the service persists expectedBytes/source (the
           // fast path otherwise skips the headers event).
           await options.onProgress?.({ type: 'headers', expectedBytes: options.releaseSize, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
@@ -293,7 +294,7 @@ export class PeerConnector extends ServerConnector {
       }
 
       let response = await doFetch(existingBytes > 0)
-      span.setAttribute('http.response.status_code', response.status)
+      setSpanAttribute(span, 'http.response.status_code', response.status)
 
       if (existingBytes > 0) {
         if (response.status === 206) {
@@ -302,12 +303,12 @@ export class PeerConnector extends ServerConnector {
             && (options.releaseSize == null || cr.total === options.releaseSize)
           if (!valid) {
             response = await restartFresh(response, 'content_range_mismatch', existingBytes)
-            span.setAttribute('http.response.status_code', response.status)
+            setSpanAttribute(span, 'http.response.status_code', response.status)
           }
         }
         else if (response.status === 416) {
           response = await restartFresh(response, 'range_not_satisfiable', existingBytes)
-          span.setAttribute('http.response.status_code', response.status)
+          setSpanAttribute(span, 'http.response.status_code', response.status)
         }
         else if (!response.ok) {
           throw new FetchError(`Failed to resume download from peer: ${response.statusText}`, response)
@@ -353,7 +354,7 @@ export class PeerConnector extends ServerConnector {
       const expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null
         = transferSize != null ? (resuming ? 'content_range' : 'content_length') : (expectedBytes != null ? 'release_size' : null)
       const expectedBytesMismatch = transferSize != null && options.releaseSize != null && transferSize !== options.releaseSize
-      span.setAttributes({
+      setSpanAttributes(span, {
         'download.resuming': resuming,
         'download.resume_from_bytes': existingBytes,
         'download.expected_bytes_source': expectedBytesSource ?? 'unknown',
@@ -364,7 +365,7 @@ export class PeerConnector extends ServerConnector {
         void response.body.cancel().catch(() => {})
         throw new UnknownSizeError(`Cannot verify download for item ${id}: no Content-Length/Content-Range and no release size`)
       }
-      span.setAttribute('download.expected_bytes', expectedBytes)
+      setSpanAttribute(span, 'download.expected_bytes', expectedBytes)
 
       if (expectedBytesMismatch) {
         logger.warn({ id, torrentFilename, releaseSize: options.releaseSize, expectedBytes: transferSize, peer: this.name }, 'Peer file total size differs from release metadata size')
@@ -449,7 +450,7 @@ export class PeerConnector extends ServerConnector {
         reader.releaseLock()
 
         await rename(partPath, destPath)
-        span.setAttribute('download.downloaded_bytes', downloadedBytes)
+        setSpanAttribute(span, 'download.downloaded_bytes', downloadedBytes)
         try {
           await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
         }

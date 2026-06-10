@@ -2,7 +2,7 @@ import type { AttributeValue, Span } from '@opentelemetry/api'
 import type { Context } from 'hono'
 import { trace } from '@opentelemetry/api'
 import { createMiddleware } from 'hono/factory'
-import { redactIfSensitive, redactRecord } from '../lib/redact'
+import { redactUrl, setSpanAttribute, setSpanAttributes } from '../lib/span-attributes'
 import { logger } from '../logger'
 
 const MAX_CAPTURED_BODY_BYTES = 8 * 1024
@@ -65,16 +65,15 @@ function isTextualContentType(contentType: string) {
     || normalized.includes('form-urlencoded')
 }
 
-function jsonAttribute(value: unknown): string {
-  return JSON.stringify(value)
-}
-
-function flattenedAttributes(prefix: string, record: Record<string, string | string[]>, allowedFields: Set<string>): Record<string, AttributeValue> {
-  return Object.fromEntries(
-    Object.entries(record)
-      .filter(([key]) => allowedFields.has(key.toLowerCase()))
-      .map(([key, value]) => [`${prefix}.${key.toLowerCase()}`, redactIfSensitive(key, value)]),
-  )
+// Promote an allowlisted subset of a header/query map to individual span
+// attributes (e.g. `http.request.header.user-agent`). Redaction is handled by
+// setSpanAttribute via the per-field key.
+function setFlattenedAttributes(span: Span, prefix: string, record: Record<string, string | string[]>, allowedFields: Set<string>): void {
+  for (const [key, value] of Object.entries(record)) {
+    if (allowedFields.has(key.toLowerCase())) {
+      setSpanAttribute(span, `${prefix}.${key.toLowerCase()}`, value)
+    }
+  }
 }
 
 function emptyBody(size: string): CapturedBody {
@@ -189,31 +188,40 @@ function bodyAttributes(prefix: string, body: CapturedBody | undefined): Record<
 async function addHttpSpanAttributes(span: Span, ctx: Context, durationMs: number, requestBody: CapturedBody | undefined) {
   const url = new URL(ctx.req.url)
   const responseBody = await captureResponseBody(ctx)
-  const requestHeaders = redactRecord(ctx.req.header())
-  const requestQuery = redactRecord(queryToRecord(ctx.req.url))
-  const responseHeaders = redactRecord(headersToRecord(ctx.res.headers))
+  // Raw records: setSpanAttributes redacts, serializes, and truncates them.
+  const requestHeaders = ctx.req.header()
+  const requestQuery = queryToRecord(ctx.req.url)
+  const responseHeaders = headersToRecord(ctx.res.headers)
 
-  span.setAttributes({
+  setSpanAttributes(span, {
     'http.request.method': ctx.req.method,
     'http.request.path': ctx.req.path,
-    'http.request.url': ctx.req.url,
-    'http.request.query': jsonAttribute(requestQuery),
-    'http.request.headers': jsonAttribute(requestHeaders),
+    'http.request.url': redactUrl(ctx.req.url),
+    'http.request.query': requestQuery,
+    'http.request.headers': requestHeaders,
     'http.request.content_type': ctx.req.header('content-type') ?? '',
     'http.request.content_length': ctx.req.header('content-length') ?? '',
     'http.response.status_code': ctx.res.status,
-    'http.response.headers': jsonAttribute(responseHeaders),
+    'http.response.headers': responseHeaders,
     'http.response.content_type': ctx.res.headers.get('content-type') ?? '',
     'http.response.content_length': ctx.res.headers.get('content-length') ?? '',
     'http.server.duration_ms': durationMs,
     'url.path': url.pathname,
-    'url.query': jsonAttribute(requestQuery),
-    ...flattenedAttributes('http.request.header', requestHeaders, FLATTENED_HEADER_FIELDS),
-    ...flattenedAttributes('http.request.query', requestQuery, FLATTENED_QUERY_FIELDS),
-    ...flattenedAttributes('http.response.header', responseHeaders, FLATTENED_HEADER_FIELDS),
+    'url.query': requestQuery,
     ...bodyAttributes('http.request', requestBody),
     ...bodyAttributes('http.response', responseBody),
   })
+
+  setFlattenedAttributes(span, 'http.request.header', requestHeaders, FLATTENED_HEADER_FIELDS)
+  setFlattenedAttributes(span, 'http.request.query', requestQuery, FLATTENED_QUERY_FIELDS)
+  setFlattenedAttributes(span, 'http.response.header', responseHeaders, FLATTENED_HEADER_FIELDS)
+
+  // @hono/otel sets `url.full` to the raw request URL; override it only when the
+  // query actually carried something sensitive (otherwise leave its value as-is).
+  const redactedFullUrl = redactUrl(ctx.req.url)
+  if (redactedFullUrl !== ctx.req.url) {
+    setSpanAttribute(span, 'url.full', redactedFullUrl)
+  }
 }
 
 export const logRequests = createMiddleware(async (ctx, next) => {
