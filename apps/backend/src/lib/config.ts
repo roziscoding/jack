@@ -159,6 +159,7 @@ export const DownloadsConfig = z.object({
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 
 export const AppConfig = z.object({
+  version: z.number(),
   jack: JackConfig.optional(),
   downloads: DownloadsConfig.optional(),
   servers: z.array(ServerConfig).default([]),
@@ -167,11 +168,38 @@ export const AppConfig = z.object({
 
 export type AppConfig = z.infer<typeof AppConfig>
 
+export const MIGRATIONS = [
+  <T extends object>(obj: T): T & { version: number } => ({ ...obj, version: 1 }),
+]
+const LATEST_MIGRATION = MIGRATIONS.length
+
+export function migrateConfig(rawConfigObject: unknown) {
+  const configObject = z
+    .looseObject({ version: z.number().max(LATEST_MIGRATION).min(0).default(0) })
+    .catch({ version: 0 })
+    .parse(rawConfigObject)
+
+  const currentVersion = configObject.version
+  const migrationsToApply = MIGRATIONS.slice(currentVersion)
+
+  if (migrationsToApply.length === 0) {
+    return
+  }
+
+  logger.debug(`Migrating config from version ${currentVersion} to version ${MIGRATIONS.length}`)
+
+  return migrationsToApply.reduce((acc, migration, idx) => {
+    logger.trace({ input: acc }, `Migrating to version ${idx + 1}`)
+    return migration(acc)
+  }, configObject)
+}
+
 // Template written to disk to bootstrap a fresh install. API keys default to the
 // `{ env: "..." }` form so secrets can be supplied via environment variables
 // instead of being hardcoded in the file. Typed as the schema *input* so the
 // env-reference shape is allowed here.
 const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
+  version: MIGRATIONS.length,
   jack: {
     baseUrl: 'http://jack:5225',
     apiKey: { env: 'JACK_API_KEY' },
@@ -183,6 +211,7 @@ const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
 // Fallback returned on first boot when the default's env references aren't set
 // yet, so the app keeps starting instead of crashing on a fresh install.
 const EMPTY_APP_CONFIG: AppConfig = {
+  version: MIGRATIONS.length,
   servers: [],
   peers: [],
 }
@@ -215,6 +244,8 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
   logger.debug(`Parsing config file content`)
   const fileContent = jsonc.parse(fileTextContent)
 
+  const migratedConfig = migrateConfig(fileContent)
+
   logger.debug(`Validating app config`)
-  return AppConfig.parse(fileContent)
+  return AppConfig.parse(migratedConfig)
 }
