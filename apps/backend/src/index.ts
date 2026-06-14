@@ -26,7 +26,7 @@ logger.debug('Loading environment variables')
 const envs = getAppEnvs()
 
 logger.debug('Loading app config')
-const config = await getAppConfig(envs)
+const { appConfig: config, raw: rawConfig } = await getAppConfig(envs)
 
 const connectorManager = new ConnectorManager(config.servers, config.peers)
 await connectorManager.initAll()
@@ -34,10 +34,10 @@ await connectorManager.initAll()
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
 
-// NOTE: Phase 6 replaces this independent read with the shared raw object returned
-// by getAppConfig (see Phase 6) so the service can't diverge from the loaded config.
+// Seed the management service from the shared raw object returned by getAppConfig
+// so the service's persisted state can never diverge from the loaded runtime config.
 const configService = envs.MANAGEMENT_KEY
-  ? await ConfigService.fromFile({ path: envs.APP_CONFIG_PATH, connectorManager, downloadsRepository })
+  ? new ConfigService({ path: envs.APP_CONFIG_PATH, raw: rawConfig, connectorManager, downloadsRepository })
   : undefined
 
 const downloadsService = config.downloads

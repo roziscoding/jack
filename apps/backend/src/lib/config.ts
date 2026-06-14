@@ -6,6 +6,7 @@ import process from 'node:process'
 import { jsonc } from 'jsonc'
 import z from 'zod'
 import { logger } from '../logger'
+import { atomicWriteFile } from './atomic-write'
 
 const TRAILING_LINE_ENDINGS = /[\r\n]+$/
 
@@ -225,7 +226,7 @@ async function createDefaultAppConfig(path: string) {
   }
 }
 
-export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_PATH'>) {
+export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_PATH'>): Promise<{ appConfig: AppConfig, raw: z.input<typeof AppConfig> }> {
   const configFileExists = await fs.exists(APP_CONFIG_PATH)
 
   if (!configFileExists) {
@@ -234,20 +235,29 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
 
     const defaultConfig = AppConfig.safeParse(DEFAULT_APP_CONFIG)
     if (defaultConfig.success)
-      return defaultConfig.data
+      return { appConfig: defaultConfig.data, raw: DEFAULT_APP_CONFIG }
 
     logger.warn('Default config references environment variables that are not set. Starting with an empty config until they are provided.')
-    return EMPTY_APP_CONFIG
+    return { appConfig: EMPTY_APP_CONFIG, raw: EMPTY_APP_CONFIG }
   }
 
   logger.debug(`Loading config file from ${APP_CONFIG_PATH}`)
   const fileTextContent = await Bun.file(APP_CONFIG_PATH).text()
-
-  logger.debug(`Parsing config file content`)
   const fileContent = jsonc.parse(fileTextContent)
 
-  const migratedConfig = migrateConfig(fileContent)
+  // `migrateConfig` returns the migrated object, or `undefined` when the file is
+  // already current. On a real migration, back up the original bytes (comments
+  // intact) then atomically rewrite the file so the upgrade is durable.
+  const migrated = migrateConfig(fileContent)
+  if (migrated) {
+    logger.info(`Config migrated; writing backup to ${APP_CONFIG_PATH}.bak and persisting`)
+    await Bun.write(`${APP_CONFIG_PATH}.bak`, fileTextContent)
+    await atomicWriteFile(APP_CONFIG_PATH, jsonc.stringify(migrated, { space: 2 }))
+  }
 
+  // `migrated ?? fileContent` also fixes the up-to-date-file crash (migrateConfig
+  // returns undefined when current; parsing undefined used to throw).
+  const raw = (migrated ?? fileContent) as z.input<typeof AppConfig>
   logger.debug(`Validating app config`)
-  return AppConfig.parse(migratedConfig)
+  return { appConfig: AppConfig.parse(raw), raw }
 }
