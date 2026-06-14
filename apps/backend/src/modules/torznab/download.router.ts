@@ -4,7 +4,7 @@ import { createTorrentStub } from './torrent'
 
 const TORRENT_EXTENSION_REGEX = /\.torrent$/
 
-export function getDownloadRouter(peers: PeerConnector[]) {
+export function getDownloadRouter(getPeers: () => PeerConnector[]) {
   const app = new Hono()
 
   app.get('/download/:id', async (c) => {
@@ -16,7 +16,7 @@ export function getDownloadRouter(peers: PeerConnector[]) {
       return c.json({ error: 'Invalid ID format, expected peerId:itemId' }, 400)
     }
 
-    const peer = peers.find(p => p.id === peerId)
+    const peer = getPeers().find(p => p.id === peerId)
     if (!peer || !peer.isInitialized) {
       return c.json({ error: 'Peer not found or not initialized' }, 404)
     }

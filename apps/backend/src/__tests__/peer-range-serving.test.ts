@@ -43,7 +43,7 @@ function controllerForFile() {
     canSource: true,
     getFilePath: async () => filePath,
   }
-  return new PeerController([source as any])
+  return new PeerController(() => [source as any])
 }
 
 // `body` is now a BunFile/Blob (served via Bun's native backpressure) rather than a

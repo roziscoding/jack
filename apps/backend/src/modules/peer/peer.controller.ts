@@ -46,7 +46,7 @@ export type StreamFileResult
  */
 export class PeerController {
   constructor(
-    private readonly sources: ArrServerConnector[],
+    private readonly getSources: () => ArrServerConnector[],
   ) {}
 
   // Sources gated by config only (`source: true`). We deliberately do NOT filter
@@ -54,7 +54,7 @@ export class PeerController {
   // attempted and re-initialized lazily by @requireInitialization, so one that
   // came back online rejoins searches without a restart.
   private get sourceServers() {
-    return this.sources.filter(s => s.canSource)
+    return this.getSources().filter(s => s.canSource)
   }
 
   async search(params: { imdbId?: string, tmdbId?: string, tvdbId?: string, season?: number, episode?: number }): Promise<Release[]> {
@@ -64,7 +64,7 @@ export class PeerController {
       'search.tvdb_id': params.tvdbId,
       'search.season': params.season,
       'search.episode': params.episode,
-      'source.total_count': this.sources.length,
+      'source.total_count': this.getSources().length,
       'source.enabled_count': this.sourceServers.length,
     }, async (span) => {
       const sources = this.sourceServers

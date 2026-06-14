@@ -88,6 +88,9 @@ describe('Management API auth', () => {
 
 const mswServer = setupServer(
   http.get('http://bob.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
+  http.get('http://bob.test:3000/peer/search', () => HttpResponse.json({ items: [
+    { id: 'b:movie:1', title: 'Bob.Movie.1080p', filename: 'Bob.Movie.1080p.mkv', category: 2000, size: 1, imdbId: 'tt1', tmdbId: 1 },
+  ] })),
   http.get('http://bob2.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://carol.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://radarr-new.test:7878/api/v3/system/status', () => HttpResponse.json({ appName: 'Radarr', version: '4.0.0' })),
@@ -258,6 +261,47 @@ describe('Management API servers', () => {
     const res = await app.request(`/config/servers/${serverId}`, { method: 'DELETE', headers: KEY })
     expect(res.status).toBe(200)
     expect(connectorManager.servers).toHaveLength(0)
+  })
+})
+
+describe('Management API live visibility', () => {
+  test('a live-added peer is searchable via /torznab without restart', async () => {
+    // `app` = management app (/config); `mainApp` = public app (/torznab). Same
+    // in-process connectorManager, so a mutation on one is visible to the other.
+    const { app, mainApp } = await makeMutableApp()
+
+    // Before: empty feed (queried on the PUBLIC app).
+    const before = await (await mainApp.request('/torznab/api?t=search&apikey=test-api-key')).text()
+    expect(before).not.toContain('Bob.Movie.1080p')
+
+    // Add via the MANAGEMENT app.
+    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }) })
+
+    // After add: the peer's catalog appears live on the public feed.
+    const after = await (await mainApp.request('/torznab/api?t=search&apikey=test-api-key')).text()
+    expect(after).toContain('Bob.Movie.1080p')
+
+    // After remove: gone again.
+    const { generateId } = await import('../lib/servers/base')
+    await app.request(`/config/peers/${generateId('http://bob.test:3000')}`, { method: 'DELETE', headers: KEY })
+    const removed = await (await mainApp.request('/torznab/api?t=search&apikey=test-api-key')).text()
+    expect(removed).not.toContain('Bob.Movie.1080p')
+  })
+
+  test('a live-added peer appears in GET /servers without restart', async () => {
+    // Covers the lazy-getter-OBJECT wiring (ServersController). Together with the
+    // /torznab test above (the () => Connector[] PROVIDER wiring), both Phase-7
+    // wiring styles are exercised — ItemsController/QbittorrentController reuse the
+    // same object-getter pattern as ServersController.
+    const { app, mainApp } = await makeMutableApp()
+
+    const before = await (await mainApp.request('/servers', { headers: { 'X-Api-Key': 'test-api-key' } })).json() as { peers: Array<{ name: string }> }
+    expect(before.peers.some(p => p.name === 'Bob')).toBe(false)
+
+    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }) })
+
+    const after = await (await mainApp.request('/servers', { headers: { 'X-Api-Key': 'test-api-key' } })).json() as { peers: Array<{ name: string }> }
+    expect(after.peers.some(p => p.name === 'Bob')).toBe(true)
   })
 })
 
