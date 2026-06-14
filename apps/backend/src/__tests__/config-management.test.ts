@@ -9,6 +9,7 @@ import { setupServer } from 'msw/node'
 import { getApp } from '../app'
 import { AppConfig, MIGRATIONS } from '../lib/config'
 import { ConnectorManager } from '../lib/servers'
+import { generateId } from '../lib/servers/base'
 import { PeerConnector } from '../lib/servers/peer'
 import { PROTOCOL_VERSION } from '../lib/version'
 import { getManagementApp } from '../management-app'
@@ -109,6 +110,22 @@ async function makeMutableApp(managementKey = 'mgmt-secret') {
 
 const KEY = { 'X-Management-Key': 'mgmt-secret' } as const
 
+describe('ConnectorManager enabled filtering', () => {
+  test('peers getter excludes a disabled peer but the connector stays resident', () => {
+    const peer = makePeer()
+    const manager = new ConnectorManager([], [])
+    // Inject the peer into the live map, then disable it.
+    ;(manager as any)._peerMap.set(peer.id, peer)
+    expect(manager.peers).toHaveLength(1)
+
+    manager.removeConnector(peer.id)
+    expect(manager.peers).toHaveLength(0)
+    // Still resident in the internal map (for in-flight drain).
+    expect((manager as any)._peerMap.get(peer.id)).toBe(peer)
+    expect(peer.enabled).toBe(false)
+  })
+})
+
 describe('Management API addPeer', () => {
   test('adds a peer live and preserves the secret ref in the file', async () => {
     process.env.BOB_KEY = 'bob-secret'
@@ -151,5 +168,48 @@ describe('Management API addPeer', () => {
     ])
     const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: unknown[] }
     expect(onDisk.peers).toHaveLength(2)
+  })
+})
+
+describe('Management API remove/update peer', () => {
+  const BOB = { name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }
+  const bobId = generateId(BOB.url)
+
+  async function addBob(app: Awaited<ReturnType<typeof makeMutableApp>>['app']) {
+    return app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(BOB) })
+  }
+
+  test('removePeer drops it from file and fan-out', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+    await addBob(app)
+
+    const res = await app.request(`/config/peers/${bobId}`, { method: 'DELETE', headers: KEY })
+    expect(res.status).toBe(200)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: unknown[] }
+    expect(onDisk.peers).toHaveLength(0)
+    expect(connectorManager.peers).toHaveLength(0)
+  })
+
+  test('updatePeer renames in file and live connector (same id)', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+    await addBob(app)
+
+    const res = await app.request(`/config/peers/${bobId}`, {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...BOB, name: 'Bobby' }),
+    })
+    expect(res.status).toBe(200)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: Array<{ name: string }> }
+    expect(onDisk.peers[0]?.name).toBe('Bobby')
+    expect(connectorManager.peers.find(p => p.id === bobId)?.name).toBe('Bobby')
+  })
+
+  test('removePeer with unknown id returns 404', async () => {
+    const { app } = await makeMutableApp()
+    const res = await app.request('/config/peers/deadbeef', { method: 'DELETE', headers: KEY })
+    expect(res.status).toBe(404)
   })
 })

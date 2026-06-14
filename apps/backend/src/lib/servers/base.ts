@@ -1,4 +1,4 @@
-import type { ConnectorHeadersConfig, ConnectorType } from '../config'
+import type { ConnectorHeadersConfig, ConnectorType, ServerConfig } from '../config'
 import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
@@ -9,7 +9,7 @@ import { withSpan } from '../tracing'
 const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
 const MAX_ERROR_BODY_BYTES = 8 * 1024
 
-function generateId(url: string): string {
+export function generateId(url: string): string {
   const hash = new Bun.CryptoHasher('sha256').update(url).digest('hex')
   return hash.slice(0, 8)
 }
@@ -22,11 +22,12 @@ function truncateBody(body: string) {
 
 export abstract class ServerConnector {
   public readonly id: string
+  public readonly name: string
   public readonly type: ConnectorType
   public readonly url: string
   protected readonly apiKey: string
   protected readonly headers: ConnectorHeadersConfig
-  public readonly name: string
+  protected _enabled: boolean = true
 
   private readonly pingPath: string
   private readonly pingMethod: string
@@ -34,11 +35,11 @@ export abstract class ServerConnector {
   private readonly authHeaderPrefix?: string
 
   protected _isInitialized: boolean = false
-  protected _initialization: ReturnType<typeof Promise.withResolvers<void>> | null = null
+  protected _initialization: ReturnType<typeof Promise.withResolvers<void>> = Promise.withResolvers()
   protected _initializationError: string | null = null
   protected _initState: 'idle' | 'pending' | 'initialized' | 'failed' = 'idle'
 
-  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ConnectorType, url: string, apiKey: string, name: string, headers?: ConnectorHeadersConfig }) {
+  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: ServerConfig) {
     this.pingPath = connectorConfig.pingPath
     this.pingMethod = connectorConfig.pingMethod
     this.authHeader = connectorConfig.authHeader
@@ -57,7 +58,7 @@ export abstract class ServerConnector {
   }
 
   get initialization() {
-    return this._initialization?.promise
+    return this._initialization.promise
   }
 
   get initializationError() {
@@ -69,6 +70,18 @@ export abstract class ServerConnector {
     return {
       [authHeader]: this.authHeaderValue,
     }
+  }
+
+  get enabled() {
+    return this._enabled
+  }
+
+  public disable() {
+    this._enabled = false
+  }
+
+  public enable() {
+    this._enabled = true
   }
 
   protected get authHeaderValue(): string {
@@ -201,12 +214,12 @@ export abstract class ServerConnector {
       .then(() => {
         this._isInitialized = true
         this._initState = 'initialized'
-        this._initialization?.resolve()
+        this._initialization.resolve()
       })
       .catch((err: unknown) => {
         this._initializationError = err instanceof Error ? err.message : String(err)
         this._initState = 'failed'
-        this._initialization?.reject(err)
+        this._initialization.reject(err)
       })
   }
 

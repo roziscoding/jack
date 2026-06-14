@@ -13,5 +13,14 @@ export function getConfigRouter(controller: ConfigController) {
     return c.json(await controller.addPeer(body), 201)
   })
 
+  app.delete('/peers/:id', async (c) => {
+    return c.json(await controller.removePeer(c.req.param('id')))
+  })
+
+  app.patch('/peers/:id', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    return c.json(await controller.updatePeer(c.req.param('id'), body))
+  })
+
   return app
 }

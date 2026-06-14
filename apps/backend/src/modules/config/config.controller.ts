@@ -58,4 +58,25 @@ export class ConfigController {
     }
     return { ok: true }
   }
+
+  async removePeer(id: string) {
+    if (!this.configService)
+      throw new Error('Config mutations require a configured ConfigService')
+    await this.configService.removePeer(id)
+    return { ok: true }
+  }
+
+  async updatePeer(id: string, input: unknown) {
+    if (!this.configService)
+      throw new Error('Config mutations require a configured ConfigService')
+    try {
+      await this.configService.updatePeer(id, input)
+    }
+    catch (err) {
+      if (err instanceof z.ZodError)
+        throw new BadRequestError(z.prettifyError(err))
+      throw err
+    }
+    return { ok: true }
+  }
 }

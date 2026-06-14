@@ -4,7 +4,10 @@ import type { ConnectorManager } from '../../lib/servers'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
 import { PeerConfig, RawPeerConfig } from '../../lib/config'
+import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { ConflictError } from '../../lib/errors/ConflictError'
+import { NotFoundError } from '../../lib/errors/NotFoundError'
+import { generateId } from '../../lib/servers/base'
 
 type RawConfig = z.input<typeof AppConfig>
 type RawPeer = RawPeerConfig
@@ -66,6 +69,55 @@ export class ConfigService {
       const next: RawConfig = { ...this.#raw, peers: [...peers, rawPeer] }
       await this.#persist(next)
       this.#raw = next
+      await this.#connectorManager.addPeerConnector(resolved)
+    })
+  }
+
+  #findPeerIndexById(peers: RawPeer[], id: string): number {
+    return peers.findIndex(p => generateId(p.url) === id)
+  }
+
+  async removePeer(id: string): Promise<void> {
+    return this.#enqueue(async () => {
+      const peers = (this.#raw.peers ?? []) as RawPeer[]
+      const index = this.#findPeerIndexById(peers, id)
+      if (index === -1)
+        throw new NotFoundError(`No peer found with id "${id}"`)
+
+      // File is the source of truth: persist the file WITHOUT the peer first, commit
+      // in-memory, then disable the live connector. It stays resident (disabled) so
+      // in-flight downloads holding its reference finish; new fan-outs skip it;
+      // restart prunes it.
+      const next: RawConfig = { ...this.#raw, peers: peers.filter((_, i) => i !== index) }
+      await this.#persist(next)
+      this.#raw = next
+      this.#connectorManager.removeConnector(id)
+    })
+  }
+
+  async updatePeer(id: string, input: unknown): Promise<void> {
+    const resolved = PeerConfig.parse(input)
+    const rawPeer = RawPeerConfig.parse(input) // strip unknown keys, keep refs
+    const newId = generateId(resolved.url)
+
+    return this.#enqueue(async () => {
+      const peers = (this.#raw.peers ?? []) as RawPeer[]
+      const index = this.#findPeerIndexById(peers, id)
+      if (index === -1)
+        throw new NotFoundError(`No peer found with id "${id}"`)
+
+      // URL change re-derives the id (rekey + download cascade) — Phase 4.
+      if (newId !== id)
+        throw new BadRequestError('Changing a peer URL is not supported yet')
+
+      if (peers.some((p, i) => i !== index && p.name === resolved.name))
+        throw new ConflictError(`A peer named "${resolved.name}" already exists`)
+
+      const next: RawConfig = { ...this.#raw, peers: peers.map((p, i) => (i === index ? rawPeer : p)) }
+      await this.#persist(next)
+      this.#raw = next
+      // Same id → addPeerConnector overwrites the map entry and re-inits. The old
+      // instance is dropped from the map; any in-flight download holding it finishes.
       await this.#connectorManager.addPeerConnector(resolved)
     })
   }
