@@ -1,4 +1,5 @@
 import type { ConnectorManager } from './lib/servers'
+import type { ConfigService } from './modules/config/config.service'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { handleError } from './middleware/handle-error'
@@ -11,6 +12,7 @@ export function getManagementApp(params: {
   managementKey: string
   // The live manager (its `servers`/`peers` getters are read per request).
   connectors: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }
+  configService?: ConfigService
 }) {
   const app = new Hono()
 
@@ -18,7 +20,7 @@ export function getManagementApp(params: {
   // The entire surface is key-guarded; no route is reachable without it.
   app.use('*', requireManagementKey(params.managementKey))
 
-  const configController = new ConfigController(params.connectors)
+  const configController = new ConfigController(params.connectors, params.configService)
   app.route('/config', getConfigRouter(configController))
 
   app.onError(handleError(params.environment))

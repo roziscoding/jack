@@ -2,11 +2,15 @@ import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { accepts } from 'hono/accepts'
 import { xml } from '../helpers/xml'
+import { BadRequestError } from '../lib/errors/BadRequestError'
+import { ConflictError } from '../lib/errors/ConflictError'
 import { FetchError } from '../lib/errors/FetchError'
 import { UnauthorizedError } from '../lib/errors/UnauthorizedError'
 
 const STATUS_CODE_MAP = [
   [UnauthorizedError, 401] as const,
+  [BadRequestError, 400] as const,
+  [ConflictError, 409] as const,
   [FetchError, 503] as const,
 ]
 

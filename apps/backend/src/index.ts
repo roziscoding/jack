@@ -8,6 +8,7 @@ import { FetchError } from './lib/errors/FetchError'
 import { ConnectorManager } from './lib/servers'
 import { logger } from './logger'
 import { getManagementApp } from './management-app'
+import { ConfigService } from './modules/config/config.service'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
@@ -29,6 +30,12 @@ const config = await getAppConfig(envs)
 
 const connectorManager = new ConnectorManager(config.servers, config.peers)
 await connectorManager.initAll()
+
+// NOTE: Phase 6 replaces this independent read with the shared raw object returned
+// by getAppConfig (see Phase 6) so the service can't diverge from the loaded config.
+const configService = envs.MANAGEMENT_KEY
+  ? await ConfigService.fromFile({ path: envs.APP_CONFIG_PATH, connectorManager })
+  : undefined
 
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
@@ -62,6 +69,7 @@ if (envs.MANAGEMENT_KEY) {
       environment: envs.ENVIRONMENT,
       managementKey: envs.MANAGEMENT_KEY,
       connectors: connectorManager,
+      configService,
     })
     managementServer = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
     logger.info({ port: managementServer.port }, 'Management API listening')

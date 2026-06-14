@@ -8,5 +8,10 @@ export function getConfigRouter(controller: ConfigController) {
   app.get('/peers', c => c.json(controller.listPeers()))
   app.get('/servers', c => c.json(controller.listServers()))
 
+  app.post('/peers', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    return c.json(await controller.addPeer(body), 201)
+  })
+
   return app
 }
