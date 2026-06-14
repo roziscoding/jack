@@ -175,6 +175,14 @@ export class DownloadsRepository {
     this.db.delete(downloads).where(eq(downloads.id, id)).run()
   }
 
+  /** Manual ON UPDATE CASCADE: move every download row from one peer id to another. */
+  reassignPeerId(oldPeerId: string, newPeerId: string): void {
+    this.db.update(downloads)
+      .set({ peerId: newPeerId, updatedAt: nowIso() })
+      .where(eq(downloads.peerId, oldPeerId))
+      .run()
+  }
+
   /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */
   listStaleDownloads(): DownloadRecord[] {
     return this.db.select().from(downloads).where(eq(downloads.status, 'downloading')).all().map(toRecord)

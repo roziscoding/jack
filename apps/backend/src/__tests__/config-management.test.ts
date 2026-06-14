@@ -2,11 +2,15 @@ import type { Envs } from '../lib/envs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Database } from 'bun:sqlite'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { jsonc } from 'jsonc'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { getApp } from '../app'
+import { runMigrations } from '../database/connection'
+import * as schema from '../database/schema'
 import { AppConfig, MIGRATIONS } from '../lib/config'
 import { ConnectorManager } from '../lib/servers'
 import { generateId } from '../lib/servers/base'
@@ -14,6 +18,7 @@ import { PeerConnector } from '../lib/servers/peer'
 import { PROTOCOL_VERSION } from '../lib/version'
 import { getManagementApp } from '../management-app'
 import { ConfigService } from '../modules/config/config.service'
+import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 
 const config = AppConfig.parse({
   version: MIGRATIONS.length,
@@ -83,15 +88,19 @@ describe('Management API auth', () => {
 
 const mswServer = setupServer(
   http.get('http://bob.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
+  http.get('http://bob2.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://carol.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
 )
 beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }))
 afterAll(() => mswServer.close())
 
 const tempFiles: string[] = []
+const dbsToClose: Database[] = []
 afterEach(async () => {
   for (const f of tempFiles.splice(0))
     await rm(f, { force: true })
+  for (const db of dbsToClose.splice(0))
+    db.close()
 })
 
 // `app` is the MANAGEMENT app (where /config lives); `mainApp` is the public peer
@@ -102,10 +111,16 @@ async function makeMutableApp(managementKey = 'mgmt-secret') {
   tempFiles.push(path)
   await Bun.write(path, jsonc.stringify({ version: 1, peers: [], servers: [] }, { space: 2 }))
   const connectorManager = new ConnectorManager([], [])
-  const configService = await ConfigService.fromFile({ path, connectorManager })
+  const database = new Database(':memory:')
+  dbsToClose.push(database)
+  database.exec('pragma foreign_keys = ON')
+  const db = drizzle({ client: database, schema })
+  runMigrations(db)
+  const downloadsRepository = new DownloadsRepository(db)
+  const configService = await ConfigService.fromFile({ path, connectorManager, downloadsRepository })
   const app = getManagementApp({ environment: 'test', managementKey, connectors: connectorManager, configService })
-  const mainApp = getApp(makeEnvs(managementKey), config, connectorManager)
-  return { app, mainApp, path, connectorManager }
+  const mainApp = getApp(makeEnvs(managementKey), config, connectorManager, { downloadsRepository })
+  return { app, mainApp, path, connectorManager, downloadsRepository, database }
 }
 
 const KEY = { 'X-Management-Key': 'mgmt-secret' } as const
@@ -211,5 +226,40 @@ describe('Management API remove/update peer', () => {
     const { app } = await makeMutableApp()
     const res = await app.request('/config/peers/deadbeef', { method: 'DELETE', headers: KEY })
     expect(res.status).toBe(404)
+  })
+})
+
+describe('Management API updatePeer url change', () => {
+  test('rekeys the connector map and cascades download rows', async () => {
+    const { app, connectorManager, downloadsRepository } = await makeMutableApp()
+    const urlA = 'http://bob.test:3000'
+    const urlB = 'http://bob2.test:3000'
+    const idA = generateId(urlA)
+    const idB = generateId(urlB)
+
+    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: urlA, apiKey: 'k' }) })
+
+    const dl = downloadsRepository.create({
+      torrentFilename: 'm.torrent',
+      peerId: idA,
+      peerName: 'Bob',
+      itemId: 'movie:1',
+      filename: 'm.mkv',
+      destPath: '/tmp/m.mkv',
+      partPath: '/tmp/m.mkv.part',
+      releaseSize: 1,
+      release: { id: 'r', title: 'm', filename: 'm.mkv', category: 2000, size: 1 } as any,
+    })
+
+    const res = await app.request(`/config/peers/${idA}`, {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob', url: urlB, apiKey: 'k' }),
+    })
+    expect(res.status).toBe(200)
+
+    expect(connectorManager.peers.some(p => p.id === idB)).toBe(true)
+    expect(connectorManager.peers.some(p => p.id === idA)).toBe(false)
+    expect(downloadsRepository.get(dl.id)?.peerId).toBe(idB)
   })
 })

@@ -31,14 +31,14 @@ const config = await getAppConfig(envs)
 const connectorManager = new ConnectorManager(config.servers, config.peers)
 await connectorManager.initAll()
 
+const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
+const downloadsRepository = new DownloadsRepository(database.db)
+
 // NOTE: Phase 6 replaces this independent read with the shared raw object returned
 // by getAppConfig (see Phase 6) so the service can't diverge from the loaded config.
 const configService = envs.MANAGEMENT_KEY
-  ? await ConfigService.fromFile({ path: envs.APP_CONFIG_PATH, connectorManager })
+  ? await ConfigService.fromFile({ path: envs.APP_CONFIG_PATH, connectorManager, downloadsRepository })
   : undefined
-
-const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
-const downloadsRepository = new DownloadsRepository(database.db)
 
 const downloadsService = config.downloads
   ? new DownloadsService(config.downloads, connectorManager, downloadsRepository)

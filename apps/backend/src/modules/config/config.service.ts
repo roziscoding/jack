@@ -1,10 +1,10 @@
 import type { z } from 'zod'
 import type { AppConfig } from '../../lib/config'
 import type { ConnectorManager } from '../../lib/servers'
+import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
 import { PeerConfig, RawPeerConfig } from '../../lib/config'
-import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
@@ -16,21 +16,23 @@ export class ConfigService {
   #path: string
   #raw: RawConfig
   #connectorManager: ConnectorManager
+  #downloadsRepository?: DownloadsRepository
   // Serialized write queue: one async mutex every mutation chains onto, so file
   // read-modify-write + map mutation never interleave between concurrent calls.
   #queue: Promise<unknown> = Promise.resolve()
 
-  constructor(params: { path: string, raw: RawConfig, connectorManager: ConnectorManager }) {
+  constructor(params: { path: string, raw: RawConfig, connectorManager: ConnectorManager, downloadsRepository?: DownloadsRepository }) {
     this.#path = params.path
     this.#raw = params.raw
     this.#connectorManager = params.connectorManager
+    this.#downloadsRepository = params.downloadsRepository
   }
 
   /** Load the raw (refs-intact) config object from disk to seed the service. */
-  static async fromFile(params: { path: string, connectorManager: ConnectorManager }): Promise<ConfigService> {
+  static async fromFile(params: { path: string, connectorManager: ConnectorManager, downloadsRepository?: DownloadsRepository }): Promise<ConfigService> {
     const text = await Bun.file(params.path).text()
     const raw = jsonc.parse(text) as RawConfig
-    return new ConfigService({ path: params.path, raw, connectorManager: params.connectorManager })
+    return new ConfigService({ path: params.path, raw, connectorManager: params.connectorManager, downloadsRepository: params.downloadsRepository })
   }
 
   #enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -106,19 +108,33 @@ export class ConfigService {
       if (index === -1)
         throw new NotFoundError(`No peer found with id "${id}"`)
 
-      // URL change re-derives the id (rekey + download cascade) — Phase 4.
-      if (newId !== id)
-        throw new BadRequestError('Changing a peer URL is not supported yet')
-
+      // Name must stay unique against every OTHER peer.
       if (peers.some((p, i) => i !== index && p.name === resolved.name))
         throw new ConflictError(`A peer named "${resolved.name}" already exists`)
 
       const next: RawConfig = { ...this.#raw, peers: peers.map((p, i) => (i === index ? rawPeer : p)) }
+
+      if (newId === id) {
+        // Same url → rename / re-key headers. addPeerConnector overwrites the map
+        // entry and re-inits; the old instance is dropped, any in-flight download
+        // holding it finishes.
+        await this.#persist(next)
+        this.#raw = next
+        await this.#connectorManager.addPeerConnector(resolved)
+        return
+      }
+
+      // URL changed → the id moves. Reject collision with an existing peer's url.
+      if (peers.some((p, i) => i !== index && generateId(p.url) === newId))
+        throw new ConflictError(`A peer with url "${resolved.url}" already exists`)
+
       await this.#persist(next)
       this.#raw = next
-      // Same id → addPeerConnector overwrites the map entry and re-inits. The old
-      // instance is dropped from the map; any in-flight download holding it finishes.
+      // Add under the new id (init on the new url), then drain the old connector and
+      // cascade the download rows so they follow the peer to the new id.
       await this.#connectorManager.addPeerConnector(resolved)
+      this.#connectorManager.removeConnector(id)
+      this.#downloadsRepository?.reassignPeerId(id, newId)
     })
   }
 }
