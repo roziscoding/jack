@@ -1,4 +1,4 @@
-import type { ConnectorHeadersConfig, ConnectorType, ServerConfig } from '../config'
+import type { ConnectorHeadersConfig, ConnectorType } from '../config'
 import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
@@ -39,7 +39,7 @@ export abstract class ServerConnector {
   protected _initializationError: string | null = null
   protected _initState: 'idle' | 'pending' | 'initialized' | 'failed' = 'idle'
 
-  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: ServerConfig) {
+  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { url: string, name: string, apiKey: string, type: ConnectorType, headers?: ConnectorHeadersConfig }) {
     this.pingPath = connectorConfig.pingPath
     this.pingMethod = connectorConfig.pingMethod
     this.authHeader = connectorConfig.authHeader

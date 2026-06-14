@@ -42,7 +42,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('incompatible peer-protocol version')
@@ -55,7 +55,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('got none')
@@ -67,7 +67,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('incompatible peer-protocol version')
@@ -80,7 +80,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('incompatible peer-protocol version')
@@ -92,7 +92,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).not.toContain('incompatible peer-protocol version')

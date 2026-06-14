@@ -30,7 +30,10 @@ interface AppServices {
   downloadsService?: DownloadsService
 }
 
-export function getApp(envs: Envs, config: AppConfig, connManager: ConnectorManager, services: AppServices = {}) {
+// Only the live `servers`/`peers` getters are used here, so accept the structural
+// shape a real `ConnectorManager` satisfies — this also lets tests pass a lightweight
+// `{ servers, peers }` object.
+export function getApp(envs: Envs, config: AppConfig, connManager: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }, services: AppServices = {}) {
   const app = new Hono()
   const connectors = {
     get servers() {

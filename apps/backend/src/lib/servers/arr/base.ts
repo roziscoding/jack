@@ -1,9 +1,9 @@
-import type { AutoRegisterConfig, ConnectorHeadersConfig, ServerType } from '../../config'
+import type { AutoRegisterConfig, ConnectorHeadersConfig, ServerConfig } from '../../config'
 import type { Release } from '../../release'
 import z from 'zod'
 import { logger } from '../../../logger'
-import { requireInitialization } from '../../decorators/require-initialization'
 import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
+import { requiresInitialization } from '../../decorators/requires-initialization'
 import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
@@ -68,7 +68,8 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   constructor(
     connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, expectedAppName: string },
-    config: { type: ServerType, url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig },
+    // `headers` optional so subclasses/tests can omit it; the base defaults it to {}.
+    config: Omit<ServerConfig, 'headers'> & { headers?: ConnectorHeadersConfig },
   ) {
     super(connectorConfig, config)
     this.expectedAppName = connectorConfig.expectedAppName
@@ -112,44 +113,44 @@ export abstract class ArrServerConnector extends ServerConnector {
   // ---- Source role ----
 
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async searchItems(term: string): Promise<Release[]> {
     return this.doSearchItems(term)
   }
 
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async searchByImdbId(imdbId: string): Promise<Release[]> {
     return this.doSearchByImdbId(imdbId)
   }
 
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async searchByTmdbId(tmdbId: string): Promise<Release[]> {
     return this.doSearchByTmdbId(tmdbId)
   }
 
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     return this.doSearchByTvdbId(tvdbId, season, episode)
   }
 
   /** All releases this source can serve — used for the torznab RSS/catalog feed. */
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async listReleases(): Promise<Release[]> {
     return this.doListReleases()
   }
 
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async getRelease(id: string): Promise<Release | null> {
     return this.doGetRelease(id)
   }
 
   @requiresSource
-  @requireInitialization
+  @requiresInitialization
   async getFilePath(id: string): Promise<string | null> {
     return this.doGetFilePath(id)
   }
@@ -165,13 +166,13 @@ export abstract class ArrServerConnector extends ServerConnector {
   // ---- Destination role ----
 
   @requiresDestination
-  @requireInitialization
+  @requiresInitialization
   async getHealthIssues() {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
   }
 
   @requiresDestination
-  @requireInitialization
+  @requiresInitialization
   async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[], downloadClientId?: number }) {
     const existingIndexers = await this.arrGet<any[]>('/api/v3/indexer')
     const existing: any = Array.isArray(existingIndexers)
@@ -223,8 +224,8 @@ export abstract class ArrServerConnector extends ServerConnector {
   }
 
   @requiresDestination
-  @requireInitialization
-  async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string }): Promise<number> {
+  @requiresInitialization
+  public async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string }): Promise<number> {
     const url = new URL(clientConfig.baseUrl)
     const host = url.hostname
     const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80)

@@ -2,7 +2,7 @@ import type { ConnectorHeadersConfig } from '../config'
 import { open, rename, unlink } from 'node:fs/promises'
 import z from 'zod'
 import { logger } from '../../logger'
-import { requireInitialization } from '../decorators/require-initialization'
+import { requiresInitialization } from '../decorators/requires-initialization'
 import { FetchError } from '../errors/FetchError'
 import { IdleTimeoutError } from '../errors/IdleTimeoutError'
 import { IncompatiblePeerError } from '../errors/IncompatiblePeerError'
@@ -121,7 +121,7 @@ export class PeerConnector extends ServerConnector {
     })
   }
 
-  @requireInitialization
+  @requiresInitialization
   async searchByImdbId(imdbId: string): Promise<Release[]> {
     return withSpan('peer.search_by_imdb', {
       'peer.name': this.name,
@@ -138,7 +138,7 @@ export class PeerConnector extends ServerConnector {
     })
   }
 
-  @requireInitialization
+  @requiresInitialization
   async searchByTmdbId(tmdbId: string): Promise<Release[]> {
     return withSpan('peer.search_by_tmdb', {
       'peer.name': this.name,
@@ -153,7 +153,7 @@ export class PeerConnector extends ServerConnector {
   }
 
   /** Full catalog of the peer's releases (no filter) — used for the RSS feed. */
-  @requireInitialization
+  @requiresInitialization
   async listReleases(): Promise<Release[]> {
     return withSpan('peer.catalog', {
       'peer.name': this.name,
@@ -165,7 +165,7 @@ export class PeerConnector extends ServerConnector {
     })
   }
 
-  @requireInitialization
+  @requiresInitialization
   async searchByTvdbId(tvdbId: string, season?: number, episode?: number): Promise<Release[]> {
     return withSpan('peer.search_by_tvdb', {
       'peer.name': this.name,
@@ -189,12 +189,12 @@ export class PeerConnector extends ServerConnector {
     })
   }
 
-  @requireInitialization
+  @requiresInitialization
   async getRelease(id: string): Promise<Release> {
     return this.fetch(`/peer/items/${encodeURIComponent(id)}`, { method: 'GET', schema: Release })
   }
 
-  @requireInitialization
+  @requiresInitialization
   async downloadFile(id: string, destPath: string, options: PeerDownloadOptions = {}): Promise<void> {
     return withSpan('peer.download_file', {
       'peer.name': this.name,
