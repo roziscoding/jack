@@ -5,8 +5,9 @@ import { shutdownTelemetry } from './instrumentation'
 import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
 import { FetchError } from './lib/errors/FetchError'
-import { initializeConnectors } from './lib/servers'
+import { ConnectorManager } from './lib/servers'
 import { logger } from './logger'
+import { getManagementApp } from './management-app'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
@@ -26,17 +27,17 @@ const envs = getAppEnvs()
 logger.debug('Loading app config')
 const config = await getAppConfig(envs)
 
-const connectors = await initializeConnectors(config)
-const destinations = connectors.servers.filter(s => s.canDestination)
+const connectorManager = new ConnectorManager(config.servers, config.peers)
+await connectorManager.initAll()
 
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
 
 const downloadsService = config.downloads
-  ? new DownloadsService(config.downloads, connectors.peers, downloadsRepository)
+  ? new DownloadsService(config.downloads, connectorManager, downloadsRepository)
   : undefined
 
-const app = getApp(envs, config, connectors, { downloadsRepository, downloadsService })
+const app = getApp(envs, config, connectorManager, { downloadsRepository, downloadsService })
 const server = Bun.serve({
   fetch: app.fetch,
 })
@@ -45,10 +46,27 @@ logger.info({
   port: server.port,
   configPath: envs.APP_CONFIG_PATH,
   databasePath: database.path,
-  sources: connectors.servers.filter(c => c.isInitialized && c.canSource).length,
-  peers: connectors.peers.filter(c => c.isInitialized).length,
-  destinations: destinations.filter(c => c.isInitialized).length,
+  sources: connectorManager.sources.length,
+  peers: connectorManager.peers.length,
+  destinations: connectorManager.destinations.length,
 }, 'Server listening')
+
+// Module-scope so the SIGINT/SIGTERM handlers below can stop it too.
+let managementServer: ReturnType<typeof Bun.serve> | undefined
+if (envs.MANAGEMENT_KEY) {
+  if (envs.MANAGEMENT_PORT === server.port) {
+    logger.fatal({ port: envs.MANAGEMENT_PORT }, 'MANAGEMENT_PORT collides with the public port; not starting the management API')
+  }
+  else {
+    const managementApp = getManagementApp({
+      environment: envs.ENVIRONMENT,
+      managementKey: envs.MANAGEMENT_KEY,
+      connectors: connectorManager,
+    })
+    managementServer = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
+    logger.info({ port: managementServer.port }, 'Management API listening')
+  }
+}
 
 // Auto-register as a Torznab indexer + qBittorrent download client in each
 // destination that opts in via its `autoregister` config. We register even when
@@ -63,7 +81,7 @@ if (config.jack) {
     logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
   }
 
-  const registrable = destinations.filter(d => d.isInitialized && d.autoRegister.enable)
+  const registrable = connectorManager.destinations.filter(d => d.isInitialized && d.autoRegister.enable)
   for (const dest of registrable) {
     // Register the download client first so we can bind the indexer to it:
     // grabs from the Jack indexer must go to the Jack qBittorrent client, not
@@ -121,6 +139,7 @@ process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
   database.close()
   server.stop()
+  managementServer?.stop()
   await shutdownTelemetry()
   process.exit(0)
 })
@@ -129,6 +148,7 @@ process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
   database.close()
   server.stop()
+  managementServer?.stop()
   await shutdownTelemetry()
   process.exit(0)
 })

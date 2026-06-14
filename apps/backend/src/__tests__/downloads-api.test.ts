@@ -17,6 +17,7 @@ const envs: Envs = {
   LOG_LEVEL: 'fatal',
   OTEL_SERVICE_NAME: 'jack-server',
   PORT: 3000,
+  MANAGEMENT_PORT: 5226,
   NODE_ENV: 'test',
 }
 

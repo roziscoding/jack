@@ -124,13 +124,19 @@ const envs: Envs = {
   LOG_LEVEL: 'fatal',
   OTEL_SERVICE_NAME: 'jack-server',
   PORT: 3000,
+  MANAGEMENT_PORT: 5226,
   NODE_ENV: 'test',
 }
 
 const AUTOREGISTER = { enable: true, priority: 1 }
 
 function markInitialized<T extends object>(connector: T): T {
-  ;(connector as any)._isInitialized = true
+  const c = connector as any
+  c._isInitialized = true
+  c._initState = 'initialized'
+  // The init guard awaits the `initialization` promise; resolve it so guarded
+  // calls don't hang waiting on an init that the test skips.
+  c._initialization.resolve()
   return connector
 }
 
