@@ -90,6 +90,7 @@ const mswServer = setupServer(
   http.get('http://bob.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://bob2.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://carol.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
+  http.get('http://radarr-new.test:7878/api/v3/system/status', () => HttpResponse.json({ appName: 'Radarr', version: '4.0.0' })),
 )
 beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }))
 afterAll(() => mswServer.close())
@@ -226,6 +227,37 @@ describe('Management API remove/update peer', () => {
     const { app } = await makeMutableApp()
     const res = await app.request('/config/peers/deadbeef', { method: 'DELETE', headers: KEY })
     expect(res.status).toBe(404)
+  })
+})
+
+describe('Management API servers', () => {
+  const SERVER = {
+    name: 'Radarr',
+    url: 'http://radarr-new.test:7878',
+    apiKey: 'a'.repeat(32),
+    type: 'radarr',
+    source: true,
+    destination: true,
+  }
+  const serverId = generateId(SERVER.url)
+
+  test('adds a server live and registers it as a source/destination', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+    const res = await app.request('/config/servers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(SERVER) })
+    expect(res.status).toBe(201)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { servers: unknown[] }
+    expect(onDisk.servers).toHaveLength(1)
+    expect(connectorManager.servers.some(s => s.id === serverId)).toBe(true)
+    expect(connectorManager.sources.some(s => s.id === serverId)).toBe(true)
+  })
+
+  test('removes a server', async () => {
+    const { app, connectorManager } = await makeMutableApp()
+    await app.request('/config/servers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(SERVER) })
+    const res = await app.request(`/config/servers/${serverId}`, { method: 'DELETE', headers: KEY })
+    expect(res.status).toBe(200)
+    expect(connectorManager.servers).toHaveLength(0)
   })
 })
 

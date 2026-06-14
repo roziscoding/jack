@@ -79,4 +79,39 @@ export class ConfigController {
     }
     return { ok: true }
   }
+
+  async addServer(input: unknown) {
+    if (!this.configService)
+      throw new Error('Config mutations require a configured ConfigService')
+    try {
+      await this.configService.addServer(input)
+    }
+    catch (err) {
+      if (err instanceof z.ZodError)
+        throw new BadRequestError(z.prettifyError(err))
+      throw err
+    }
+    return { ok: true }
+  }
+
+  async removeServer(id: string) {
+    if (!this.configService)
+      throw new Error('Config mutations require a configured ConfigService')
+    await this.configService.removeServer(id)
+    return { ok: true }
+  }
+
+  async updateServer(id: string, input: unknown) {
+    if (!this.configService)
+      throw new Error('Config mutations require a configured ConfigService')
+    try {
+      await this.configService.updateServer(id, input)
+    }
+    catch (err) {
+      if (err instanceof z.ZodError)
+        throw new BadRequestError(z.prettifyError(err))
+      throw err
+    }
+    return { ok: true }
+  }
 }

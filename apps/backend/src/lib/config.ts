@@ -113,6 +113,21 @@ export const ServerConfig = z.object({
 
 export type ServerConfig = z.infer<typeof ServerConfig>
 
+// Raw server for persistence: strip unknown keys from a management-client body while
+// preserving {env}/{file} secret refs, mirroring RawPeerConfig.
+export const RawServerConfig = z.object({
+  name: z.string(),
+  url: z.url(),
+  apiKey: RawConfigSecret,
+  headers: z.record(z.string(), RawConfigSecret).optional(),
+  type: ServerType,
+  source: z.boolean().optional(),
+  destination: z.boolean().optional(),
+  autoregister: z.object({ enable: z.boolean().optional(), priority: z.number().int().optional() }).optional(),
+})
+
+export type RawServerConfig = z.infer<typeof RawServerConfig>
+
 export const PeerConfig = z.object({
   name: z.string(),
   url: z.url(),

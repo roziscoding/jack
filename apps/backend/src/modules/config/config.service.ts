@@ -4,13 +4,14 @@ import type { ConnectorManager } from '../../lib/servers'
 import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
-import { PeerConfig, RawPeerConfig } from '../../lib/config'
+import { PeerConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
 
 type RawConfig = z.input<typeof AppConfig>
 type RawPeer = RawPeerConfig
+type RawServer = RawServerConfig
 
 export class ConfigService {
   #path: string
@@ -135,6 +136,77 @@ export class ConfigService {
       await this.#connectorManager.addPeerConnector(resolved)
       this.#connectorManager.removeConnector(id)
       this.#downloadsRepository?.reassignPeerId(id, newId)
+    })
+  }
+
+  #findServerIndexById(servers: RawServer[], id: string): number {
+    return servers.findIndex(s => generateId(s.url) === id)
+  }
+
+  async addServer(input: unknown): Promise<void> {
+    const resolved = ServerConfig.parse(input)
+    const rawServer = RawServerConfig.parse(input) // strip unknown keys, keep refs
+
+    return this.#enqueue(async () => {
+      const servers = (this.#raw.servers ?? []) as RawServer[]
+      if (servers.some(s => s.url === resolved.url))
+        throw new ConflictError(`A server with url "${resolved.url}" already exists`)
+      if (servers.some(s => s.name === resolved.name))
+        throw new ConflictError(`A server named "${resolved.name}" already exists`)
+
+      const next: RawConfig = { ...this.#raw, servers: [...servers, rawServer] }
+      await this.#persist(next)
+      this.#raw = next
+      await this.#connectorManager.addServerConnector(resolved)
+    })
+  }
+
+  async removeServer(id: string): Promise<void> {
+    return this.#enqueue(async () => {
+      const servers = (this.#raw.servers ?? []) as RawServer[]
+      const index = this.#findServerIndexById(servers, id)
+      if (index === -1)
+        throw new NotFoundError(`No server found with id "${id}"`)
+
+      const next: RawConfig = { ...this.#raw, servers: servers.filter((_, i) => i !== index) }
+      await this.#persist(next)
+      this.#raw = next
+      this.#connectorManager.removeConnector(id)
+    })
+  }
+
+  async updateServer(id: string, input: unknown): Promise<void> {
+    const resolved = ServerConfig.parse(input)
+    const rawServer = RawServerConfig.parse(input) // strip unknown keys, keep refs
+    const newId = generateId(resolved.url)
+
+    return this.#enqueue(async () => {
+      const servers = (this.#raw.servers ?? []) as RawServer[]
+      const index = this.#findServerIndexById(servers, id)
+      if (index === -1)
+        throw new NotFoundError(`No server found with id "${id}"`)
+      if (servers.some((s, i) => i !== index && s.name === resolved.name))
+        throw new ConflictError(`A server named "${resolved.name}" already exists`)
+
+      const next: RawConfig = { ...this.#raw, servers: servers.map((s, i) => (i === index ? rawServer : s)) }
+
+      if (newId === id) {
+        await this.#persist(next)
+        this.#raw = next
+        await this.#connectorManager.addServerConnector(resolved)
+        return
+      }
+
+      if (servers.some((s, i) => i !== index && generateId(s.url) === newId))
+        throw new ConflictError(`A server with url "${resolved.url}" already exists`)
+
+      // URL change rekeys the connector. NOTE: the Jack indexer/download-client
+      // already registered in *arr still points at the old binding — re-registration
+      // requires a restart (documented). No download cascade: downloads key off peers.
+      await this.#persist(next)
+      this.#raw = next
+      await this.#connectorManager.addServerConnector(resolved)
+      this.#connectorManager.removeConnector(id)
     })
   }
 }

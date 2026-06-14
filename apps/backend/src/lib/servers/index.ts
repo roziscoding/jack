@@ -105,7 +105,14 @@ export class ConnectorManager {
   public async addServerConnector(config: ServerConfig) {
     const connector = getServerConnector(config)
     this._serverMap.set(connector.id, connector)
-    connector.init()
+
+    // Reconcile: drop any prior entry for this id, then re-add per current caps.
+    this._destinationIds = this._destinationIds.filter(id => id !== connector.id)
+    this._sourceIds = this._sourceIds.filter(id => id !== connector.id)
+    if (connector.canDestination)
+      this._destinationIds.push(connector.id)
+    if (connector.canSource)
+      this._sourceIds.push(connector.id)
 
     await initializeConnector(connector)
   }

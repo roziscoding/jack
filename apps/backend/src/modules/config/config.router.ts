@@ -22,5 +22,19 @@ export function getConfigRouter(controller: ConfigController) {
     return c.json(await controller.updatePeer(c.req.param('id'), body))
   })
 
+  app.post('/servers', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    return c.json(await controller.addServer(body), 201)
+  })
+
+  app.delete('/servers/:id', async (c) => {
+    return c.json(await controller.removeServer(c.req.param('id')))
+  })
+
+  app.patch('/servers/:id', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    return c.json(await controller.updateServer(c.req.param('id'), body))
+  })
+
   return app
 }
