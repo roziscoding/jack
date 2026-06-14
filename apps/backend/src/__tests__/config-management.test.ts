@@ -84,6 +84,16 @@ describe('Management API auth', () => {
     const res = await app.request('/config', { headers: { 'x-api-key': 'test-api-key' } })
     expect(res.status).toBe(404)
   })
+
+  test('mutation routes are absent (404) when no ConfigService is wired', async () => {
+    // mgmtApp() injects no configService → canMutate is false → POST is unregistered.
+    const res = await mgmtApp().request('/config/peers', {
+      method: 'POST',
+      headers: { 'X-Management-Key': 'mgmt-secret', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }),
+    })
+    expect(res.status).toBe(404)
+  })
 })
 
 const mswServer = setupServer(

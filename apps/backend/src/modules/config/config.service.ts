@@ -10,8 +10,10 @@ import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
 
 type RawConfig = z.input<typeof AppConfig>
-type RawPeer = RawPeerConfig
-type RawServer = RawServerConfig
+// Both peers and servers carry a plain-string `url` + `name` in their raw form —
+// the only fields the generic add/remove/update helpers below need to reason about.
+interface RawEntry { url: string, name: string }
+type Slice = 'peers' | 'servers'
 
 export class ConfigService {
   #path: string
@@ -29,7 +31,12 @@ export class ConfigService {
     this.#downloadsRepository = params.downloadsRepository
   }
 
-  /** Load the raw (refs-intact) config object from disk to seed the service. */
+  /**
+   * Load the raw (refs-intact) config object from disk to seed the service.
+   * Production wiring (`index.ts`) instead passes the already-parsed `raw` object
+   * from `getAppConfig` to the constructor; this convenience factory is for
+   * standalone / test construction from just a path.
+   */
   static async fromFile(params: { path: string, connectorManager: ConnectorManager, downloadsRepository?: DownloadsRepository }): Promise<ConfigService> {
     const text = await Bun.file(params.path).text()
     const raw = jsonc.parse(text) as RawConfig
@@ -51,162 +58,138 @@ export class ConfigService {
     await atomicWriteFile(this.#path, jsonc.stringify(next, { space: 2 }))
   }
 
-  async addPeer(input: unknown): Promise<void> {
-    // Validate + resolve secrets up front: a bad shape or unresolvable {env}/{file}
-    // ref throws (→ 400) BEFORE any file/map mutation. We persist the ORIGINAL
-    // input (refs intact), not the resolved value.
-    const resolved = PeerConfig.parse(input)
-    // RawPeerConfig.parse strips unknown keys but preserves {env}/{file} refs — this
-    // sanitized object (not the raw `input`) is what we persist.
-    const rawPeer = RawPeerConfig.parse(input)
+  #slice(slice: Slice): RawEntry[] {
+    return (this.#raw[slice] ?? []) as RawEntry[]
+  }
 
+  #indexById(entries: RawEntry[], id: string): number {
+    return entries.findIndex(e => generateId(e.url) === id)
+  }
+
+  // ── Generic CRUD over a config slice ─────────────────────────────────────────
+  // Each helper runs inside the serialized queue and follows the same rollback-safe
+  // order: build the candidate `next`, persist it, commit `this.#raw`, then reconcile
+  // the live connector map. `addConnector` instantiates the right connector type;
+  // `onRekey` lets peers cascade their download rows on a URL change (servers pass none).
+
+  #addEntry(slice: Slice, label: string, resolved: RawEntry, rawEntry: unknown, addConnector: () => Promise<void>): Promise<void> {
     return this.#enqueue(async () => {
-      const peers = (this.#raw.peers ?? []) as RawPeer[]
+      const entries = this.#slice(slice)
+      if (entries.some(e => e.url === resolved.url))
+        throw new ConflictError(`A ${label} with url "${resolved.url}" already exists`)
+      if (entries.some(e => e.name === resolved.name))
+        throw new ConflictError(`A ${label} named "${resolved.name}" already exists`)
 
-      if (peers.some(p => p.url === resolved.url))
-        throw new ConflictError(`A peer with url "${resolved.url}" already exists`)
-      if (peers.some(p => p.name === resolved.name))
-        throw new ConflictError(`A peer named "${resolved.name}" already exists`)
-
-      // Build the candidate, persist it, THEN commit in-memory + reconcile the map.
-      const next: RawConfig = { ...this.#raw, peers: [...peers, rawPeer] }
+      const next = { ...this.#raw, [slice]: [...entries, rawEntry] } as RawConfig
       await this.#persist(next)
       this.#raw = next
-      await this.#connectorManager.addPeerConnector(resolved)
+      await addConnector()
     })
   }
 
-  #findPeerIndexById(peers: RawPeer[], id: string): number {
-    return peers.findIndex(p => generateId(p.url) === id)
-  }
-
-  async removePeer(id: string): Promise<void> {
+  #removeEntry(slice: Slice, label: string, id: string): Promise<void> {
     return this.#enqueue(async () => {
-      const peers = (this.#raw.peers ?? []) as RawPeer[]
-      const index = this.#findPeerIndexById(peers, id)
+      const entries = this.#slice(slice)
+      const index = this.#indexById(entries, id)
       if (index === -1)
-        throw new NotFoundError(`No peer found with id "${id}"`)
+        throw new NotFoundError(`No ${label} found with id "${id}"`)
 
-      // File is the source of truth: persist the file WITHOUT the peer first, commit
-      // in-memory, then disable the live connector. It stays resident (disabled) so
-      // in-flight downloads holding its reference finish; new fan-outs skip it;
-      // restart prunes it.
-      const next: RawConfig = { ...this.#raw, peers: peers.filter((_, i) => i !== index) }
+      // File is the source of truth: persist without the entry first, commit, then
+      // disable the live connector. It stays resident (disabled) so in-flight
+      // downloads holding its reference finish; new fan-outs skip it; restart prunes it.
+      const next = { ...this.#raw, [slice]: entries.filter((_, i) => i !== index) } as RawConfig
       await this.#persist(next)
       this.#raw = next
       this.#connectorManager.removeConnector(id)
     })
+  }
+
+  #updateEntry(
+    slice: Slice,
+    label: string,
+    id: string,
+    resolved: RawEntry,
+    rawEntry: unknown,
+    addConnector: () => Promise<void>,
+    onRekey?: (oldId: string, newId: string) => void,
+  ): Promise<void> {
+    const newId = generateId(resolved.url)
+    return this.#enqueue(async () => {
+      const entries = this.#slice(slice)
+      const index = this.#indexById(entries, id)
+      if (index === -1)
+        throw new NotFoundError(`No ${label} found with id "${id}"`)
+
+      // Name must stay unique against every OTHER entry.
+      if (entries.some((e, i) => i !== index && e.name === resolved.name))
+        throw new ConflictError(`A ${label} named "${resolved.name}" already exists`)
+
+      // A URL change re-derives the id; reject a collision with another entry's url
+      // before touching the file.
+      if (newId !== id && entries.some((e, i) => i !== index && generateId(e.url) === newId))
+        throw new ConflictError(`A ${label} with url "${resolved.url}" already exists`)
+
+      const next = { ...this.#raw, [slice]: entries.map((e, i) => (i === index ? rawEntry : e)) } as RawConfig
+      await this.#persist(next)
+      this.#raw = next
+
+      // Same url → addConnector overwrites the map entry under the stable id and
+      // re-inits. URL change → it lands under the new id; then drain the old
+      // connector and let peers cascade their download rows to the new id.
+      await addConnector()
+      if (newId !== id) {
+        this.#connectorManager.removeConnector(id)
+        onRekey?.(id, newId)
+      }
+    })
+  }
+
+  // ── Peers ────────────────────────────────────────────────────────────────────
+
+  async addPeer(input: unknown): Promise<void> {
+    // Validate + resolve secrets up front (bad shape / unresolvable ref → 400 before
+    // any write); persist the ref-preserving `RawPeerConfig` parse, not the resolved value.
+    const resolved = PeerConfig.parse(input)
+    const rawPeer = RawPeerConfig.parse(input)
+    return this.#addEntry('peers', 'peer', resolved, rawPeer, () => this.#connectorManager.addPeerConnector(resolved))
+  }
+
+  async removePeer(id: string): Promise<void> {
+    return this.#removeEntry('peers', 'peer', id)
   }
 
   async updatePeer(id: string, input: unknown): Promise<void> {
     const resolved = PeerConfig.parse(input)
-    const rawPeer = RawPeerConfig.parse(input) // strip unknown keys, keep refs
-    const newId = generateId(resolved.url)
-
-    return this.#enqueue(async () => {
-      const peers = (this.#raw.peers ?? []) as RawPeer[]
-      const index = this.#findPeerIndexById(peers, id)
-      if (index === -1)
-        throw new NotFoundError(`No peer found with id "${id}"`)
-
-      // Name must stay unique against every OTHER peer.
-      if (peers.some((p, i) => i !== index && p.name === resolved.name))
-        throw new ConflictError(`A peer named "${resolved.name}" already exists`)
-
-      const next: RawConfig = { ...this.#raw, peers: peers.map((p, i) => (i === index ? rawPeer : p)) }
-
-      if (newId === id) {
-        // Same url → rename / re-key headers. addPeerConnector overwrites the map
-        // entry and re-inits; the old instance is dropped, any in-flight download
-        // holding it finishes.
-        await this.#persist(next)
-        this.#raw = next
-        await this.#connectorManager.addPeerConnector(resolved)
-        return
-      }
-
-      // URL changed → the id moves. Reject collision with an existing peer's url.
-      if (peers.some((p, i) => i !== index && generateId(p.url) === newId))
-        throw new ConflictError(`A peer with url "${resolved.url}" already exists`)
-
-      await this.#persist(next)
-      this.#raw = next
-      // Add under the new id (init on the new url), then drain the old connector and
-      // cascade the download rows so they follow the peer to the new id.
-      await this.#connectorManager.addPeerConnector(resolved)
-      this.#connectorManager.removeConnector(id)
-      this.#downloadsRepository?.reassignPeerId(id, newId)
-    })
+    const rawPeer = RawPeerConfig.parse(input)
+    return this.#updateEntry(
+      'peers',
+      'peer',
+      id,
+      resolved,
+      rawPeer,
+      () => this.#connectorManager.addPeerConnector(resolved),
+      (oldId, newId) => this.#downloadsRepository?.reassignPeerId(oldId, newId),
+    )
   }
 
-  #findServerIndexById(servers: RawServer[], id: string): number {
-    return servers.findIndex(s => generateId(s.url) === id)
-  }
+  // ── Servers ──────────────────────────────────────────────────────────────────
 
   async addServer(input: unknown): Promise<void> {
     const resolved = ServerConfig.parse(input)
-    const rawServer = RawServerConfig.parse(input) // strip unknown keys, keep refs
-
-    return this.#enqueue(async () => {
-      const servers = (this.#raw.servers ?? []) as RawServer[]
-      if (servers.some(s => s.url === resolved.url))
-        throw new ConflictError(`A server with url "${resolved.url}" already exists`)
-      if (servers.some(s => s.name === resolved.name))
-        throw new ConflictError(`A server named "${resolved.name}" already exists`)
-
-      const next: RawConfig = { ...this.#raw, servers: [...servers, rawServer] }
-      await this.#persist(next)
-      this.#raw = next
-      await this.#connectorManager.addServerConnector(resolved)
-    })
+    const rawServer = RawServerConfig.parse(input)
+    return this.#addEntry('servers', 'server', resolved, rawServer, () => this.#connectorManager.addServerConnector(resolved))
   }
 
   async removeServer(id: string): Promise<void> {
-    return this.#enqueue(async () => {
-      const servers = (this.#raw.servers ?? []) as RawServer[]
-      const index = this.#findServerIndexById(servers, id)
-      if (index === -1)
-        throw new NotFoundError(`No server found with id "${id}"`)
-
-      const next: RawConfig = { ...this.#raw, servers: servers.filter((_, i) => i !== index) }
-      await this.#persist(next)
-      this.#raw = next
-      this.#connectorManager.removeConnector(id)
-    })
+    return this.#removeEntry('servers', 'server', id)
   }
 
   async updateServer(id: string, input: unknown): Promise<void> {
+    // NOTE: a URL change rekeys the connector but does NOT re-register the Jack
+    // indexer/download-client already bound in *arr (that needs a restart), and there
+    // is no download cascade (downloads key off peers, not servers) — so no onRekey.
     const resolved = ServerConfig.parse(input)
-    const rawServer = RawServerConfig.parse(input) // strip unknown keys, keep refs
-    const newId = generateId(resolved.url)
-
-    return this.#enqueue(async () => {
-      const servers = (this.#raw.servers ?? []) as RawServer[]
-      const index = this.#findServerIndexById(servers, id)
-      if (index === -1)
-        throw new NotFoundError(`No server found with id "${id}"`)
-      if (servers.some((s, i) => i !== index && s.name === resolved.name))
-        throw new ConflictError(`A server named "${resolved.name}" already exists`)
-
-      const next: RawConfig = { ...this.#raw, servers: servers.map((s, i) => (i === index ? rawServer : s)) }
-
-      if (newId === id) {
-        await this.#persist(next)
-        this.#raw = next
-        await this.#connectorManager.addServerConnector(resolved)
-        return
-      }
-
-      if (servers.some((s, i) => i !== index && generateId(s.url) === newId))
-        throw new ConflictError(`A server with url "${resolved.url}" already exists`)
-
-      // URL change rekeys the connector. NOTE: the Jack indexer/download-client
-      // already registered in *arr still points at the old binding — re-registration
-      // requires a restart (documented). No download cascade: downloads key off peers.
-      await this.#persist(next)
-      this.#raw = next
-      await this.#connectorManager.addServerConnector(resolved)
-      this.#connectorManager.removeConnector(id)
-    })
+    const rawServer = RawServerConfig.parse(input)
+    return this.#updateEntry('servers', 'server', id, resolved, rawServer, () => this.#connectorManager.addServerConnector(resolved))
   }
 }

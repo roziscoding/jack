@@ -124,6 +124,18 @@ export class ConnectorManager {
     await initializeConnector(connector)
   }
 
+  /**
+   * Soft-remove a connector: mark it disabled so every fan-out getter skips it, but
+   * keep the instance resident so any in-flight download holding its reference can
+   * finish on the still-live connector.
+   *
+   * Trade-off (intentional): disabled connectors are NOT evicted from the maps, so a
+   * long-lived process that churns many distinct-URL add/remove cycles accumulates
+   * dead connector instances until the next restart (which rebuilds the maps from the
+   * file and so prunes them). This is bounded by restart and acceptable for the
+   * expected usage (a small, slowly-changing set of peers/servers). If churn ever
+   * becomes high-volume, evict here once the connector reports no in-flight transfers.
+   */
   public removeConnector(id: string) {
     const connector = this.getConnector(id)
 

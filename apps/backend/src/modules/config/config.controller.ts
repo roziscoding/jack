@@ -45,11 +45,19 @@ export class ConfigController {
     return { servers: this.connectors.servers.map(stringifyServer) }
   }
 
-  async addPeer(input: unknown) {
+  /** Whether mutation endpoints are available (a ConfigService was injected). */
+  get canMutate() {
+    return this.configService !== undefined
+  }
+
+  // Single funnel for every mutation: guarantees a service is present and maps a Zod
+  // validation failure to a 400. The router only mounts mutation routes when
+  // `canMutate`, so the guard here is defensive — direct callers still get a clear error.
+  async #mutate(run: (service: ConfigService) => Promise<void>) {
     if (!this.configService)
       throw new Error('Config mutations require a configured ConfigService')
     try {
-      await this.configService.addPeer(input)
+      await run(this.configService)
     }
     catch (err) {
       if (err instanceof z.ZodError)
@@ -59,59 +67,27 @@ export class ConfigController {
     return { ok: true }
   }
 
-  async removePeer(id: string) {
-    if (!this.configService)
-      throw new Error('Config mutations require a configured ConfigService')
-    await this.configService.removePeer(id)
-    return { ok: true }
+  addPeer(input: unknown) {
+    return this.#mutate(s => s.addPeer(input))
   }
 
-  async updatePeer(id: string, input: unknown) {
-    if (!this.configService)
-      throw new Error('Config mutations require a configured ConfigService')
-    try {
-      await this.configService.updatePeer(id, input)
-    }
-    catch (err) {
-      if (err instanceof z.ZodError)
-        throw new BadRequestError(z.prettifyError(err))
-      throw err
-    }
-    return { ok: true }
+  removePeer(id: string) {
+    return this.#mutate(s => s.removePeer(id))
   }
 
-  async addServer(input: unknown) {
-    if (!this.configService)
-      throw new Error('Config mutations require a configured ConfigService')
-    try {
-      await this.configService.addServer(input)
-    }
-    catch (err) {
-      if (err instanceof z.ZodError)
-        throw new BadRequestError(z.prettifyError(err))
-      throw err
-    }
-    return { ok: true }
+  updatePeer(id: string, input: unknown) {
+    return this.#mutate(s => s.updatePeer(id, input))
   }
 
-  async removeServer(id: string) {
-    if (!this.configService)
-      throw new Error('Config mutations require a configured ConfigService')
-    await this.configService.removeServer(id)
-    return { ok: true }
+  addServer(input: unknown) {
+    return this.#mutate(s => s.addServer(input))
   }
 
-  async updateServer(id: string, input: unknown) {
-    if (!this.configService)
-      throw new Error('Config mutations require a configured ConfigService')
-    try {
-      await this.configService.updateServer(id, input)
-    }
-    catch (err) {
-      if (err instanceof z.ZodError)
-        throw new BadRequestError(z.prettifyError(err))
-      throw err
-    }
-    return { ok: true }
+  removeServer(id: string) {
+    return this.#mutate(s => s.removeServer(id))
+  }
+
+  updateServer(id: string, input: unknown) {
+    return this.#mutate(s => s.updateServer(id, input))
   }
 }
