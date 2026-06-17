@@ -184,8 +184,7 @@ const LATEST_MIGRATION = MIGRATIONS.length
 
 export function migrateConfig(rawConfigObject: unknown) {
   const configObject = z
-    .looseObject({ version: z.number().max(LATEST_MIGRATION).min(0).default(0) })
-    .catch({ version: 0 })
+    .looseObject({ version: z.number().max(LATEST_MIGRATION).min(0).default(0).catch(0) })
     .parse(rawConfigObject)
 
   const currentVersion = configObject.version
