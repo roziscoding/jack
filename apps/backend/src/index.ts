@@ -62,7 +62,7 @@ logger.info({
 let managementServer: ReturnType<typeof Bun.serve> | undefined
 if (envs.MANAGEMENT_KEY) {
   if (envs.MANAGEMENT_PORT === server.port) {
-    logger.fatal({ port: envs.MANAGEMENT_PORT }, 'MANAGEMENT_PORT collides with the public port; not starting the management API')
+    logger.error({ port: envs.MANAGEMENT_PORT }, 'MANAGEMENT_PORT collides with the public port; not starting the management API')
   }
   else {
     const managementApp = getManagementApp({
