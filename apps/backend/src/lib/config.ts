@@ -236,8 +236,13 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
     if (defaultConfig.success)
       return { appConfig: defaultConfig.data, raw: DEFAULT_APP_CONFIG }
 
+    // The runtime config is empty (the referenced secrets can't be resolved yet),
+    // but `raw` must mirror what we just wrote to disk — DEFAULT_APP_CONFIG, jack
+    // template included. Seeding ConfigService with EMPTY_APP_CONFIG instead would
+    // make the first management mutation persist a config without the jack template,
+    // silently clobbering the file that createDefaultAppConfig just created.
     logger.warn('Default config references environment variables that are not set. Starting with an empty config until they are provided.')
-    return { appConfig: EMPTY_APP_CONFIG, raw: EMPTY_APP_CONFIG }
+    return { appConfig: EMPTY_APP_CONFIG, raw: DEFAULT_APP_CONFIG }
   }
 
   logger.debug(`Loading config file from ${APP_CONFIG_PATH}`)
