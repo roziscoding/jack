@@ -16,19 +16,19 @@ interface RawEntry { url: string, name: string }
 type Slice = 'peers' | 'servers'
 
 export class ConfigService {
-  #path: string
-  #raw: RawConfig
-  #connectorManager: ConnectorManager
-  #downloadsRepository?: DownloadsRepository
+  private path: string
+  private raw: RawConfig
+  private connectorManager: ConnectorManager
+  private downloadsRepository?: DownloadsRepository
   // Serialized write queue: one async mutex every mutation chains onto, so file
   // read-modify-write + map mutation never interleave between concurrent calls.
-  #queue: Promise<unknown> = Promise.resolve()
+  private queue: Promise<unknown> = Promise.resolve()
 
   constructor(params: { path: string, raw: RawConfig, connectorManager: ConnectorManager, downloadsRepository?: DownloadsRepository }) {
-    this.#path = params.path
-    this.#raw = params.raw
-    this.#connectorManager = params.connectorManager
-    this.#downloadsRepository = params.downloadsRepository
+    this.path = params.path
+    this.raw = params.raw
+    this.connectorManager = params.connectorManager
+    this.downloadsRepository = params.downloadsRepository
   }
 
   /**
@@ -43,68 +43,68 @@ export class ConfigService {
     return new ConfigService({ path: params.path, raw, connectorManager: params.connectorManager, downloadsRepository: params.downloadsRepository })
   }
 
-  #enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.#queue.then(task, task)
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task)
     // Swallow this task's result/error on the chain so a rejection doesn't poison
     // the next enqueued task; the original promise still rejects to the caller.
-    this.#queue = run.then(() => {}, () => {})
+    this.queue = run.then(() => {}, () => {})
     return run
   }
 
   // Rollback-safe persist: write the CANDIDATE raw to disk first; the caller only
-  // assigns `this.#raw = next` AFTER this resolves, so a failed write never leaves
+  // assigns `this.raw = next` AFTER this resolves, so a failed write never leaves
   // in-memory state diverged from the file.
-  async #persist(next: RawConfig): Promise<void> {
-    await atomicWriteFile(this.#path, jsonc.stringify(next, { space: 2 }))
+  private async persist(next: RawConfig): Promise<void> {
+    await atomicWriteFile(this.path, jsonc.stringify(next, { space: 2 }))
   }
 
-  #slice(slice: Slice): RawEntry[] {
-    return (this.#raw[slice] ?? []) as RawEntry[]
+  private slice(slice: Slice): RawEntry[] {
+    return (this.raw[slice] ?? []) as RawEntry[]
   }
 
-  #indexById(entries: RawEntry[], id: string): number {
+  private indexById(entries: RawEntry[], id: string): number {
     return entries.findIndex(e => generateId(e.url) === id)
   }
 
   // ── Generic CRUD over a config slice ─────────────────────────────────────────
   // Each helper runs inside the serialized queue and follows the same rollback-safe
-  // order: build the candidate `next`, persist it, commit `this.#raw`, then reconcile
+  // order: build the candidate `next`, persist it, commit `this.raw`, then reconcile
   // the live connector map. `addConnector` instantiates the right connector type;
   // `onRekey` lets peers cascade their download rows on a URL change (servers pass none).
 
-  #addEntry(slice: Slice, label: string, resolved: RawEntry, rawEntry: unknown, addConnector: () => Promise<void>): Promise<void> {
-    return this.#enqueue(async () => {
-      const entries = this.#slice(slice)
+  private addEntry(slice: Slice, label: string, resolved: RawEntry, rawEntry: unknown, addConnector: () => Promise<void>): Promise<void> {
+    return this.enqueue(async () => {
+      const entries = this.slice(slice)
       if (entries.some(e => e.url === resolved.url))
         throw new ConflictError(`A ${label} with url "${resolved.url}" already exists`)
       if (entries.some(e => e.name === resolved.name))
         throw new ConflictError(`A ${label} named "${resolved.name}" already exists`)
 
-      const next = { ...this.#raw, [slice]: [...entries, rawEntry] } as RawConfig
-      await this.#persist(next)
-      this.#raw = next
+      const next = { ...this.raw, [slice]: [...entries, rawEntry] } as RawConfig
+      await this.persist(next)
+      this.raw = next
       await addConnector()
     })
   }
 
-  #removeEntry(slice: Slice, label: string, id: string): Promise<void> {
-    return this.#enqueue(async () => {
-      const entries = this.#slice(slice)
-      const index = this.#indexById(entries, id)
+  private removeEntry(slice: Slice, label: string, id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const entries = this.slice(slice)
+      const index = this.indexById(entries, id)
       if (index === -1)
         throw new NotFoundError(`No ${label} found with id "${id}"`)
 
       // File is the source of truth: persist without the entry first, commit, then
       // disable the live connector. It stays resident (disabled) so in-flight
       // downloads holding its reference finish; new fan-outs skip it; restart prunes it.
-      const next = { ...this.#raw, [slice]: entries.filter((_, i) => i !== index) } as RawConfig
-      await this.#persist(next)
-      this.#raw = next
-      this.#connectorManager.removeConnector(id)
+      const next = { ...this.raw, [slice]: entries.filter((_, i) => i !== index) } as RawConfig
+      await this.persist(next)
+      this.raw = next
+      this.connectorManager.removeConnector(id)
     })
   }
 
-  #updateEntry(
+  private updateEntry(
     slice: Slice,
     label: string,
     id: string,
@@ -114,9 +114,9 @@ export class ConfigService {
     onRekey?: (oldId: string, newId: string) => void,
   ): Promise<void> {
     const newId = generateId(resolved.url)
-    return this.#enqueue(async () => {
-      const entries = this.#slice(slice)
-      const index = this.#indexById(entries, id)
+    return this.enqueue(async () => {
+      const entries = this.slice(slice)
+      const index = this.indexById(entries, id)
       if (index === -1)
         throw new NotFoundError(`No ${label} found with id "${id}"`)
 
@@ -129,16 +129,16 @@ export class ConfigService {
       if (newId !== id && entries.some((e, i) => i !== index && generateId(e.url) === newId))
         throw new ConflictError(`A ${label} with url "${resolved.url}" already exists`)
 
-      const next = { ...this.#raw, [slice]: entries.map((e, i) => (i === index ? rawEntry : e)) } as RawConfig
-      await this.#persist(next)
-      this.#raw = next
+      const next = { ...this.raw, [slice]: entries.map((e, i) => (i === index ? rawEntry : e)) } as RawConfig
+      await this.persist(next)
+      this.raw = next
 
       // Same url → addConnector overwrites the map entry under the stable id and
       // re-inits. URL change → it lands under the new id; then drain the old
       // connector and let peers cascade their download rows to the new id.
       await addConnector()
       if (newId !== id) {
-        this.#connectorManager.removeConnector(id)
+        this.connectorManager.removeConnector(id)
         onRekey?.(id, newId)
       }
     })
@@ -151,24 +151,24 @@ export class ConfigService {
     // any write); persist the ref-preserving `RawPeerConfig` parse, not the resolved value.
     const resolved = PeerConfig.parse(input)
     const rawPeer = RawPeerConfig.parse(input)
-    return this.#addEntry('peers', 'peer', resolved, rawPeer, () => this.#connectorManager.addPeerConnector(resolved))
+    return this.addEntry('peers', 'peer', resolved, rawPeer, () => this.connectorManager.addPeerConnector(resolved))
   }
 
   async removePeer(id: string): Promise<void> {
-    return this.#removeEntry('peers', 'peer', id)
+    return this.removeEntry('peers', 'peer', id)
   }
 
   async updatePeer(id: string, input: unknown): Promise<void> {
     const resolved = PeerConfig.parse(input)
     const rawPeer = RawPeerConfig.parse(input)
-    return this.#updateEntry(
+    return this.updateEntry(
       'peers',
       'peer',
       id,
       resolved,
       rawPeer,
-      () => this.#connectorManager.addPeerConnector(resolved),
-      (oldId, newId) => this.#downloadsRepository?.reassignPeerId(oldId, newId),
+      () => this.connectorManager.addPeerConnector(resolved),
+      (oldId, newId) => this.downloadsRepository?.reassignPeerId(oldId, newId),
     )
   }
 
@@ -177,11 +177,11 @@ export class ConfigService {
   async addServer(input: unknown): Promise<void> {
     const resolved = ServerConfig.parse(input)
     const rawServer = RawServerConfig.parse(input)
-    return this.#addEntry('servers', 'server', resolved, rawServer, () => this.#connectorManager.addServerConnector(resolved))
+    return this.addEntry('servers', 'server', resolved, rawServer, () => this.connectorManager.addServerConnector(resolved))
   }
 
   async removeServer(id: string): Promise<void> {
-    return this.#removeEntry('servers', 'server', id)
+    return this.removeEntry('servers', 'server', id)
   }
 
   async updateServer(id: string, input: unknown): Promise<void> {
@@ -190,6 +190,6 @@ export class ConfigService {
     // is no download cascade (downloads key off peers, not servers) — so no onRekey.
     const resolved = ServerConfig.parse(input)
     const rawServer = RawServerConfig.parse(input)
-    return this.#updateEntry('servers', 'server', id, resolved, rawServer, () => this.#connectorManager.addServerConnector(resolved))
+    return this.updateEntry('servers', 'server', id, resolved, rawServer, () => this.connectorManager.addServerConnector(resolved))
   }
 }

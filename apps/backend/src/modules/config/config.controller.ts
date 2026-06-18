@@ -53,7 +53,7 @@ export class ConfigController {
   // Single funnel for every mutation: guarantees a service is present and maps a Zod
   // validation failure to a 400. The router only mounts mutation routes when
   // `canMutate`, so the guard here is defensive — direct callers still get a clear error.
-  async #mutate(run: (service: ConfigService) => Promise<void>) {
+  private async mutate(run: (service: ConfigService) => Promise<void>) {
     if (!this.configService)
       throw new Error('Config mutations require a configured ConfigService')
     try {
@@ -68,26 +68,26 @@ export class ConfigController {
   }
 
   addPeer(input: unknown) {
-    return this.#mutate(s => s.addPeer(input))
+    return this.mutate(s => s.addPeer(input))
   }
 
   removePeer(id: string) {
-    return this.#mutate(s => s.removePeer(id))
+    return this.mutate(s => s.removePeer(id))
   }
 
   updatePeer(id: string, input: unknown) {
-    return this.#mutate(s => s.updatePeer(id, input))
+    return this.mutate(s => s.updatePeer(id, input))
   }
 
   addServer(input: unknown) {
-    return this.#mutate(s => s.addServer(input))
+    return this.mutate(s => s.addServer(input))
   }
 
   removeServer(id: string) {
-    return this.#mutate(s => s.removeServer(id))
+    return this.mutate(s => s.removeServer(id))
   }
 
   updateServer(id: string, input: unknown) {
-    return this.#mutate(s => s.updateServer(id, input))
+    return this.mutate(s => s.updateServer(id, input))
   }
 }
