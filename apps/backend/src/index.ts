@@ -58,23 +58,28 @@ logger.info({
   destinations: connectorManager.destinations.length,
 }, 'Server listening')
 
-// Module-scope so the SIGINT/SIGTERM handlers below can stop it too.
-let managementServer: ReturnType<typeof Bun.serve> | undefined
-if (envs.MANAGEMENT_KEY) {
+function startManagementServer() {
+  if (!envs.MANAGEMENT_KEY)
+    return undefined
+
   if (envs.MANAGEMENT_PORT === server.port) {
     logger.error({ port: envs.MANAGEMENT_PORT }, 'MANAGEMENT_PORT collides with the public port; not starting the management API')
+    return undefined
   }
-  else {
-    const managementApp = getManagementApp({
-      environment: envs.ENVIRONMENT,
-      managementKey: envs.MANAGEMENT_KEY,
-      connectors: connectorManager,
-      configService,
-    })
-    managementServer = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
-    logger.info({ port: managementServer.port }, 'Management API listening')
-  }
+
+  const managementApp = getManagementApp({
+    environment: envs.ENVIRONMENT,
+    managementKey: envs.MANAGEMENT_KEY,
+    connectors: connectorManager,
+    configService,
+  })
+  const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
+  logger.info({ port: instance.port }, 'Management API listening')
+  return instance
 }
+
+// Module-scope so the SIGINT/SIGTERM handlers below can stop it too.
+const managementServer = startManagementServer()
 
 // Auto-register as a Torznab indexer + qBittorrent download client in each
 // destination that opts in via its `autoregister` config. We register even when
