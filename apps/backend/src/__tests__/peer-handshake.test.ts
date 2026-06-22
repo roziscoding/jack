@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { getApp } from '../app'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { PeerConnector } from '../lib/servers/peer'
 import { ServersController } from '../modules/servers/servers.controllers'
 
@@ -42,7 +42,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('incompatible peer-protocol version')
@@ -55,7 +55,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('got none')
@@ -67,7 +67,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('incompatible peer-protocol version')
@@ -80,7 +80,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).toContain('incompatible peer-protocol version')
@@ -92,7 +92,7 @@ describe('PeerConnector handshake compatibility', () => {
     )
     const peer = makePeer()
     peer.init()
-    await peer.initialization?.catch(() => {})
+    await peer.initialization.catch(() => {})
 
     expect(peer.isInitialized).toBe(false)
     expect(peer.initializationError).not.toContain('incompatible peer-protocol version')
@@ -125,6 +125,7 @@ describe('ServersController surfaces peer version', () => {
     await peer.initialization
 
     const config = AppConfig.parse({
+      version: MIGRATIONS.length,
       jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
       servers: [],
       peers: [],

@@ -1,6 +1,7 @@
 import type { AppConfig } from '../../lib/config'
 import type { Release } from '../../lib/release'
 import type { PeerConnector } from '../../lib/servers/peer'
+import { setSpanAttribute } from '../../lib/span-attributes'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 
@@ -49,7 +50,7 @@ export function releaseToTorznab(release: Release, peerId: string, peerName: str
 
 export class TorznabController {
   constructor(
-    private readonly peers: PeerConnector[],
+    private readonly getPeers: () => PeerConnector[],
     private readonly jackConfig: NonNullable<AppConfig['jack']>,
   ) {}
 
@@ -59,17 +60,18 @@ export class TorznabController {
     // the call below, so a peer that came back online rejoins searches without a
     // restart. Each peer is isolated: if it fails (still down, or errors), we log
     // and treat it as zero results instead of failing the whole search.
+    const peers = this.getPeers()
     return withSpan('torznab.fan_out', {
       'search.label': label,
-      'peer.count': this.peers.length,
+      'peer.count': peers.length,
     }, async (span) => {
-      if (this.peers.length === 0) {
-        span.setAttribute('release.count', 0)
+      if (peers.length === 0) {
+        setSpanAttribute(span, 'release.count', 0)
         return []
       }
 
       const results = await Promise.all(
-        this.peers.map(async (peer) => {
+        peers.map(async (peer) => {
           try {
             return await withSpan('torznab.peer_search', {
               'search.label': label,
@@ -77,7 +79,7 @@ export class TorznabController {
               'peer.id': peer.id,
             }, async (peerSpan) => {
               const releases = await search(peer)
-              peerSpan.setAttribute('release.count', releases.length)
+              setSpanAttribute(peerSpan, 'release.count', releases.length)
               return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey))
             })
           }
@@ -89,7 +91,7 @@ export class TorznabController {
       )
 
       const items = results.flat()
-      span.setAttribute('release.count', items.length)
+      setSpanAttribute(span, 'release.count', items.length)
       return items
     })
   }

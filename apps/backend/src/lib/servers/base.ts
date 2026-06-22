@@ -3,13 +3,13 @@ import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
 import { FetchError } from '../errors/FetchError'
-import { redactRecord } from '../redact'
+import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
 
 const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
 const MAX_ERROR_BODY_BYTES = 8 * 1024
 
-function generateId(url: string): string {
+export function generateId(url: string): string {
   const hash = new Bun.CryptoHasher('sha256').update(url).digest('hex')
   return hash.slice(0, 8)
 }
@@ -22,11 +22,12 @@ function truncateBody(body: string) {
 
 export abstract class ServerConnector {
   public readonly id: string
+  public readonly name: string
   public readonly type: ConnectorType
   public readonly url: string
   protected readonly apiKey: string
   protected readonly headers: ConnectorHeadersConfig
-  public readonly name: string
+  protected _enabled: boolean = true
 
   private readonly pingPath: string
   private readonly pingMethod: string
@@ -34,11 +35,11 @@ export abstract class ServerConnector {
   private readonly authHeaderPrefix?: string
 
   protected _isInitialized: boolean = false
-  protected _initialization: ReturnType<typeof Promise.withResolvers<void>> | null = null
+  protected _initialization: ReturnType<typeof Promise.withResolvers<void>> = Promise.withResolvers()
   protected _initializationError: string | null = null
   protected _initState: 'idle' | 'pending' | 'initialized' | 'failed' = 'idle'
 
-  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { type: ConnectorType, url: string, apiKey: string, name: string, headers?: ConnectorHeadersConfig }) {
+  constructor(connectorConfig: { pingPath: string, pingMethod: string, authHeader: string, authHeaderPrefix?: string }, config: { url: string, name: string, apiKey: string, type: ConnectorType, headers?: ConnectorHeadersConfig }) {
     this.pingPath = connectorConfig.pingPath
     this.pingMethod = connectorConfig.pingMethod
     this.authHeader = connectorConfig.authHeader
@@ -57,7 +58,7 @@ export abstract class ServerConnector {
   }
 
   get initialization() {
-    return this._initialization?.promise
+    return this._initialization.promise
   }
 
   get initializationError() {
@@ -69,6 +70,18 @@ export abstract class ServerConnector {
     return {
       [authHeader]: this.authHeaderValue,
     }
+  }
+
+  get enabled() {
+    return this._enabled
+  }
+
+  public disable() {
+    this._enabled = false
+  }
+
+  public enable() {
+    this._enabled = true
   }
 
   protected get authHeaderValue(): string {
@@ -103,7 +116,7 @@ export abstract class ServerConnector {
       'connector.type': this.type,
       'http.request.method': method,
       'http.request.timeout_ms': timeoutMs,
-      'http.request.headers': JSON.stringify(redactRecord(initWithAuth.headers)),
+      'http.request.headers': initWithAuth.headers,
       'server.address': url.hostname,
       'url.path': url.pathname,
       'url.query': url.search ? url.search.slice(1) : undefined,
@@ -114,12 +127,12 @@ export abstract class ServerConnector {
       }
       catch (err) {
         const timedOut = err instanceof DOMException && err.name === 'TimeoutError'
-        span.setAttribute('error.timeout', timedOut)
+        setSpanAttribute(span, 'error.timeout', timedOut)
         logger.warn({ connector: this.name, method, url: url.toString(), timeoutMs, timedOut, err }, timedOut ? `Request timed out after ${timeoutMs}ms` : 'Request failed (network error)')
         throw err
       }
 
-      span.setAttributes({
+      setSpanAttributes(span, {
         'http.response.status_code': response.status,
         'http.response.content_type': response.headers.get('content-type') ?? '',
         'http.response.content_length': response.headers.get('content-length') ?? '',
@@ -127,7 +140,7 @@ export abstract class ServerConnector {
 
       if (!response.ok) {
         const body = await response.text().catch(() => 'Could not fetch body')
-        span.setAttribute('http.response.body', truncateBody(body))
+        setSpanAttribute(span, 'http.response.body', body)
         logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body: truncateBody(body) }, 'Request failed (non-2xx)')
         throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
       }
@@ -141,7 +154,7 @@ export abstract class ServerConnector {
 
       if (!success) {
         const prettyError = z.prettifyError(error)
-        span.setAttributes({
+        setSpanAttributes(span, {
           'schema.validation.success': false,
           'schema.validation.error': prettyError,
         })
@@ -149,7 +162,7 @@ export abstract class ServerConnector {
         throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${prettyError}`, response, { body: JSON.stringify(body), method: init.method })
       }
 
-      span.setAttribute('schema.validation.success', true)
+      setSpanAttribute(span, 'schema.validation.success', true)
       return data
     })
   }
@@ -196,17 +209,17 @@ export abstract class ServerConnector {
       'init.previous_error': previousError,
     }, async (span) => {
       await this.runInit()
-      span.setAttribute('connector.initialized', true)
+      setSpanAttribute(span, 'connector.initialized', true)
     })
       .then(() => {
         this._isInitialized = true
         this._initState = 'initialized'
-        this._initialization?.resolve()
+        this._initialization.resolve()
       })
       .catch((err: unknown) => {
         this._initializationError = err instanceof Error ? err.message : String(err)
         this._initState = 'failed'
-        this._initialization?.reject(err)
+        this._initialization.reject(err)
       })
   }
 

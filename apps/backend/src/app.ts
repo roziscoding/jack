@@ -1,7 +1,6 @@
 import type { AppConfig } from './lib/config'
 import type { Envs } from './lib/envs'
-import type { ArrServerConnector } from './lib/servers/arr/base'
-import type { PeerConnector } from './lib/servers/peer'
+import type { ConnectorManager } from './lib/servers'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
 import { httpInstrumentationMiddleware } from '@hono/otel'
@@ -26,23 +25,36 @@ import { getDownloadRouter } from './modules/torznab/download.router'
 import { TorznabController } from './modules/torznab/torznab.controller'
 import { getTorznabRouter } from './modules/torznab/torznab.router'
 
-interface Connectors {
-  servers: ArrServerConnector[]
-  peers: PeerConnector[]
-}
-
 interface AppServices {
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
 }
 
-export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, services: AppServices = {}) {
+// Only the live `servers`/`peers` getters are used here, so accept the structural
+// shape a real `ConnectorManager` satisfies — this also lets tests pass a lightweight
+// `{ servers, peers }` object.
+export function getApp(envs: Envs, config: AppConfig, connManager: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }, services: AppServices = {}) {
   const app = new Hono()
+  const connectors = {
+    get servers() {
+      return connManager.servers
+    },
+
+    get peers() {
+      return connManager.peers
+    },
+  }
 
   // Controllers
-  const serversController = new ServersController({ servers: connectors.servers, peers: connectors.peers })
-  const itemsController = new ItemsController({ sources: connectors.servers })
-  const peerController = new PeerController(connectors.servers)
+  // ServersController takes { servers, peers } — the live wrapper satisfies it.
+  const serversController = new ServersController(connectors)
+  // ItemsController treats all servers as sources (unchanged semantics), read live.
+  const itemsController = new ItemsController({
+    get sources() {
+      return connManager.servers
+    },
+  })
+  const peerController = new PeerController(() => connManager.servers)
   const downloadsController = services.downloadsRepository ? new DownloadsController(services.downloadsRepository) : null
 
   // Routers
@@ -75,7 +87,7 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, se
     const qbController = new QbittorrentController({
       apiKey: config.jack.apiKey,
       completedPath: config.downloads.completedPath,
-      servers: connectors.servers,
+      get servers() { return connManager.servers },
       repository: services.downloadsRepository,
       downloadsService: services.downloadsService,
     })
@@ -93,9 +105,9 @@ export function getApp(envs: Envs, config: AppConfig, connectors: Connectors, se
   if (config.jack) {
     const jackConfig = config.jack
 
-    const torznabController = new TorznabController(connectors.peers, jackConfig)
+    const torznabController = new TorznabController(() => connManager.peers, jackConfig)
     const torznabRouter = getTorznabRouter(torznabController)
-    const downloadRouter = getDownloadRouter(connectors.peers)
+    const downloadRouter = getDownloadRouter(() => connManager.peers)
 
     // Peer handshake — other Jacks probe this at init to read our identity and
     // protocol version, then check it against their minimum compatible version.

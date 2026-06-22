@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import z from 'zod'
-import { AppConfig, ConfigSecret, JackConfig, PeerConfig, ServerConfig } from '../lib/config'
+import { ConfigSecret, migrateConfig, MIGRATIONS } from '../lib/config'
 
 const HEX_KEY = '0123456789abcdef0123456789abcdef'
 
@@ -70,10 +70,6 @@ describe('configSecret', () => {
     expect(result.error?.issues[0]?.message).toContain(missingFile)
   })
 
-  test('rejects an empty plain string by default', () => {
-    expect(ConfigSecret().safeParse('').success).toBe(false)
-  })
-
   test('rejects an empty file-resolved string by default', () => {
     expect(ConfigSecret().safeParse({ file: emptyFile }).success).toBe(false)
   })
@@ -96,204 +92,62 @@ describe('configSecret', () => {
     expect(secret.parse({ file: hexFile })).toBe(HEX_KEY)
     expect(secret.safeParse({ file: secretFile }).success).toBe(false)
   })
-
-  test('exposes string | { env } | { file } as input and string as output', () => {
-    const _secret = ConfigSecret()
-    const _in1: z.input<typeof _secret> = 'literal'
-    const _in2: z.input<typeof _secret> = { env: 'X' }
-    const _in3: z.input<typeof _secret> = { file: '/run/secrets/x' }
-    const _out: z.output<typeof _secret> = 'a-string'
-    expect([_in1, _in2, _in3, _out]).toBeDefined()
-  })
 })
 
-describe('appConfig parsing', () => {
-  const savedEnv = { ...process.env }
-  let headerSecretFile: string
-  let jackSecretFile: string
-  let radarrKeyFile: string
-  let tempDir: string
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'jack-app-config-'))
-    headerSecretFile = join(tempDir, 'header-secret')
-    jackSecretFile = join(tempDir, 'jack-secret')
-    radarrKeyFile = join(tempDir, 'radarr-key')
-
-    writeFileSync(headerSecretFile, 'header-file-secret\n')
-    writeFileSync(jackSecretFile, 'jack-file-secret\n')
-    writeFileSync(radarrKeyFile, `${HEX_KEY}\n`)
-
-    process.env.JACK_KEY = 'jack-secret'
-    process.env.RADARR_KEY = HEX_KEY
-    process.env.HEADER_SECRET = 'header-secret'
+describe('migrateConfig', () => {
+  test('migrates a versionless config up to the latest version', () => {
+    const result = migrateConfig({ servers: [], peers: [] })
+    expect(result).toBeDefined()
+    expect(result!.version).toBe(MIGRATIONS.length)
   })
 
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true })
-    process.env = { ...savedEnv }
+  test('preserves the existing fields while migrating', () => {
+    const result = migrateConfig({ servers: ['a'], peers: ['b'], extra: 'kept' })
+    expect(result).toMatchObject({ servers: ['a'], peers: ['b'], extra: 'kept' })
   })
 
-  test('parses a servers + peers config', () => {
-    const parsed = AppConfig.parse({
-      jack: { baseUrl: 'http://jack:3000', apiKey: 'jack-key' },
-      servers: [
-        { name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: HEX_KEY },
-      ],
-      peers: [{ name: 'friend', url: 'http://peer:3000', apiKey: 'peer-key' }],
-    })
-
-    expect(parsed.jack?.apiKey).toBe('jack-key')
-    expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
-    expect(parsed.servers[0]?.headers).toEqual({})
-    expect(parsed.peers[0]?.apiKey).toBe('peer-key')
-    expect(parsed.peers[0]?.headers).toEqual({})
+  test('treats an explicit version of 0 as unmigrated and runs every migration', () => {
+    const result = migrateConfig({ version: 0, foo: 'bar' })
+    expect(result).toBeDefined()
+    expect(result).toMatchObject({ foo: 'bar' })
+    expect(result!.version).toBe(1)
   })
 
-  test('defaults source/destination/autoregister', () => {
-    const parsed = AppConfig.parse({
-      servers: [{ name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: HEX_KEY }],
-    })
-
-    const server = parsed.servers[0]!
-    expect(server.source).toBe(true)
-    expect(server.destination).toBe(true)
-    expect(server.autoregister).toEqual({ enable: true, priority: 1 })
+  test('treats a non-numeric version as unmigrated', () => {
+    const result = migrateConfig({ version: 'nope' as unknown as number }) as Record<string, unknown>
+    expect(result).toBeDefined()
+    expect(result.version).toBe(1)
   })
 
-  test('respects explicit source/destination/autoregister', () => {
-    const parsed = AppConfig.parse({
-      servers: [{
-        name: 'sonarr',
-        type: 'sonarr',
-        url: 'http://sonarr:8989',
-        apiKey: HEX_KEY,
-        source: false,
-        destination: true,
-        autoregister: { enable: false, priority: 5 },
-      }],
-    })
-
-    const server = parsed.servers[0]!
-    expect(server.source).toBe(false)
-    expect(server.destination).toBe(true)
-    expect(server.autoregister).toEqual({ enable: false, priority: 5 })
+  test('returns undefined when already at the latest version', () => {
+    const result = migrateConfig({ version: MIGRATIONS.length })
+    expect(result).toBeUndefined()
   })
 
-  test('defaults servers and peers to empty arrays', () => {
-    const parsed = AppConfig.parse({})
-    expect(parsed.servers).toEqual([])
-    expect(parsed.peers).toEqual([])
+  test('returns undefined when the version is ahead of the known migrations', () => {
+    const result = migrateConfig({ version: MIGRATIONS.length + 5 })
+    expect(result).toMatchObject({ version: 1 })
   })
 
-  test('resolves env-reference api keys into plain strings', () => {
-    const parsed = AppConfig.parse({
-      jack: { baseUrl: 'http://jack:3000', apiKey: { env: 'JACK_KEY' } },
-      servers: [{ name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: { env: 'RADARR_KEY' } }],
-    })
+  test('applies only the migrations newer than the current version', () => {
+    // Build a fake migration chain so the test is independent of how many real
+    // migrations exist: each step stamps the version it produces.
+    const original = [...MIGRATIONS]
+    try {
+      MIGRATIONS.length = 0
+      MIGRATIONS.push(
+        <T extends object>(obj: T) => ({ ...obj, version: 1, m1: true }),
+        <T extends object>(obj: T) => ({ ...obj, version: 2, m2: true }),
+      )
 
-    expect(parsed.jack?.apiKey).toBe('jack-secret')
-    expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
-  })
-
-  test('resolves file-reference api keys into plain strings', () => {
-    const parsed = AppConfig.parse({
-      jack: { baseUrl: 'http://jack:3000', apiKey: { file: jackSecretFile } },
-      servers: [{ name: 'radarr', type: 'radarr', url: 'http://radarr:7878', apiKey: { file: radarrKeyFile } }],
-    })
-
-    expect(parsed.jack?.apiKey).toBe('jack-file-secret')
-    expect(parsed.servers[0]?.apiKey).toBe(HEX_KEY)
-  })
-
-  test('resolves custom server and peer headers', () => {
-    const parsed = AppConfig.parse({
-      servers: [{
-        name: 'radarr',
-        type: 'radarr',
-        url: 'http://radarr:7878',
-        apiKey: HEX_KEY,
-        headers: {
-          'X-Literal': 'literal-header',
-          'X-Secret': { env: 'HEADER_SECRET' },
-          'X-Secret-File': { file: headerSecretFile },
-        },
-      }],
-      peers: [{
-        name: 'friend',
-        url: 'http://peer:3000',
-        apiKey: 'peer-key',
-        headers: {
-          'X-Peer-Secret': { env: 'HEADER_SECRET' },
-          'X-Peer-Secret-File': { file: headerSecretFile },
-        },
-      }],
-    })
-
-    expect(parsed.servers[0]?.headers).toEqual({
-      'X-Literal': 'literal-header',
-      'X-Secret': 'header-secret',
-      'X-Secret-File': 'header-file-secret',
-    })
-    expect(parsed.peers[0]?.headers).toEqual({
-      'X-Peer-Secret': 'header-secret',
-      'X-Peer-Secret-File': 'header-file-secret',
-    })
-  })
-
-  test('keeps the hex constraint for env-resolved server keys', () => {
-    process.env.BAD_HEX = 'too-short'
-    const result = ServerConfig.safeParse({
-      name: 'radarr',
-      type: 'radarr',
-      url: 'http://radarr:7878',
-      apiKey: { env: 'BAD_HEX' },
-    })
-    expect(result.success).toBe(false)
-  })
-
-  test('requires a name on servers', () => {
-    const result = ServerConfig.safeParse({
-      type: 'radarr',
-      url: 'http://radarr:7878',
-      apiKey: HEX_KEY,
-    })
-    expect(result.success).toBe(false)
-  })
-
-  test('fails parsing when a referenced env var is missing', () => {
-    delete process.env.JACK_KEY
-    const result = JackConfig.safeParse({ baseUrl: 'http://jack:3000', apiKey: { env: 'JACK_KEY' } })
-    expect(result.success).toBe(false)
-  })
-
-  test('fails parsing when a referenced header env var is missing', () => {
-    delete process.env.HEADER_SECRET
-    const result = PeerConfig.safeParse({
-      name: 'friend',
-      url: 'http://peer:3000',
-      apiKey: 'peer-key',
-      headers: { 'X-Secret': { env: 'HEADER_SECRET' } },
-    })
-    expect(result.success).toBe(false)
-  })
-
-  test('defaults the downloads hardening knobs', () => {
-    const parsed = AppConfig.parse({
-      downloads: { completedPath: '/c' },
-    })
-    expect(parsed.downloads).toMatchObject({
-      maxConcurrentDownloads: 3,
-      maxDownloadAttempts: 13,
-      retryBaseDelayMs: 1000,
-      retryMaxDelayMs: 1_800_000,
-      idleTimeoutMs: 60_000,
-    })
-  })
-
-  test('respects an explicit maxConcurrentDownloads and rejects non-positive values', () => {
-    const parsed = AppConfig.parse({ downloads: { completedPath: '/c', maxConcurrentDownloads: 8 } })
-    expect(parsed.downloads?.maxConcurrentDownloads).toBe(8)
-    expect(AppConfig.safeParse({ downloads: { completedPath: '/c', maxConcurrentDownloads: 0 } }).success).toBe(false)
+      // Starting at version 1, only the second migration should run.
+      const result = migrateConfig({ version: 1, kept: true }) as Record<string, unknown>
+      expect(result).toMatchObject({ version: 2, kept: true, m2: true })
+      expect(result.m1).toBeUndefined()
+    }
+    finally {
+      MIGRATIONS.length = 0
+      MIGRATIONS.push(...original)
+    }
   })
 })

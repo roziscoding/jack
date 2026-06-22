@@ -4,6 +4,7 @@ import process from 'node:process'
 // Base URL and API key come from the environment.
 const BASE_URL = process.env.JACK_URL ?? 'http://localhost:5225'
 const API_KEY = process.env.JACK_API_KEY ?? ''
+const BASE_HEADERS = JSON.parse(process.env.JACK_HEADERS ?? '{}')
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
 
@@ -43,7 +44,7 @@ interface ParsedItems {
 
 function parseItems(items: string[]): ParsedItems {
   const query: Record<string, string> = {}
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = BASE_HEADERS
   const body: Record<string, unknown> = {}
 
   for (const item of items) {

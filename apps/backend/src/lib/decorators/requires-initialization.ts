@@ -11,11 +11,11 @@ import { logger } from '../../logger'
  *
  * @example
  * class MyConnector extends ArrServerConnector {
- *   @requireInitialization
+ *   @requiresInitialization
  *   async fetchData() { ... }
  * }
  */
-export function requireInitialization(
+export function requiresInitialization(
   target: (...args: any[]) => any,
   context: ClassMethodDecoratorContext,
 ) {

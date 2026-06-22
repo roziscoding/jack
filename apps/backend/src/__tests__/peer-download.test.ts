@@ -20,7 +20,12 @@ afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
 function markInitialized<T extends object>(connector: T): T {
-  ;(connector as any)._isInitialized = true
+  const c = connector as any
+  c._isInitialized = true
+  c._initState = 'initialized'
+  // The @requiresInitialization guard awaits the `initialization` PROMISE, so resolve
+  // it — otherwise every guarded call hangs waiting on an init the test skips.
+  c._initialization.resolve()
   return connector
 }
 

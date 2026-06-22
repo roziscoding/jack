@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { getApp } from '../app'
 import { openDatabase } from '../database/connection'
-import { AppConfig } from '../lib/config'
+import { AppConfig, MIGRATIONS } from '../lib/config'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 
 const envs: Envs = {
@@ -17,10 +17,12 @@ const envs: Envs = {
   LOG_LEVEL: 'fatal',
   OTEL_SERVICE_NAME: 'jack-server',
   PORT: 3000,
+  MANAGEMENT_PORT: 5226,
   NODE_ENV: 'test',
 }
 
 const config = AppConfig.parse({
+  version: MIGRATIONS.length,
   jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { completedPath: '/tmp/completed' },
   servers: [],

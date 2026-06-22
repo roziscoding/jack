@@ -81,13 +81,13 @@ describe('connector init() state machine', () => {
 
     // 1st attempt: fails, pinged once.
     radarr.init()
-    await expect(radarr.initialization!).rejects.toThrow()
+    await expect(radarr.initialization).rejects.toThrow()
     expect(pings).toBe(1)
     expect(radarr.isInitialized).toBe(false)
 
     // Still down: a fresh call re-pings (retry).
     radarr.init()
-    await expect(radarr.initialization!).rejects.toThrow()
+    await expect(radarr.initialization).rejects.toThrow()
     expect(pings).toBe(2)
 
     // Recovered: retry succeeds.
@@ -133,7 +133,7 @@ describe('search resilience + lazy retry', () => {
       http.get('http://broken.test/api/v3/system/status', () => HttpResponse.json({ appName: 'Radarr', version: '5.0' })),
       http.get('http://broken.test/api/v3/movie', () => new HttpResponse('boom', { status: 500 })),
     )
-    const controller = new PeerController([makeRadarr('http://good.test'), makeRadarr('http://broken.test')])
+    const controller = new PeerController(() => [makeRadarr('http://good.test'), makeRadarr('http://broken.test')])
 
     const results = await controller.search({})
 
@@ -150,7 +150,7 @@ describe('search resilience + lazy retry', () => {
     const up = makeRadarr('http://up.test')
     const down = makeRadarr('http://down.test')
     // Neither has been initialized — the old code would filter both out.
-    const controller = new PeerController([up, down])
+    const controller = new PeerController(() => [up, down])
 
     const results = await controller.search({})
 
@@ -168,7 +168,7 @@ describe('search resilience + lazy retry', () => {
       http.get('http://flaky.test/api/v3/movie', () => HttpResponse.json([mockMovie])),
     )
     const flaky = makeRadarr('http://flaky.test')
-    const controller = new PeerController([flaky])
+    const controller = new PeerController(() => [flaky])
 
     // Down at boot → first search gets nothing.
     expect(await controller.search({})).toHaveLength(0)

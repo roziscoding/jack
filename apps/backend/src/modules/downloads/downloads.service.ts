@@ -1,5 +1,6 @@
 import type { AppConfig } from '../../lib/config'
-import type { PeerConnector, PeerDownloadProgressEvent } from '../../lib/servers/peer'
+import type { ConnectorManager } from '../../lib/servers'
+import type { PeerDownloadProgressEvent } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
 import { basename, join } from 'node:path'
 import { retry } from '../../lib/retry'
@@ -35,10 +36,16 @@ export class DownloadsService {
 
   constructor(
     private readonly config: DownloadsServiceConfig,
-    private readonly peers: PeerConnector[],
+    // Only the live `peers` getter is used; accept the structural shape so a real
+    // ConnectorManager (live) or a test stub both satisfy it.
+    private readonly connectorManager: { peers: ConnectorManager['peers'] },
     private readonly downloadsRepository?: DownloadsRepository,
   ) {
     this.semaphore = new Semaphore(config.maxConcurrentDownloads)
+  }
+
+  private get peers() {
+    return this.connectorManager.peers
   }
 
   /**

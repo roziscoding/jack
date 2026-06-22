@@ -1,4 +1,5 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import { setSpanAttribute } from '../../lib/span-attributes'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
 
@@ -17,7 +18,7 @@ export class ItemsController {
       // and re-initialized lazily by @requireInitialization, isolated per-source.
       const sources = this.connectors.sources.filter(c => c.canSource)
       if (sources.length === 0) {
-        span.setAttribute('source.result_count', 0)
+        setSpanAttribute(span, 'source.result_count', 0)
         return []
       }
 
@@ -29,7 +30,7 @@ export class ItemsController {
             'search.term': searchTerm,
           }, async (sourceSpan) => {
             const items = await c.searchItems(searchTerm)
-            sourceSpan.setAttribute('item.count', items.length)
+            setSpanAttribute(sourceSpan, 'item.count', items.length)
             return { name: c.name, items }
           })
         }
@@ -39,7 +40,7 @@ export class ItemsController {
         }
       }))
 
-      span.setAttribute('source.result_count', results.length)
+      setSpanAttribute(span, 'source.result_count', results.length)
       return results
     })
   }

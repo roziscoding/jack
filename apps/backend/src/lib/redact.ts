@@ -31,3 +31,36 @@ export function redactRecord(record: Record<string, string | string[]>): Record<
     Object.entries(record).map(([key, value]) => [key, redactIfSensitive(key, value)]),
   )
 }
+
+// Mask a value that lives under a sensitive key, whatever its shape: strings get
+// the edge-preserving mask, arrays are masked element-wise, and anything else
+// (numbers, nested objects) is hidden entirely since we can't safely show any of it.
+function maskSensitiveValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return redactValue(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map(maskSensitiveValue)
+  }
+  if (value === null || value === undefined) {
+    return value
+  }
+  return REDACTED
+}
+
+// Recursively redact sensitive fields anywhere in an arbitrary value, leaving the
+// surrounding structure intact. Used to scrub log records before they're emitted.
+export function redactObject<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(item => redactObject(item)) as T
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, val]) => [
+        key,
+        isSensitiveField(key) ? maskSensitiveValue(val) : redactObject(val),
+      ]),
+    ) as T
+  }
+  return value
+}

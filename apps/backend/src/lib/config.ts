@@ -6,6 +6,7 @@ import process from 'node:process'
 import { jsonc } from 'jsonc'
 import z from 'zod'
 import { logger } from '../logger'
+import { atomicWriteFile } from './atomic-write'
 
 const TRAILING_LINE_ENDINGS = /[\r\n]+$/
 
@@ -22,7 +23,7 @@ const TRAILING_LINE_ENDINGS = /[\r\n]+$/
  *
  * @param value - schema used to validate the resolved string (defaults to a
  * non-empty string). It is applied both to literal strings and to values loaded
- * from the environment or filesystem.
+ * from the environment or filesystem
  */
 export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1)) {
   return z
@@ -74,22 +75,25 @@ export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1
     .pipe(value)
 }
 
-// A jack-managed server is always a Radarr or Sonarr instance: it can act as a
-// source (its library is shared with peers), a destination (jack registers
-// itself there and triggers imports), or both.
+// Raw (ref-preserving) secret: the union BEFORE ConfigSecret resolves it. Used only
+// for persistence so the versioned file keeps {env}/{file} refs. Declared up here so
+// both RawPeerConfig (below) and RawServerConfig (Phase 5) can reference it.
+export const RawConfigSecret = z.union([
+  z.string(),
+  z.object({ env: z.string().min(1) }),
+  z.object({ file: z.string().min(1) }),
+])
+
 export const ServerType = z.enum(['radarr', 'sonarr'])
 
 export type ServerType = z.infer<typeof ServerType>
 
-// The connector base also models peers (other jacks), which are sources only.
 export type ConnectorType = ServerType | 'jack'
 
 export const ConnectorHeadersConfig = z.record(z.string(), ConfigSecret()).default({})
 
 export type ConnectorHeadersConfig = z.infer<typeof ConnectorHeadersConfig>
 
-// Auto-registration of jack as a Torznab indexer + qBittorrent download
-// client inside the *arr. `priority` is the indexer/client priority used there.
 export const AutoRegisterConfig = z.object({
   enable: z.boolean().default(true),
   priority: z.number().int().min(1).default(1),
@@ -103,17 +107,28 @@ export const ServerConfig = z.object({
   apiKey: ConfigSecret(z.hex().min(32).max(32)),
   headers: ConnectorHeadersConfig,
   type: ServerType,
-  // Expose this server's library to peers (read by /peer/search).
   source: z.boolean().default(true),
-  // Register jack into this server and trigger imports there (written to).
   destination: z.boolean().default(true),
   autoregister: AutoRegisterConfig.prefault({}),
 })
 
 export type ServerConfig = z.infer<typeof ServerConfig>
 
-// A peer is another jack instance we fan out to over the /peer API. Sources
-// only — the source/destination/autoregister flags don't apply.
+// Raw server for persistence: strip unknown keys from a management-client body while
+// preserving {env}/{file} secret refs, mirroring RawPeerConfig.
+export const RawServerConfig = z.object({
+  name: z.string(),
+  url: z.url(),
+  apiKey: RawConfigSecret,
+  headers: z.record(z.string(), RawConfigSecret).optional(),
+  type: ServerType,
+  source: z.boolean().optional(),
+  destination: z.boolean().optional(),
+  autoregister: z.object({ enable: z.boolean().optional(), priority: z.number().int().optional() }).optional(),
+})
+
+export type RawServerConfig = z.infer<typeof RawServerConfig>
+
 export const PeerConfig = z.object({
   name: z.string(),
   url: z.url(),
@@ -122,6 +137,17 @@ export const PeerConfig = z.object({
 })
 
 export type PeerConfig = z.infer<typeof PeerConfig>
+
+// Raw peer for persistence: declares exactly the fields we store, so unknown keys
+// from a management-client body are stripped before they reach the file.
+export const RawPeerConfig = z.object({
+  name: z.string(),
+  url: z.url(),
+  apiKey: RawConfigSecret,
+  headers: z.record(z.string(), RawConfigSecret).optional(),
+})
+
+export type RawPeerConfig = z.infer<typeof RawPeerConfig>
 
 export const JackConfig = z.object({
   baseUrl: z.url(),
@@ -132,33 +158,17 @@ export type JackConfig = z.infer<typeof JackConfig>
 
 export const DownloadsConfig = z.object({
   completedPath: z.string().min(1),
-  // Max peer file downloads running at once (an async semaphore guards the
-  // expensive download step). Defaults keep existing configs working.
   maxConcurrentDownloads: z.number().int().min(1).default(3),
-  // Bounded retries for transient failures, with exponential backoff + jitter.
-  // A peer (another jack) can go unreachable for ~15-30 min (restart, tunnel
-  // hiccup); since the .part is preserved and fully resumable, the schedule must
-  // span long enough to outlast such an outage rather than fail fast.
-  //
-  // The backoff (see lib/retry.ts) is full-jitter exponential: each retry waits
-  // up to `min(maxDelayMs, baseDelayMs * 2^(attempt-1))`. Starting at 1s and
-  // capped at 30min, the uncapped backoff reaches the cap at attempt 12
-  // (2^11 = 2048 >= 1800). With 13 total attempts there are 12 retries whose
-  // max delays are 1s,2s,4s,...,512s,1024s(~17m),1800s(30m cap) — a worst-case
-  // total retry window of ~64min (≈32min on average with jitter). That keeps a
-  // ~17min outage well within reach while early retries stay snappy (≈1s) for
-  // ordinary network blips.
   maxDownloadAttempts: z.number().int().min(1).default(13),
   retryBaseDelayMs: z.number().int().min(0).default(1000),
   retryMaxDelayMs: z.number().int().min(0).default(1_800_000),
-  // Abort a peer download if no bytes arrive for this long (inactivity timeout).
-  // Resets on every received chunk; replaces the old whole-request deadline.
   idleTimeoutMs: z.number().int().min(1000).default(60_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 
 export const AppConfig = z.object({
+  version: z.number(),
   jack: JackConfig.optional(),
   downloads: DownloadsConfig.optional(),
   servers: z.array(ServerConfig).default([]),
@@ -167,11 +177,33 @@ export const AppConfig = z.object({
 
 export type AppConfig = z.infer<typeof AppConfig>
 
-// Template written to disk to bootstrap a fresh install. API keys default to the
-// `{ env: "..." }` form so secrets can be supplied via environment variables
-// instead of being hardcoded in the file. Typed as the schema *input* so the
-// env-reference shape is allowed here.
+export const MIGRATIONS = [
+  <T extends object>(obj: T): T & { version: number } => ({ ...obj, version: 1 }),
+]
+const LATEST_MIGRATION = MIGRATIONS.length
+
+export function migrateConfig(rawConfigObject: unknown) {
+  const configObject = z
+    .looseObject({ version: z.number().max(LATEST_MIGRATION).min(0).default(0).catch(0) })
+    .parse(rawConfigObject)
+
+  const currentVersion = configObject.version
+  const migrationsToApply = MIGRATIONS.slice(currentVersion)
+
+  if (migrationsToApply.length === 0) {
+    return
+  }
+
+  logger.debug(`Migrating config from version ${currentVersion} to version ${MIGRATIONS.length}`)
+
+  return migrationsToApply.reduce((acc, migration, idx) => {
+    logger.trace({ input: acc }, `Migrating to version ${idx + 1}`)
+    return migration(acc)
+  }, configObject)
+}
+
 const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
+  version: MIGRATIONS.length,
   jack: {
     baseUrl: 'http://jack:5225',
     apiKey: { env: 'JACK_API_KEY' },
@@ -180,9 +212,8 @@ const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
   peers: [],
 }
 
-// Fallback returned on first boot when the default's env references aren't set
-// yet, so the app keeps starting instead of crashing on a fresh install.
 const EMPTY_APP_CONFIG: AppConfig = {
+  version: MIGRATIONS.length,
   servers: [],
   peers: [],
 }
@@ -194,7 +225,7 @@ async function createDefaultAppConfig(path: string) {
   }
 }
 
-export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_PATH'>) {
+export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_PATH'>): Promise<{ appConfig: AppConfig, raw: z.input<typeof AppConfig> }> {
   const configFileExists = await fs.exists(APP_CONFIG_PATH)
 
   if (!configFileExists) {
@@ -203,18 +234,34 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
 
     const defaultConfig = AppConfig.safeParse(DEFAULT_APP_CONFIG)
     if (defaultConfig.success)
-      return defaultConfig.data
+      return { appConfig: defaultConfig.data, raw: DEFAULT_APP_CONFIG }
 
+    // The runtime config is empty (the referenced secrets can't be resolved yet),
+    // but `raw` must mirror what we just wrote to disk — DEFAULT_APP_CONFIG, jack
+    // template included. Seeding ConfigService with EMPTY_APP_CONFIG instead would
+    // make the first management mutation persist a config without the jack template,
+    // silently clobbering the file that createDefaultAppConfig just created.
     logger.warn('Default config references environment variables that are not set. Starting with an empty config until they are provided.')
-    return EMPTY_APP_CONFIG
+    return { appConfig: EMPTY_APP_CONFIG, raw: DEFAULT_APP_CONFIG }
   }
 
   logger.debug(`Loading config file from ${APP_CONFIG_PATH}`)
   const fileTextContent = await Bun.file(APP_CONFIG_PATH).text()
-
-  logger.debug(`Parsing config file content`)
   const fileContent = jsonc.parse(fileTextContent)
 
+  // `migrateConfig` returns the migrated object, or `undefined` when the file is
+  // already current. On a real migration, back up the original bytes (comments
+  // intact) then atomically rewrite the file so the upgrade is durable.
+  const migrated = migrateConfig(fileContent)
+  if (migrated) {
+    logger.info(`Config migrated; writing backup to ${APP_CONFIG_PATH}.bak and persisting`)
+    await Bun.write(`${APP_CONFIG_PATH}.bak`, fileTextContent)
+    await atomicWriteFile(APP_CONFIG_PATH, jsonc.stringify(migrated, { space: 2 }))
+  }
+
+  // `migrated ?? fileContent` also fixes the up-to-date-file crash (migrateConfig
+  // returns undefined when current; parsing undefined used to throw).
+  const raw = (migrated ?? fileContent) as z.input<typeof AppConfig>
   logger.debug(`Validating app config`)
-  return AppConfig.parse(fileContent)
+  return { appConfig: AppConfig.parse(raw), raw }
 }

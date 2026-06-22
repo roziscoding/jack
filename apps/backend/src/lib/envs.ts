@@ -17,6 +17,14 @@ export const Envs = z.object({
   OTEL_SERVICE_NAME: z.string().default('jack-backend'),
   NODE_ENV: z.string().optional(),
   ENABLE_LOGS: z.stringbool().optional().default(true),
+  // Management API credential. When set, the management surface starts on its OWN
+  // port (MANAGEMENT_PORT) and every request must carry `X-Management-Key: <this>`.
+  // When unset, the management listener is not started at all.
+  MANAGEMENT_KEY: z.string().min(1).optional(),
+  // Port for the management API listener (separate from the public PORT so the
+  // peer-facing port never exposes management at all). Only used when MANAGEMENT_KEY
+  // is set.
+  MANAGEMENT_PORT: z.coerce.number().int().default(5226),
 }).transform(vars => ({
   ...vars,
   ENABLE_LOGS: vars.NODE_ENV !== 'test' && vars.ENABLE_LOGS,
