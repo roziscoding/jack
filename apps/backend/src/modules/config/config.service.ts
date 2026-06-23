@@ -184,21 +184,23 @@ export class ConfigService {
 
   // ── Peers ────────────────────────────────────────────────────────────────────
 
-  async addPeer(input: unknown): Promise<void> {
+  async addPeer(input: unknown, { force = false }: { force?: boolean } = {}): Promise<void> {
     // Validate + resolve secrets up front (bad shape / unresolvable ref → 400 before
     // any write); persist the ref-preserving `RawPeerConfig` parse, not the resolved value.
     const resolved = PeerConfig.parse(input)
     const rawPeer = RawPeerConfig.parse(input)
     // rethrowInitError: a peer that fails its handshake aborts the add (and rolls the
     // config back) so the UI can report the cause, rather than persisting a dead peer.
-    return this.addEntry('peers', 'peer', resolved, rawPeer, () => this.connectorManager.addPeerConnector(resolved, { rethrowInitError: true }))
+    // `force` flips this off: keep the peer even when it can't connect — it stays
+    // resident and auto-retries lazily (init() is retry-aware).
+    return this.addEntry('peers', 'peer', resolved, rawPeer, () => this.connectorManager.addPeerConnector(resolved, { rethrowInitError: !force }))
   }
 
   async removePeer(id: string): Promise<void> {
     return this.removeEntry('peers', 'peer', id)
   }
 
-  async updatePeer(id: string, input: unknown): Promise<void> {
+  async updatePeer(id: string, input: unknown, { force = false }: { force?: boolean } = {}): Promise<void> {
     const resolved = PeerConfig.parse(input)
     const rawPeer = RawPeerConfig.parse(input)
     return this.updateEntry(
@@ -207,7 +209,7 @@ export class ConfigService {
       id,
       resolved,
       rawPeer,
-      () => this.connectorManager.addPeerConnector(resolved, { rethrowInitError: true }),
+      () => this.connectorManager.addPeerConnector(resolved, { rethrowInitError: !force }),
       (oldId, newId) => this.downloadsRepository?.reassignPeerId(oldId, newId),
     )
   }

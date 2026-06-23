@@ -208,6 +208,24 @@ describe('Management API addPeer', () => {
     expect((connectorManager as any)._peerMap.has(generateId('http://dead.test:3000'))).toBe(false)
   })
 
+  test('?force=true persists a peer that fails its handshake and keeps it resident', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+
+    const res = await app.request('/config/peers?force=true', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Dead', url: 'http://dead.test:3000', apiKey: 'k' }),
+    })
+    // force flips off rethrowInitError → the add succeeds despite the failed handshake.
+    expect(res.status).toBe(201)
+
+    // Persisted on disk and resident in the map so it auto-retries later.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: Array<{ url: string }> }
+    expect(onDisk.peers).toHaveLength(1)
+    expect(onDisk.peers[0]?.url).toBe('http://dead.test:3000')
+    expect((connectorManager as any)._peerMap.has(generateId('http://dead.test:3000'))).toBe(true)
+  })
+
   test('rejects an invalid body with 400', async () => {
     const { app } = await makeMutableApp()
     const res = await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'NoUrl' }) })

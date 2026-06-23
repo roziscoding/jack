@@ -85,16 +85,16 @@ export class ConfigController {
     return { ok: true }
   }
 
-  addPeer(input: unknown) {
-    return this.mutate(s => s.addPeer(input))
+  addPeer(input: unknown, opts?: { force?: boolean }) {
+    return this.mutate(s => s.addPeer(input, opts))
   }
 
   removePeer(id: string) {
     return this.mutate(s => s.removePeer(id))
   }
 
-  updatePeer(id: string, input: unknown) {
-    return this.mutate(s => s.updatePeer(id, input))
+  updatePeer(id: string, input: unknown, opts?: { force?: boolean }) {
+    return this.mutate(s => s.updatePeer(id, input, opts))
   }
 
   addServer(input: unknown) {

@@ -31,14 +31,17 @@ function openEdit(peer: PeerItem) {
   showForm.value = true
 }
 
-async function submit(input: PeerInput) {
+async function submit(input: PeerInput, force = false) {
   submitting.value = true
   formError.value = null
+  // force (shift-click): persist the peer even if its handshake fails — the
+  // backend keeps it resident and retries lazily instead of rejecting the add.
+  const query = force ? { force: 'true' } : undefined
   try {
     if (editTarget.value)
-      await request(`config/peers/${editTarget.value.id}`, { method: 'PATCH', body: input })
+      await request(`config/peers/${editTarget.value.id}`, { method: 'PATCH', body: input, query })
     else
-      await request('config/peers', { method: 'POST', body: input })
+      await request('config/peers', { method: 'POST', body: input, query })
     showForm.value = false
     await refresh()
   }

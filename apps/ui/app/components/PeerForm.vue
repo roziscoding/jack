@@ -6,7 +6,7 @@ const props = defineProps<{
   submitting?: boolean
   error?: string | null
 }>()
-const emit = defineEmits<{ submit: [PeerInput], cancel: [] }>()
+const emit = defineEmits<{ submit: [PeerInput, boolean], cancel: [] }>()
 
 const editing = computed(() => Boolean(props.initial))
 const name = ref(props.initial?.name ?? '')
@@ -16,13 +16,22 @@ const headers = ref<Record<string, SecretRef>>(props.initial?.headers ?? {})
 
 const valid = computed(() => Boolean(name.value.trim() && url.value.trim() && apiKey.value))
 
+// Set by a shift-click on the submit button (the click fires before the form's
+// submit). Enter-to-submit leaves it false → a normal, connectivity-checked save.
+const forceNext = ref(false)
+
+function onForceModifier(e: MouseEvent) {
+  forceNext.value = e.shiftKey
+}
+
 function submit() {
   if (!valid.value)
     return
   const input: PeerInput = { name: name.value.trim(), url: url.value.trim(), apiKey: apiKey.value! }
   if (Object.keys(headers.value).length)
     input.headers = headers.value
-  emit('submit', input)
+  emit('submit', input, forceNext.value)
+  forceNext.value = false
 }
 </script>
 
@@ -54,9 +63,11 @@ function submit() {
       <button
         type="submit"
         :disabled="!valid || submitting"
+        title="Shift-click to save even if the peer can't be reached (it'll retry later)"
         class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
+        @click="onForceModifier"
       >
-        {{ submitting ? 'Saving…' : editing ? 'Save changes' : 'Add peer' }}
+        {{ submitting ? 'Saving…' : 'Save' }}
       </button>
     </div>
   </form>
