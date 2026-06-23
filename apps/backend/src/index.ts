@@ -72,6 +72,7 @@ function startManagementServer() {
     managementKey: envs.MANAGEMENT_KEY,
     connectors: connectorManager,
     configService,
+    downloadsRepository,
   })
   const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
   logger.info({ port: instance.port }, 'Management API listening')
