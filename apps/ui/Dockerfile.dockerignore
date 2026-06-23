@@ -6,6 +6,8 @@ dist
 out
 **/dist
 **/out
+**/.nuxt
+**/.output
 coverage
 *.log
 logs
@@ -13,10 +15,12 @@ logs
 .idea
 .vscode
 .cursor
+.env
+**/.env
 config.jsonc
 **/__tests__
 *.test.ts
-Dockerfile
-.dockerignore
+**/Dockerfile
+**/Dockerfile.dockerignore
 docker-compose.yml
 README.md

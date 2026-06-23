@@ -49,10 +49,11 @@ So a typical "both" setup has your Radarr/Sonarr as `source: true` **and**
 
 ## Quick start (Docker Compose)
 
-Running with Docker Compose is the recommended way to self-host jack. The image
-is published to GitHub Container Registry (`ghcr.io/roziscoding/jack:main`) on
-every push to `main`, so you don't need to clone the repo — just grab
-[`examples/docker-compose.yml`](examples/docker-compose.yml) and
+Running with Docker Compose is the recommended way to self-host jack. Two images
+are published to GitHub Container Registry on every push to `main` — the backend
+(`ghcr.io/roziscoding/jack:main`) and the management UI
+(`ghcr.io/roziscoding/jack-ui:main`) — so you don't need to clone the repo. Just
+grab [`examples/docker-compose.yml`](examples/docker-compose.yml) and
 [`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
 
 ```bash
@@ -61,16 +62,25 @@ mkdir -p config
 cp config.jsonc config/config.jsonc   # the template you downloaded
 $EDITOR config/config.jsonc           # fill in your servers (see below)
 
-# 2. Pull and run
+# 2. Set a management key (gates the management API + the UI's access to it)
+echo "JACK_MANAGEMENT_KEY=$(openssl rand -base64 32)" > .env
+
+# 3. Pull and run
 docker compose up -d
 
-# 3. Watch the logs
+# 4. Watch the logs
 docker compose logs -f
 ```
 
 You should see `Server listening` and, if you configured destinations,
 `Registered Jack as Torznab indexer` and `Registered Jack as qBittorrent
 download client` lines.
+
+The management UI comes up at **http://localhost:3000** (override the host port
+with `JACK_UI_PORT`). It's a BFF that proxies jack's management API and injects
+`JACK_MANAGEMENT_KEY` for you, so the browser is never prompted. Don't want the
+UI? Delete the `jack-ui` service and the backend's `MANAGEMENT_KEY` line to run
+jack headless.
 
 The compose file mounts three host paths — adjust them for your setup:
 
@@ -566,8 +576,10 @@ mise run clients   # regenerate packages/schemas/src/generated
 ## Project layout
 
 ```
-apps/backend       # the Hono server (Torznab, peer API, qBittorrent API)
-packages/schemas   # generated Radarr/Sonarr API types
-examples/          # docker-compose.yml + config.jsonc template
-Dockerfile         # multi-stage production image
+apps/backend            # the Hono server (Torznab, peer API, qBittorrent API)
+apps/backend/Dockerfile # backend production image (build context = repo root)
+apps/ui                 # the management console (Nuxt BFF)
+apps/ui/Dockerfile      # management UI image (build context = repo root)
+packages/schemas        # generated Radarr/Sonarr API types
+examples/               # docker-compose.yml + config.jsonc template
 ```
