@@ -13,6 +13,12 @@ const formError = ref<string | null>(null)
 
 const confirmTarget = ref<PeerItem | null>(null)
 const deleting = ref(false)
+const deleteError = ref<string | null>(null)
+
+function closeConfirm() {
+  confirmTarget.value = null
+  deleteError.value = null
+}
 
 function openAdd() {
   editTarget.value = null
@@ -48,10 +54,14 @@ async function confirmDelete() {
   if (!confirmTarget.value)
     return
   deleting.value = true
+  deleteError.value = null
   try {
     await request(`config/peers/${confirmTarget.value.id}`, { method: 'DELETE' })
     confirmTarget.value = null
     await refresh()
+  }
+  catch (err) {
+    deleteError.value = extractError(err, 'Could not remove the peer.')
   }
   finally {
     deleting.value = false
@@ -137,13 +147,16 @@ async function confirmDelete() {
       />
     </Modal>
 
-    <Modal v-if="confirmTarget" title="Remove peer" @close="confirmTarget = null">
+    <Modal v-if="confirmTarget" title="Remove peer" @close="closeConfirm">
       <p class="text-sm text-slate-300">
         Remove <strong>{{ confirmTarget.name }}</strong>? In-flight downloads finish; new
         searches stop hitting it immediately.
       </p>
+      <p v-if="deleteError" class="mt-3 rounded-lg border border-rose-900/60 bg-rose-950/30 p-3 text-sm text-rose-200">
+        {{ deleteError }}
+      </p>
       <div class="mt-5 flex justify-end gap-2">
-        <button class="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-slate-100" @click="confirmTarget = null">
+        <button class="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-slate-100" @click="closeConfirm">
           Cancel
         </button>
         <button

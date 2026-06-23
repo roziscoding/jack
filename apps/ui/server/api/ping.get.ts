@@ -1,4 +1,4 @@
-// The UI's three-state auth probe (mirrors the design doc):
+// The UI's four-state auth probe (mirrors the design doc):
 //   ok          → key valid, management API up
 //   needs-key   → cookie mode, no/invalid key → prompt for it
 //   disabled    → management API unreachable (server has no MANAGEMENT_KEY set)

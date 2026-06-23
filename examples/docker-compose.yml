@@ -68,8 +68,11 @@ services:
       # never prompted. Same variable as jack's MANAGEMENT_KEY above, so they match.
       JACK_MANAGEMENT_KEY: ${JACK_MANAGEMENT_KEY:?set JACK_MANAGEMENT_KEY in a .env file next to this compose (any long random string)}
       # Only used in cookie-prompt mode (when JACK_MANAGEMENT_KEY is unset): seals
-      # the session cookie and must be >= 32 chars. Harmless to leave set otherwise.
-      JACK_SESSION_KEY: ${JACK_SESSION_KEY:-}
+      # the session cookie and must be >= 32 chars. Left unset here because this
+      # compose runs in inject mode, where sessions aren't used. If you switch to
+      # cookie mode (remove JACK_MANAGEMENT_KEY above), uncomment this so a real
+      # key is required — an empty value would break cookie sealing.
+      # JACK_SESSION_KEY: ${JACK_SESSION_KEY:?set a >= 32-char random string for cookie mode}
 # networks:
 #   media:
 #     external: true
