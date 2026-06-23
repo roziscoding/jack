@@ -274,6 +274,67 @@ describe('Management API servers', () => {
   })
 })
 
+describe('Management API GET /config exposes refs-intact secrets', () => {
+  test('returns the persisted apiKey + header refs without resolving them', async () => {
+    process.env.PEER_KEY = 'peer-secret'
+    process.env.PEER_HEADER = 'header-secret'
+    const { app } = await makeMutableApp()
+
+    await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Bob',
+        url: 'http://bob.test:3000',
+        apiKey: { env: 'PEER_KEY' },
+        headers: { 'X-Plain': 'literal', 'X-Secret': { env: 'PEER_HEADER' } },
+      }),
+    })
+
+    const res = await app.request('/config/peers', { headers: KEY })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { peers: Array<{ apiKey: unknown, headers: Record<string, unknown> }> }
+    // Refs come back exactly as stored — never resolved into the secret value.
+    expect(body.peers[0]?.apiKey).toEqual({ env: 'PEER_KEY' })
+    expect(body.peers[0]?.headers).toEqual({ 'X-Plain': 'literal', 'X-Secret': { env: 'PEER_HEADER' } })
+  })
+
+  test('read-only app (no ConfigService) omits the secret fields', async () => {
+    // mgmtApp() wires no ConfigService, so there is no refs-intact source to read
+    // from — apiKey/headers are absent rather than resolved off the live connector.
+    const res = await mgmtApp().request('/config/peers', { headers: KEY })
+    const body = await res.json() as { peers: Array<Record<string, unknown>> }
+    expect(body.peers[0]).not.toHaveProperty('apiKey')
+    expect(body.peers[0]).not.toHaveProperty('headers')
+  })
+
+  test('servers expose every editable field: apiKey ref + headers + autoregister', async () => {
+    process.env.SERVER_KEY = 'a'.repeat(32)
+    const { app } = await makeMutableApp()
+
+    await app.request('/config/servers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Radarr',
+        url: 'http://radarr-new.test:7878',
+        apiKey: { env: 'SERVER_KEY' },
+        type: 'radarr',
+        headers: { 'X-Trace': 'on' },
+        autoregister: { enable: true, priority: 7 },
+      }),
+    })
+
+    const res = await app.request('/config/servers', { headers: KEY })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { servers: Array<{ apiKey: unknown, headers: unknown, autoregister: unknown, source: boolean, destination: boolean }> }
+    expect(body.servers[0]?.apiKey).toEqual({ env: 'SERVER_KEY' })
+    expect(body.servers[0]?.headers).toEqual({ 'X-Trace': 'on' })
+    // autoregister is the effective (defaults-applied) value off the live connector.
+    expect(body.servers[0]?.autoregister).toEqual({ enable: true, priority: 7 })
+  })
+})
+
 describe('Management API live visibility', () => {
   test('a live-added peer is searchable via /torznab without restart', async () => {
     // `app` = management app (/config); `mainApp` = public app (/torznab). Same

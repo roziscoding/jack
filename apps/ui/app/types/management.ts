@@ -5,6 +5,11 @@ export interface ConnectorBase {
   type: string
   initialized: boolean
   initializationError: string | null
+  // Refs-intact secrets from GET /config — present only on a deployment with a
+  // ConfigService (read-only deployments omit them). Values are never resolved:
+  // a `{env}`/`{file}` ref comes back as the ref, a literal as its stored string.
+  apiKey?: SecretRef
+  headers?: Record<string, SecretRef>
 }
 
 export interface PeerItem extends ConnectorBase {
@@ -14,6 +19,7 @@ export interface PeerItem extends ConnectorBase {
 export interface ServerItem extends ConnectorBase {
   source: boolean
   destination: boolean
+  autoregister: { enable: boolean, priority: number }
 }
 
 export interface DownloadItem {
@@ -47,7 +53,7 @@ export interface PeerInput {
   name: string
   url: string
   apiKey: SecretRef
-  headers?: Record<string, string>
+  headers?: Record<string, SecretRef>
 }
 
 export interface ServerInput {
@@ -57,6 +63,6 @@ export interface ServerInput {
   type: 'radarr' | 'sonarr'
   source?: boolean
   destination?: boolean
-  headers?: Record<string, string>
+  headers?: Record<string, SecretRef>
   autoregister?: { enable?: boolean, priority?: number }
 }

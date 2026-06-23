@@ -3,8 +3,9 @@ import type { SecretRef } from '~/types/management'
 
 const props = defineProps<{
   modelValue: SecretRef | null
-  // On edit we can't pre-fill a literal secret (the API never returns it), so the
-  // field starts empty with a hint that re-entering replaces the stored value.
+  // GET /config returns refs intact, so an edit form prefills this with the stored
+  // value/ref. `editing` only tweaks the empty-field placeholder (shown if the user
+  // clears it) to read "replace" rather than "set".
   editing?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [SecretRef | null] }>()
@@ -28,6 +29,10 @@ function detectValue(v: SecretRef | null): string {
 
 const mode = ref<Mode>(detectMode(props.modelValue))
 const value = ref(detectValue(props.modelValue))
+// Literal secrets are masked by default; the user opts into revealing the stored
+// plaintext. Env/file refs aren't secret (just a name/path) so they always show.
+const reveal = ref(false)
+const inputType = computed(() => (mode.value === 'literal' && !reveal.value ? 'password' : 'text'))
 
 const placeholder = computed(() => {
   if (mode.value === 'env')
@@ -70,10 +75,13 @@ watch([mode, value], () => {
     </select>
     <input
       v-model="value"
-      :type="mode === 'literal' ? 'password' : 'text'"
+      :type="inputType"
       :placeholder="placeholder"
       autocomplete="off"
       class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
     >
+    <label v-if="mode === 'literal'" class="flex items-center gap-1 whitespace-nowrap text-xs text-slate-400">
+      <input v-model="reveal" type="checkbox" class="rounded border-slate-700 bg-slate-950"> Show
+    </label>
   </div>
 </template>

@@ -11,8 +11,8 @@ const emit = defineEmits<{ submit: [PeerInput], cancel: [] }>()
 const editing = computed(() => Boolean(props.initial))
 const name = ref(props.initial?.name ?? '')
 const url = ref(props.initial?.url ?? '')
-const apiKey = ref<SecretRef | null>(null)
-const headers = ref<Record<string, string>>({})
+const apiKey = ref<SecretRef | null>(props.initial?.apiKey ?? null)
+const headers = ref<Record<string, SecretRef>>(props.initial?.headers ?? {})
 
 const valid = computed(() => Boolean(name.value.trim() && url.value.trim() && apiKey.value))
 
@@ -39,9 +39,6 @@ function submit() {
     <div>
       <label class="mb-1 block text-sm text-slate-300">API key</label>
       <SecretInput v-model="apiKey" :editing="editing" />
-      <p v-if="editing" class="mt-1 text-xs text-slate-500">
-        The stored key is never shown. Re-enter it (or a new ref) to save changes.
-      </p>
     </div>
     <div>
       <label class="mb-1 block text-sm text-slate-300">Headers <span class="text-slate-600">(optional)</span></label>

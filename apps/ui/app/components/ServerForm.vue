@@ -12,12 +12,12 @@ const editing = computed(() => Boolean(props.initial))
 const name = ref(props.initial?.name ?? '')
 const url = ref(props.initial?.url ?? '')
 const type = ref<'radarr' | 'sonarr'>((props.initial?.type as 'radarr' | 'sonarr') ?? 'radarr')
-const apiKey = ref<SecretRef | null>(null)
+const apiKey = ref<SecretRef | null>(props.initial?.apiKey ?? null)
 const source = ref(props.initial?.source ?? true)
 const destination = ref(props.initial?.destination ?? true)
-const autoEnable = ref(true)
-const autoPriority = ref(1)
-const headers = ref<Record<string, string>>({})
+const autoEnable = ref(props.initial?.autoregister?.enable ?? true)
+const autoPriority = ref(props.initial?.autoregister?.priority ?? 1)
+const headers = ref<Record<string, SecretRef>>(props.initial?.headers ?? {})
 
 const valid = computed(() => Boolean(name.value.trim() && url.value.trim() && apiKey.value))
 
@@ -66,7 +66,7 @@ function submit() {
       <label class="mb-1 block text-sm text-slate-300">API key</label>
       <SecretInput v-model="apiKey" :editing="editing" />
       <p class="mt-1 text-xs text-slate-500">
-        *arr API keys are 32-character hex. {{ editing ? 'Re-enter to save changes.' : '' }}
+        *arr API keys are 32-character hex.
       </p>
     </div>
 

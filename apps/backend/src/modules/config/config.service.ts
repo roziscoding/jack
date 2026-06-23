@@ -62,6 +62,22 @@ export class ConfigService {
     return (this.raw[slice] ?? []) as RawEntry[]
   }
 
+  /**
+   * Persisted, refs-intact secret fields for a live connector, looked up by id.
+   * Returns `apiKey`/`headers` exactly as stored — `{env}`/`{file}` refs are
+   * preserved, never resolved — so the management UI can prefill an edit form
+   * without the server ever resolving a secret into the response. Returns
+   * `undefined` for an unknown id (e.g. a connector seeded outside the file).
+   */
+  getRawSecrets(kind: Slice, id: string): { apiKey: unknown, headers: Record<string, unknown> } | undefined {
+    const entry = this.slice(kind).find(e => generateId(e.url) === id) as
+      | (RawEntry & { apiKey?: unknown, headers?: Record<string, unknown> })
+      | undefined
+    if (!entry)
+      return undefined
+    return { apiKey: entry.apiKey, headers: entry.headers ?? {} }
+  }
+
   private indexById(entries: RawEntry[], id: string): number {
     return entries.findIndex(e => generateId(e.url) === id)
   }
