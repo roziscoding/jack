@@ -45,9 +45,7 @@ function submit() {
       <HeadersEditor v-model="headers" />
     </div>
 
-    <p v-if="error" class="text-sm text-rose-400">
-      {{ error }}
-    </p>
+    <FormAlert v-if="error" :message="error" />
 
     <div class="flex justify-end gap-2 pt-2">
       <button type="button" class="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-slate-100" @click="emit('cancel')">
