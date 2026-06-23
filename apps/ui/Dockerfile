@@ -38,7 +38,8 @@ ENV NODE_ENV=production \
 # under .output, so the runtime image needs nothing from the workspace but that dir.
 COPY --from=build /app/apps/ui/.output ./.output
 
-EXPOSE 3000
+# Nitro's server listens on $PORT (overridable at run time); EXPOSE tracks it.
+EXPOSE ${PORT}
 
 # Run as the image's non-root `bun` user (uid/gid 1000), matching the backend image.
 USER bun
