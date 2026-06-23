@@ -194,9 +194,14 @@ export class DownloadsRepository {
       .run()
   }
 
+  /** Rows in a given status (uses the status index). */
+  listByStatus(status: DownloadStatus): DownloadRecord[] {
+    return this.db.select().from(downloads).where(eq(downloads.status, status)).all().map(toRecord)
+  }
+
   /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */
   listStaleDownloads(): DownloadRecord[] {
-    return this.db.select().from(downloads).where(eq(downloads.status, 'downloading')).all().map(toRecord)
+    return this.listByStatus('downloading')
   }
 
   async reconcileStaleDownloads(): Promise<number> {

@@ -46,7 +46,7 @@ export class ImportWatcher {
   async tick(): Promise<number> {
     // Only qB-added downloads (qbSourceServer set) are imported by an *arr we can
     // poll; blackhole rows have no server to ask, so they're left as-is.
-    const queued = this.repository.list().filter(r => r.status === 'import_queued' && r.qbSourceServer)
+    const queued = this.repository.listByStatus('import_queued').filter(r => r.qbSourceServer)
     if (queued.length === 0)
       return 0
 
