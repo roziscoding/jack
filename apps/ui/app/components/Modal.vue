@@ -13,7 +13,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 <template>
   <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-10" @click.self="emit('close')">
-    <div class="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 shadow-2xl">
+    <div class="w-full max-w-3xl rounded-xl border border-slate-800 bg-slate-900 shadow-2xl">
       <div class="flex items-center justify-between border-b border-slate-800 px-5 py-4">
         <h2 class="font-medium">
           {{ title }}
