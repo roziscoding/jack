@@ -45,8 +45,10 @@ EXPOSE ${PORT}
 USER bun
 
 # /api/ping always answers 200 (ok | needs-key | disabled | error) once the
-# server is up, so it's a clean liveness probe.
+# server is up, so it's a clean liveness probe. Use 127.0.0.1, not localhost:
+# the server binds IPv4 (0.0.0.0) only, but `localhost` resolves to ::1 first in
+# this image, and BusyBox wget won't fall back to IPv4 — so localhost is refused.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null "http://localhost:${PORT}/api/ping" || exit 1
+    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/ping" || exit 1
 
 CMD ["bun", ".output/server/index.mjs"]
