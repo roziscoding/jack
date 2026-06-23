@@ -17,13 +17,13 @@ The jack backend starts its management API on `MANAGEMENT_PORT` (default `5226`)
 
 Both are supported on one axis — where the key comes from:
 
-1. **Injected (feels authless).** Set `NUXT_MANAGEMENT_KEY` in the UI's own env.
+1. **Injected (feels authless).** Set `JACK_MANAGEMENT_KEY` in the UI's own env.
    The BFF injects the header on every request; the browser is never prompted.
    Use this to delegate access control to a proxy (Cloudflare Access, Traefik
    forward-auth, …) — strictly safer than disabling the check, because the
    management API stays key-protected against anyone hitting the port directly.
 
-2. **Cookie prompt.** Leave `NUXT_MANAGEMENT_KEY` unset. The browser hits `/api/ping`,
+2. **Cookie prompt.** Leave `JACK_MANAGEMENT_KEY` unset. The browser hits `/api/ping`,
    gets `needs-key`, and prompts. The key is validated against the management API and
    stored in an `HttpOnly` + `Secure` + `SameSite=Strict` sealed cookie. CSRF is
    closed by `SameSite=Strict` plus a same-origin check on the BFF.
