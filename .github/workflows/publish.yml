@@ -116,8 +116,7 @@ jobs:
             docker run --rm ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
             ```
 
-            The UI needs the backend + a management key, so run the two together with
-            [`examples/docker-compose.yml`](../blob/main/examples/docker-compose.yml), overriding the image tags to `pr-${{ github.event.pull_request.number }}`.
+            The UI needs the backend + a management key, so run the two together with [`examples/docker-compose.yml`](../blob/main/examples/docker-compose.yml), overriding the image tags to `pr-${{ github.event.pull_request.number }}`.
 
             > Last built from commit `${{ steps.sha.outputs.short }}`. Heads up: these images are automatically deleted when the PR is closed.
 
