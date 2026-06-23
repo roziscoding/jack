@@ -103,7 +103,11 @@ const mswServer = setupServer(
   ] })),
   http.get('http://bob2.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://carol.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
+  // A peer that's reachable but rejects auth — its handshake 401s, so init fails.
+  http.get('http://dead.test:3000/handshake', () => new HttpResponse(null, { status: 401 })),
   http.get('http://radarr-new.test:7878/api/v3/system/status', () => HttpResponse.json({ appName: 'Radarr', version: '4.0.0' })),
+  // A server that's reachable but rejects auth — its status check 401s, so init fails.
+  http.get('http://dead-radarr.test:7878/api/v3/system/status', () => new HttpResponse(null, { status: 401 })),
 )
 beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }))
 afterAll(() => mswServer.close())
@@ -183,6 +187,27 @@ describe('Management API addPeer', () => {
     expect(res.status).toBe(409)
   })
 
+  test('a peer that fails its handshake is not persisted and the error is returned', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+
+    const res = await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Dead', url: 'http://dead.test:3000', apiKey: 'k' }),
+    })
+    // The connectivity check failed → the add is rejected, not a silent 201.
+    expect(res.status).toBe(502)
+    const body = await res.json() as { ok: boolean, error: { message: string } }
+    expect(body.ok).toBe(false)
+    expect(body.error.message).toContain('Dead')
+
+    // Rolled back: nothing on disk, nothing resident in the connector map.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: unknown[] }
+    expect(onDisk.peers).toHaveLength(0)
+    expect(connectorManager.peers.some(p => p.url === 'http://dead.test:3000')).toBe(false)
+    expect((connectorManager as any)._peerMap.has(generateId('http://dead.test:3000'))).toBe(false)
+  })
+
   test('rejects an invalid body with 400', async () => {
     const { app } = await makeMutableApp()
     const res = await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'NoUrl' }) })
@@ -236,6 +261,26 @@ describe('Management API remove/update peer', () => {
     expect(connectorManager.peers.find(p => p.id === bobId)?.name).toBe('Bobby')
   })
 
+  test('an update whose new url fails its handshake rolls back', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+    await addBob(app)
+
+    // Re-point Bob at a peer that 401s its handshake — the edit must be rejected.
+    const res = await app.request(`/config/peers/${bobId}`, {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob', url: 'http://dead.test:3000', apiKey: 'k' }),
+    })
+    expect(res.status).toBe(502)
+
+    // Rolled back: still the working Bob on disk and resident in the map, no dead entry.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: Array<{ url: string }> }
+    expect(onDisk.peers).toHaveLength(1)
+    expect(onDisk.peers[0]?.url).toBe('http://bob.test:3000')
+    expect(connectorManager.peers.some(p => p.id === bobId)).toBe(true)
+    expect((connectorManager as any)._peerMap.has(generateId('http://dead.test:3000'))).toBe(false)
+  })
+
   test('removePeer with unknown id returns 404', async () => {
     const { app } = await makeMutableApp()
     const res = await app.request('/config/peers/deadbeef', { method: 'DELETE', headers: KEY })
@@ -271,6 +316,46 @@ describe('Management API servers', () => {
     const res = await app.request(`/config/servers/${serverId}`, { method: 'DELETE', headers: KEY })
     expect(res.status).toBe(200)
     expect(connectorManager.servers).toHaveLength(0)
+  })
+
+  test('a server that fails its status check is not persisted and the error is returned', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+    const deadId = generateId('http://dead-radarr.test:7878')
+    const res = await app.request('/config/servers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...SERVER, name: 'DeadRadarr', url: 'http://dead-radarr.test:7878' }),
+    })
+    expect(res.status).toBe(502)
+    const body = await res.json() as { ok: boolean, error: { message: string } }
+    expect(body.ok).toBe(false)
+    expect(body.error.message).toContain('DeadRadarr')
+
+    // Rolled back across every slice: file, server map, and the source/destination lists.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { servers: unknown[] }
+    expect(onDisk.servers).toHaveLength(0)
+    expect(connectorManager.servers.some(s => s.id === deadId)).toBe(false)
+    expect(connectorManager.sources.some(s => s.id === deadId)).toBe(false)
+    expect(connectorManager.destinations.some(s => s.id === deadId)).toBe(false)
+  })
+
+  test('an update whose new url fails its status check rolls back', async () => {
+    const { app, path, connectorManager } = await makeMutableApp()
+    await app.request('/config/servers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(SERVER) })
+
+    const res = await app.request(`/config/servers/${serverId}`, {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...SERVER, url: 'http://dead-radarr.test:7878' }),
+    })
+    expect(res.status).toBe(502)
+
+    // Rolled back: the working server keeps its url and stays a live source/destination.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { servers: Array<{ url: string }> }
+    expect(onDisk.servers[0]?.url).toBe('http://radarr-new.test:7878')
+    expect(connectorManager.servers.some(s => s.id === serverId)).toBe(true)
+    expect(connectorManager.sources.some(s => s.id === serverId)).toBe(true)
+    expect(connectorManager.destinations.some(s => s.id === serverId)).toBe(true)
   })
 })
 
