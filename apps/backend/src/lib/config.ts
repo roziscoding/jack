@@ -163,6 +163,9 @@ export const DownloadsConfig = z.object({
   retryBaseDelayMs: z.number().int().min(0).default(1000),
   retryMaxDelayMs: z.number().int().min(0).default(1_800_000),
   idleTimeoutMs: z.number().int().min(1000).default(60_000),
+  // How often the import watcher polls each destination *arr's history to detect
+  // which finished downloads it has imported (flipping them import_queued → imported).
+  importPollIntervalMs: z.number().int().min(1000).default(30_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>

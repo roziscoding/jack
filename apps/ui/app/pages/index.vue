@@ -40,8 +40,8 @@ onUnmounted(() => clearInterval(timer))
           :hint="`${overview.downloads.total} total`"
         />
         <StatCard
-          label="Completed"
-          :value="overview.downloads.byStatus.completed ?? 0"
+          label="Imported"
+          :value="overview.downloads.byStatus.imported ?? 0"
           :hint="`${overview.downloads.byStatus.failed ?? 0} failed`"
         />
       </div>

@@ -171,6 +171,28 @@ export abstract class ArrServerConnector extends ServerConnector {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
   }
 
+  /**
+   * Lowercased torrent infohashes (`downloadId`s) that this *arr has finished
+   * importing recently, read from its history. The import watcher matches these
+   * against `import_queued` downloads to flip them to `imported`. Lowercased on
+   * both sides because *arr may store the infohash in a different case than jack
+   * derives it.
+   */
+  @requiresDestination
+  @requiresInitialization
+  async recentlyImportedDownloadIds(limit = 200): Promise<Set<string>> {
+    const res = await this.arrGet<{ records?: Array<{ downloadId?: string | null, eventType?: string | null }> }>(
+      '/api/v3/history',
+      { page: '1', pageSize: String(limit), sortKey: 'date', sortDirection: 'descending' },
+    )
+    const ids = new Set<string>()
+    for (const record of res?.records ?? []) {
+      if (record.eventType === 'downloadFolderImported' && record.downloadId)
+        ids.add(record.downloadId.toLowerCase())
+    }
+    return ids
+  }
+
   @requiresDestination
   @requiresInitialization
   async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[], downloadClientId?: number }) {

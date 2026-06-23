@@ -229,7 +229,9 @@ export class DownloadsService {
         repo?.markResumeReset(record.id)
         return
       }
-      repo?.markCompleted(record.id, event.downloadedBytes)
+      // event.type === 'completed': the transfer finished. Record the final byte
+      // count; the status flips to import_queued once downloadFile resolves below.
+      repo?.updateProgress(record.id, event.downloadedBytes)
     }
 
     try {

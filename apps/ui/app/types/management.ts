@@ -27,7 +27,7 @@ export interface DownloadItem {
   filename: string
   peerName: string
   peerId: string
-  status: 'downloading' | 'completed' | 'failed' | 'import_queued'
+  status: 'downloading' | 'import_queued' | 'imported' | 'failed'
   downloadedBytes: number
   totalBytes: number | null
   progress: number | null
