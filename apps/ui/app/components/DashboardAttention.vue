@@ -7,8 +7,10 @@ const STORAGE_KEY = 'jack:dashboard:attention-collapsed'
 // How many example rows to list before collapsing the rest into "and N more".
 const PREVIEW = 3
 
-const unreachablePeers = computed(() => props.overview.peers.items.filter(p => !p.initialized))
-const unreachableServers = computed(() => props.overview.servers.items.filter(s => !s.initialized))
+// Only connectors that actually failed to initialize are "issues" — ones still
+// handshaking on startup (no error yet) are transient, not something to act on.
+const unreachablePeers = computed(() => props.overview.peers.items.filter(p => !p.initialized && p.initializationError))
+const unreachableServers = computed(() => props.overview.servers.items.filter(s => !s.initialized && s.initializationError))
 const stuckImports = computed(() => props.overview.downloads.importQueued)
 const failed = computed(() => props.overview.downloads.failed)
 const failedCount = computed(() => props.overview.downloads.byStatus.failed ?? 0)
