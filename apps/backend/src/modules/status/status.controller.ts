@@ -10,6 +10,10 @@ import { DOWNLOAD_STATUSES } from '../../database/schema'
 // on it) plus its live initialization state, and downloads are enriched with a
 // computed `progress` the public download list does not compute.
 
+// Cap the detail lists the dashboard's "needs attention" panel renders. The true
+// totals still come through `byStatus`; these arrays only feed the first few rows.
+const ATTENTION_LIMIT = 25
+
 function baseConnector(c: ServerConnector) {
   return {
     id: c.id,
@@ -47,8 +51,13 @@ export class StatusController {
     const records = this.downloads?.list() ?? []
 
     const byStatus = Object.fromEntries(DOWNLOAD_STATUSES.map(s => [s, 0])) as Record<DownloadStatus, number>
-    for (const record of records)
+    // `bytesMoved` is the lifetime total of bytes actually pulled over the wire
+    // (partial transfers count what they got), powering the dashboard's vanity stat.
+    let bytesMoved = 0
+    for (const record of records) {
       byStatus[record.status]++
+      bytesMoved += record.downloadedBytes
+    }
 
     return {
       peers: {
@@ -66,7 +75,11 @@ export class StatusController {
       downloads: {
         total: records.length,
         byStatus,
+        bytesMoved,
+        // `records` is sorted by updatedAt desc, so each slice is the most recent.
         active: records.filter(r => r.status === 'downloading').map(enrichDownload),
+        importQueued: records.filter(r => r.status === 'import_queued').slice(0, ATTENTION_LIMIT).map(enrichDownload),
+        failed: records.filter(r => r.status === 'failed').slice(0, ATTENTION_LIMIT).map(enrichDownload),
       },
     }
   }

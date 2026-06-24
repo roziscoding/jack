@@ -81,6 +81,43 @@ describe('Management status endpoints', () => {
     expect(body.downloads.active).toHaveLength(1)
   })
 
+  test('GET /overview surfaces import-queued, failed and bytes moved', async () => {
+    const { app, downloadsRepository } = makeApp()
+    const base = {
+      torrentFilename: 'm.torrent',
+      peerId: 'p',
+      peerName: 'Friend Jack',
+      itemId: 'movie:1',
+      destPath: '/tmp/x.mkv',
+      partPath: '/tmp/x.mkv.part',
+      releaseSize: 100,
+      release: { id: 'r', title: 'm', filename: 'm.mkv', category: 2000, size: 100 } as any,
+    }
+
+    const downloading = downloadsRepository.create({ ...base, filename: 'a.mkv' })
+    downloadsRepository.updateProgress(downloading.id, 40)
+
+    const queued = downloadsRepository.create({ ...base, filename: 'b.mkv' })
+    downloadsRepository.updateProgress(queued.id, 100)
+    downloadsRepository.markImportQueued(queued.id)
+
+    const failed = downloadsRepository.create({ ...base, filename: 'c.mkv' })
+    downloadsRepository.updateProgress(failed.id, 10)
+    downloadsRepository.markFailed(failed.id, 'boom')
+
+    const res = await app.request('/overview', { headers: KEY })
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.downloads.byStatus.import_queued).toBe(1)
+    expect(body.downloads.byStatus.failed).toBe(1)
+    expect(body.downloads.importQueued).toHaveLength(1)
+    expect(body.downloads.importQueued[0].filename).toBe('b.mkv')
+    expect(body.downloads.failed).toHaveLength(1)
+    expect(body.downloads.failed[0].error).toBe('boom')
+    // 40 + 100 + 10 bytes pulled across the three transfers.
+    expect(body.downloads.bytesMoved).toBe(150)
+  })
+
   test('GET /downloads returns enriched records with progress', async () => {
     const { app, downloadsRepository } = makeApp()
     const dl = downloadsRepository.create({

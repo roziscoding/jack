@@ -43,7 +43,14 @@ export interface DownloadItem {
 export interface Overview {
   peers: { total: number, initialized: number, items: PeerItem[] }
   servers: { total: number, initialized: number, sources: number, destinations: number, items: ServerItem[] }
-  downloads: { total: number, byStatus: Record<string, number>, active: DownloadItem[] }
+  downloads: {
+    total: number
+    byStatus: Record<string, number>
+    bytesMoved: number
+    active: DownloadItem[]
+    importQueued: DownloadItem[]
+    failed: DownloadItem[]
+  }
 }
 
 // Secret refs mirror the backend's RawConfigSecret union.
