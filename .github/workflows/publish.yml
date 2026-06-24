@@ -34,7 +34,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute image metadata
+      - name: Compute backend image metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
@@ -44,16 +44,38 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
 
-      - name: Build and push
+      - name: Build and push backend
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./Dockerfile
+          file: ./apps/backend/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Distinct cache scope so the two images don't overwrite each other's GHA cache.
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Compute UI image metadata
+        id: meta-ui
+        uses: docker/metadata-action@v6
+        with:
+          # Published as a separate package: ghcr.io/<owner>/<repo>-ui
+          images: ghcr.io/${{ github.repository }}-ui
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Build and push UI
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./apps/ui/Dockerfile
+          push: true
+          tags: ${{ steps.meta-ui.outputs.tags }}
+          labels: ${{ steps.meta-ui.outputs.labels }}
+          cache-from: type=gha,scope=ui
+          cache-to: type=gha,mode=max,scope=ui
 
       # Short hash of the PR's head commit this image was last built from, so
       # the sticky comment shows which commit the current `pr-<number>` tag points at.
@@ -72,22 +94,31 @@ jobs:
         with:
           header: pr-docker-image
           message: |
-            ### 🐳 Docker image published
+            ### 🐳 Docker images published
 
             This PR has been built and pushed to GHCR:
 
             ```
-            ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+            ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}        # backend
+            ghcr.io/${{ github.repository }}-ui:pr-${{ github.event.pull_request.number }}     # management UI
             ```
 
-            Pull and run it locally:
+            Pull them locally:
 
             ```sh
             docker pull ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+            docker pull ghcr.io/${{ github.repository }}-ui:pr-${{ github.event.pull_request.number }}
+            ```
+
+            Run the backend standalone:
+
+            ```sh
             docker run --rm ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
             ```
 
-            > Last built from commit `${{ steps.sha.outputs.short }}`. Heads up: this image is automatically deleted when the PR is closed.
+            The UI needs the backend + a management key, so run the two together with [`examples/docker-compose.yml`](../blob/main/examples/docker-compose.yml), overriding the image tags to `pr-${{ github.event.pull_request.number }}`.
+
+            > Last built from commit `${{ steps.sha.outputs.short }}`. Heads up: these images are automatically deleted when the PR is closed.
 
   # When a PR is closed (merged or not), delete the `pr-<number>` image it published to GHCR.
   cleanup-pr-image:
@@ -97,32 +128,36 @@ jobs:
       packages: write
       pull-requests: write
     steps:
-      - name: Delete PR image tag from GHCR
+      - name: Delete PR image tags from GHCR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
-          PACKAGE: ${{ github.event.repository.name }}
+          # Both packages built by this PR: the backend and the management UI.
+          PACKAGES: ${{ github.event.repository.name }} ${{ github.event.repository.name }}-ui
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           TAG="pr-${PR_NUMBER}"
-          echo "Looking for GHCR version tagged '${TAG}' in package ${OWNER}/${PACKAGE}"
 
-          # Find the package version whose tag list contains pr-<number>.
-          IDS="$(gh api --paginate \
-            "/users/${OWNER}/packages/container/${PACKAGE}/versions" \
-            --jq ".[] | select(.metadata.container.tags[]? == \"${TAG}\") | .id")"
-          VERSION_ID="$(printf '%s' "${IDS}" | head -n1)"
+          for PACKAGE in ${PACKAGES}; do
+            echo "Looking for GHCR version tagged '${TAG}' in package ${OWNER}/${PACKAGE}"
 
-          if [ -z "${VERSION_ID}" ]; then
-            echo "No GHCR version tagged '${TAG}' found — nothing to delete."
-            exit 0
-          fi
+            # Find the package version whose tag list contains pr-<number>.
+            IDS="$(gh api --paginate \
+              "/users/${OWNER}/packages/container/${PACKAGE}/versions" \
+              --jq ".[] | select(.metadata.container.tags[]? == \"${TAG}\") | .id")"
+            VERSION_ID="$(printf '%s' "${IDS}" | head -n1)"
 
-          echo "Deleting version ${VERSION_ID} (tag '${TAG}')"
-          gh api --method DELETE \
-            "/users/${OWNER}/packages/container/${PACKAGE}/versions/${VERSION_ID}"
-          echo "Deleted '${TAG}' from ghcr.io/${OWNER}/${PACKAGE}"
+            if [ -z "${VERSION_ID}" ]; then
+              echo "No GHCR version tagged '${TAG}' found in ${PACKAGE} — nothing to delete."
+              continue
+            fi
+
+            echo "Deleting version ${VERSION_ID} (tag '${TAG}') from ${PACKAGE}"
+            gh api --method DELETE \
+              "/users/${OWNER}/packages/container/${PACKAGE}/versions/${VERSION_ID}"
+            echo "Deleted '${TAG}' from ghcr.io/${OWNER}/${PACKAGE}"
+          done
 
       # Remove the sticky image comment now that the image is gone.
       - name: Delete image comment from the PR

@@ -126,17 +126,28 @@ export class DownloadsRepository {
       .run()
   }
 
-  markCompleted(id: number, downloadedBytes: number): void {
+  // Download finished and the file is in completedPath, handed to *arr to import.
+  // `completedAt` records when the transfer finished (what the qB API reports as
+  // completion_on); the row stays here until *arr's import is detected.
+  markImportQueued(id: number, downloadedBytes?: number): void {
     const timestamp = nowIso()
     this.db.update(downloads)
-      .set({ status: 'completed', downloadedBytes, completedAt: timestamp, updatedAt: timestamp, error: null })
+      .set({
+        status: 'import_queued',
+        ...(downloadedBytes === undefined ? {} : { downloadedBytes }),
+        completedAt: timestamp,
+        updatedAt: timestamp,
+        error: null,
+      })
       .where(eq(downloads.id, id))
       .run()
   }
 
-  markImportQueued(id: number): void {
+  // *arr finished importing the file into the library — terminal success. The row
+  // is kept (not deleted) so the downloads list doubles as a history.
+  markImported(id: number): void {
     this.db.update(downloads)
-      .set({ status: 'import_queued', updatedAt: nowIso() })
+      .set({ status: 'imported', updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
   }
@@ -183,9 +194,14 @@ export class DownloadsRepository {
       .run()
   }
 
+  /** Rows in a given status (uses the status index). */
+  listByStatus(status: DownloadStatus): DownloadRecord[] {
+    return this.db.select().from(downloads).where(eq(downloads.status, status)).all().map(toRecord)
+  }
+
   /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */
   listStaleDownloads(): DownloadRecord[] {
-    return this.db.select().from(downloads).where(eq(downloads.status, 'downloading')).all().map(toRecord)
+    return this.listByStatus('downloading')
   }
 
   async reconcileStaleDownloads(): Promise<number> {

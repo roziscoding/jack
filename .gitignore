@@ -6,6 +6,12 @@ out
 dist
 *.tgz
 
+# Nuxt (apps/ui)
+.nuxt
+.output
+.nitro
+.data
+
 # code coverage
 coverage
 *.lcov

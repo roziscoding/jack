@@ -17,7 +17,14 @@ function stringifyConnector(c: ServerConnector) {
 }
 
 function stringifyServer(c: ArrServerConnector) {
-  return { ...stringifyConnector(c), source: c.canSource, destination: c.canDestination }
+  return {
+    ...stringifyConnector(c),
+    source: c.canSource,
+    destination: c.canDestination,
+    // Effective (defaults-applied) autoregister so the edit form prefills what's
+    // actually in effect, not just what the file happened to spell out.
+    autoregister: { enable: c.autoRegister.enable, priority: c.autoRegister.priority },
+  }
 }
 
 function stringifyPeer(c: PeerConnector) {
@@ -30,19 +37,30 @@ export class ConfigController {
     private readonly configService?: ConfigService,
   ) {}
 
+  // Merge the persisted, refs-intact `apiKey`/`headers` onto a serialized connector
+  // so an edit form can prefill them. Refs (`{env}`/`{file}`) come straight from the
+  // file via the ConfigService; the live connector only holds resolved values, so a
+  // read-only deployment (no ConfigService) simply omits them.
+  private withSecrets<T extends { id: string }>(kind: 'peers' | 'servers', serialized: T) {
+    const raw = this.configService?.getRawSecrets(kind, serialized.id)
+    if (!raw)
+      return serialized
+    return { ...serialized, apiKey: raw.apiKey, headers: raw.headers }
+  }
+
   listConfig() {
     return {
-      servers: this.connectors.servers.map(stringifyServer),
-      peers: this.connectors.peers.map(stringifyPeer),
+      servers: this.connectors.servers.map(s => this.withSecrets('servers', stringifyServer(s))),
+      peers: this.connectors.peers.map(p => this.withSecrets('peers', stringifyPeer(p))),
     }
   }
 
   listPeers() {
-    return { peers: this.connectors.peers.map(stringifyPeer) }
+    return { peers: this.connectors.peers.map(p => this.withSecrets('peers', stringifyPeer(p))) }
   }
 
   listServers() {
-    return { servers: this.connectors.servers.map(stringifyServer) }
+    return { servers: this.connectors.servers.map(s => this.withSecrets('servers', stringifyServer(s))) }
   }
 
   /** Whether mutation endpoints are available (a ConfigService was injected). */
@@ -67,16 +85,16 @@ export class ConfigController {
     return { ok: true }
   }
 
-  addPeer(input: unknown) {
-    return this.mutate(s => s.addPeer(input))
+  addPeer(input: unknown, opts?: { force?: boolean }) {
+    return this.mutate(s => s.addPeer(input, opts))
   }
 
   removePeer(id: string) {
     return this.mutate(s => s.removePeer(id))
   }
 
-  updatePeer(id: string, input: unknown) {
-    return this.mutate(s => s.updatePeer(id, input))
+  updatePeer(id: string, input: unknown, opts?: { force?: boolean }) {
+    return this.mutate(s => s.updatePeer(id, input, opts))
   }
 
   addServer(input: unknown) {

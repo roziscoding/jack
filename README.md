@@ -12,6 +12,7 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 
 - [Concepts](#concepts)
 - [Quick start (Docker Compose)](#quick-start-docker-compose)
+- [Management UI](#management-ui)
 - [How it works](#how-it-works)
 - [The API key](#the-api-key)
 - [Configuration](#configuration)
@@ -49,10 +50,11 @@ So a typical "both" setup has your Radarr/Sonarr as `source: true` **and**
 
 ## Quick start (Docker Compose)
 
-Running with Docker Compose is the recommended way to self-host jack. The image
-is published to GitHub Container Registry (`ghcr.io/roziscoding/jack:main`) on
-every push to `main`, so you don't need to clone the repo — just grab
-[`examples/docker-compose.yml`](examples/docker-compose.yml) and
+Running with Docker Compose is the recommended way to self-host jack. Two images
+are published to GitHub Container Registry on every push to `main` — the backend
+(`ghcr.io/roziscoding/jack:main`) and the management UI
+(`ghcr.io/roziscoding/jack-ui:main`) — so you don't need to clone the repo. Just
+grab [`examples/docker-compose.yml`](examples/docker-compose.yml) and
 [`examples/config.jsonc`](examples/config.jsonc) and drop them in a folder:
 
 ```bash
@@ -61,16 +63,22 @@ mkdir -p config
 cp config.jsonc config/config.jsonc   # the template you downloaded
 $EDITOR config/config.jsonc           # fill in your servers (see below)
 
-# 2. Pull and run
+# 2. Set a management key (gates the management API + the UI's access to it)
+echo "JACK_MANAGEMENT_KEY=$(openssl rand -base64 32)" > .env
+
+# 3. Pull and run
 docker compose up -d
 
-# 3. Watch the logs
+# 4. Watch the logs
 docker compose logs -f
 ```
 
 You should see `Server listening` and, if you configured destinations,
 `Registered Jack as Torznab indexer` and `Registered Jack as qBittorrent
 download client` lines.
+
+The management UI comes up at **http://localhost:3000** — see
+[Management UI](#management-ui) for what it does and how to secure it.
 
 The compose file mounts three host paths — adjust them for your setup:
 
@@ -103,6 +111,46 @@ The compose file mounts three host paths — adjust them for your setup:
 > in the example is just a placeholder — replace it with whatever paths your
 >*arr use. **Migrating from the Jellyfin-based version?** This path likely
 > changed: it's now the *arr path, not Jellyfin's library path.
+
+## Management UI
+
+jack ships with a web console — the **management UI** — so you can run your
+instance without hand-editing `config.jsonc`. It's the easiest way to operate
+jack day to day:
+
+- **Overview** — your configured servers and peers, and whether each one
+  initialized cleanly.
+- **Downloads** — in-flight and finished grabs.
+- **Peers** — add, edit, and remove the friends you consume from.
+- **Servers** — add, edit, and remove your Radarr/Sonarr connectors.
+
+It's a Nuxt **BFF** (backend-for-frontend): it serves the SPA and proxies every
+call to jack's **management API**, injecting the management key so the browser
+never handles it. The management API is a *separate* listener from the public
+peer/Torznab port — it only starts when the backend has `MANAGEMENT_KEY` set
+(see [Environment variables](#environment-variables)), and the UI talks only to
+it, never to the public peer API.
+
+With the [Quick start](#quick-start-docker-compose) compose file the UI runs as
+the `jack-ui` service and comes up at **http://localhost:3000** (override the
+host port with `JACK_UI_PORT`). Don't want it? Delete the `jack-ui` service and
+the backend's `MANAGEMENT_KEY` line to run jack headless.
+
+### Access control
+
+The UI supports two auth modes, depending on where the management key comes from:
+
+1. **Injected (feels authless).** Set `JACK_MANAGEMENT_KEY` in the UI's env (the
+   compose file wires this for you). The BFF adds the key on every request and
+   the browser is never prompted — put a proxy (Cloudflare Access, Traefik
+   forward-auth, …) in front of it to gate access.
+2. **Cookie prompt.** Leave `JACK_MANAGEMENT_KEY` unset. The browser is prompted
+   for the key once; it's validated against the management API and stored in a
+   sealed `HttpOnly` cookie. Set `JACK_SESSION_KEY` (≥ 32 chars) in production to
+   seal that cookie.
+
+See [`apps/ui/README.md`](apps/ui/README.md) for the full UI configuration
+reference.
 
 ## How it works
 
@@ -375,6 +423,8 @@ you can fill in the file.
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
+| `MANAGEMENT_KEY` | unset | Enables the management API (the UI's backend). When set, the management API starts on `MANAGEMENT_PORT` and every request must carry `X-Management-Key: <this>`. Unset → the management listener is never started |
+| `MANAGEMENT_PORT` | `5226` | Port for the management API listener, separate from `PORT` so the peer-facing port never exposes management. Only used when `MANAGEMENT_KEY` is set |
 | `HTTP_TIMEOUT_MS` | `30000` | Default timeout, in milliseconds, for outbound connector requests |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables OpenTelemetry traces and logs and sends OTLP/HTTP data to this base endpoint |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Also enables OpenTelemetry when set; useful if traces use a signal-specific endpoint |
@@ -566,8 +616,10 @@ mise run clients   # regenerate packages/schemas/src/generated
 ## Project layout
 
 ```
-apps/backend       # the Hono server (Torznab, peer API, qBittorrent API)
-packages/schemas   # generated Radarr/Sonarr API types
-examples/          # docker-compose.yml + config.jsonc template
-Dockerfile         # multi-stage production image
+apps/backend            # the Hono server (Torznab, peer API, qBittorrent API)
+apps/backend/Dockerfile # backend production image (build context = repo root)
+apps/ui                 # the management console (Nuxt BFF)
+apps/ui/Dockerfile      # management UI image (build context = repo root)
+packages/schemas        # generated Radarr/Sonarr API types
+examples/               # docker-compose.yml + config.jsonc template
 ```

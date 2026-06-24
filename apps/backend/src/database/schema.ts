@@ -1,7 +1,9 @@
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const DOWNLOAD_STATUSES = ['downloading', 'completed', 'failed', 'import_queued'] as const
+// Lifecycle: downloading → import_queued (file in completedPath, handed to *arr)
+// → imported (*arr finished importing; terminal). `failed` is terminal too.
+export const DOWNLOAD_STATUSES = ['downloading', 'import_queued', 'imported', 'failed'] as const
 export type DownloadStatus = typeof DOWNLOAD_STATUSES[number]
 export type ExpectedBytesSource = 'content_length' | 'content_range' | 'release_size'
 
@@ -32,7 +34,7 @@ export const downloads = sqliteTable('downloads', {
   qbCategory: text('qb_category'),
   qbSourceServer: text('qb_source_server'),
 }, t => [
-  check('downloads_status_check', sql`${t.status} in ('downloading', 'completed', 'failed', 'import_queued')`),
+  check('downloads_status_check', sql`${t.status} in ('downloading', 'import_queued', 'imported', 'failed')`),
   check('downloads_expected_bytes_source_check', sql`${t.expectedBytesSource} is null or ${t.expectedBytesSource} in ('content_length', 'content_range', 'release_size')`),
   index('downloads_status_idx').on(t.status),
   index('downloads_updated_at_idx').on(t.updatedAt),

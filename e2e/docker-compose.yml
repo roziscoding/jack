@@ -38,7 +38,7 @@ services:
   jack-alpha:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: apps/backend/Dockerfile
     ports:
       - '13000:3000'
     environment:
@@ -63,7 +63,7 @@ services:
   jack-beta:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: apps/backend/Dockerfile
     ports:
       - '13001:3000'
     environment:

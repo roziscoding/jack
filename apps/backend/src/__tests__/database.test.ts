@@ -107,21 +107,21 @@ describe('DownloadsRepository', () => {
 
     repository.setExpectedBytes(created.id, 120, 'content_length', true)
     repository.updateProgress(created.id, 40)
-    repository.markCompleted(created.id, 120)
-    repository.markImportQueued(created.id)
+    repository.markImportQueued(created.id, 120)
 
-    const done = repository.get(created.id)!
-    expect(done.expectedBytes).toBe(120)
-    expect(done.expectedBytesSource).toBe('content_length')
-    expect(done.expectedBytesMismatch).toBe(true)
-    expect(done.downloadedBytes).toBe(120)
-    expect(done.status).toBe('import_queued')
-    expect(typeof done.completedAt).toBe('string')
+    const queued = repository.get(created.id)!
+    expect(queued.expectedBytes).toBe(120)
+    expect(queued.expectedBytesSource).toBe('content_length')
+    expect(queued.expectedBytesMismatch).toBe(true)
+    expect(queued.downloadedBytes).toBe(120)
+    expect(queued.status).toBe('import_queued')
+    expect(typeof queued.completedAt).toBe('string')
 
-    repository.markFailed(created.id, 'import failed after queue')
-    const failed = repository.get(created.id)!
-    expect(failed.status).toBe('failed')
-    expect(failed.error).toBe('import failed after queue')
+    repository.markImported(created.id)
+    const imported = repository.get(created.id)!
+    expect(imported.status).toBe('imported')
+    // completedAt (download-finish time) is preserved through the import.
+    expect(imported.completedAt).toBe(queued.completedAt)
     handle.close()
   })
 
@@ -268,7 +268,7 @@ describe('DownloadsRepository', () => {
       releaseSize: 10,
       release,
     })
-    repository.markCompleted(b.id, 10)
+    repository.markImportQueued(b.id, 10)
 
     const stale = repository.listStaleDownloads()
     expect(stale.map(r => r.id)).toEqual([a.id])

@@ -6,11 +6,13 @@ import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
 import { FetchError } from './lib/errors/FetchError'
 import { ConnectorManager } from './lib/servers'
+import { PROTOCOL_VERSION } from './lib/version'
 import { logger } from './logger'
 import { getManagementApp } from './management-app'
 import { ConfigService } from './modules/config/config.service'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
+import { ImportWatcher } from './modules/downloads/import-watcher'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
@@ -50,6 +52,7 @@ const server = Bun.serve({
 })
 
 logger.info({
+  version: PROTOCOL_VERSION,
   port: server.port,
   configPath: envs.APP_CONFIG_PATH,
   databasePath: database.path,
@@ -72,6 +75,7 @@ function startManagementServer() {
     managementKey: envs.MANAGEMENT_KEY,
     connectors: connectorManager,
     configService,
+    downloadsRepository,
   })
   const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
   logger.info({ port: instance.port }, 'Management API listening')
@@ -133,6 +137,12 @@ if (config.jack) {
   }
 }
 
+// Detect *arr imports of finished downloads and flip them import_queued → imported.
+const importWatcher = config.downloads
+  ? new ImportWatcher(downloadsRepository, connectorManager, config.downloads.importPollIntervalMs)
+  : undefined
+importWatcher?.start()
+
 // Re-drive interrupted downloads from a prior run.
 if (config.downloads && downloadsService) {
   // Active re-enqueue: resume stale `downloading` rows in place, picking up from
@@ -150,6 +160,7 @@ else {
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
+  importWatcher?.stop()
   database.close()
   server.stop()
   managementServer?.stop()
@@ -159,6 +170,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
+  importWatcher?.stop()
   database.close()
   server.stop()
   managementServer?.stop()

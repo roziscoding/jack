@@ -16,8 +16,11 @@ export function getConfigRouter(controller: ConfigController) {
   // Mutation routes only exist when a ConfigService is wired in. Without one, these
   // paths are simply unregistered → 404 (rather than a 500 from an unconfigured call).
   if (controller.canMutate) {
+    // `?force=true` persists the peer even if its handshake fails — it stays
+    // resident and auto-retries lazily, instead of aborting + rolling back.
     app.post('/peers', zValidator('json', RawPeerConfig), async (c) => {
-      return c.json(await controller.addPeer(c.req.valid('json')), 201)
+      const force = c.req.query('force') === 'true'
+      return c.json(await controller.addPeer(c.req.valid('json'), { force }), 201)
     })
 
     app.delete('/peers/:id', zValidator('param', idParam), async (c) => {
@@ -25,7 +28,8 @@ export function getConfigRouter(controller: ConfigController) {
     })
 
     app.patch('/peers/:id', zValidator('param', idParam), zValidator('json', RawPeerConfig), async (c) => {
-      return c.json(await controller.updatePeer(c.req.valid('param').id, c.req.valid('json')))
+      const force = c.req.query('force') === 'true'
+      return c.json(await controller.updatePeer(c.req.valid('param').id, c.req.valid('json'), { force }))
     })
 
     app.post('/servers', zValidator('json', RawServerConfig), async (c) => {

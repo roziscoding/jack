@@ -4,6 +4,7 @@ import { accepts } from 'hono/accepts'
 import { xml } from '../helpers/xml'
 import { BadRequestError } from '../lib/errors/BadRequestError'
 import { ConflictError } from '../lib/errors/ConflictError'
+import { ConnectorInitializationError } from '../lib/errors/ConnectorInitializationError'
 import { FetchError } from '../lib/errors/FetchError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
 import { UnauthorizedError } from '../lib/errors/UnauthorizedError'
@@ -14,6 +15,8 @@ const STATUS_CODE_MAP = [
   [ConflictError, 409] as const,
   [NotFoundError, 404] as const,
   [FetchError, 503] as const,
+  // Upstream peer/server failed its connectivity check during an interactive add.
+  [ConnectorInitializationError, 502] as const,
 ]
 
 function getStatusCode<T>(error: T): ContentfulStatusCode | null {

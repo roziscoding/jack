@@ -9,9 +9,6 @@
     "packages/*",
     "apps/*"
   ],
-  "dependencies": {
-    "xmlbuilder2": "^4.0.3"
-  },
   "devDependencies": {
     "@antfu/eslint-config": "^7.7.3",
     "@types/bencode": "^2.0.4",

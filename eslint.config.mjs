@@ -3,6 +3,9 @@ import antfu from '@antfu/eslint-config'
 export default antfu(
   {
     typescript: true,
+    // Vue lives only in apps/ui's package.json, so antfu's auto-detect misses it
+    // from the repo root — enable it explicitly so .vue files are linted.
+    vue: true,
     rules: {
       'ts/no-redeclare': 'off',
       'antfu/no-top-level-await': 'off',

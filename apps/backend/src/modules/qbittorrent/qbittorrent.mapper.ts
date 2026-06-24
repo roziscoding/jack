@@ -26,8 +26,8 @@ const ETA_UNKNOWN = 8_640_000 // qB's "unknown ETA" sentinel (= 100 days); *arr 
 
 function mapState(status: DownloadStatus): QbState {
   switch (status) {
-    case 'completed':
     case 'import_queued':
+    case 'imported':
       return 'pausedUP' // finished → *arr marks Completed and imports from content_path
     case 'failed':
       return 'error'
@@ -73,7 +73,7 @@ export interface QbTorrent {
 
 export function toQbTorrent(record: DownloadRecord, opts: { completedPath: string, category: string }): QbTorrent {
   const size = record.expectedBytes ?? record.releaseSize
-  const isDone = record.status === 'completed' || record.status === 'import_queued'
+  const isDone = record.status === 'import_queued' || record.status === 'imported'
   const progress = isDone ? 1 : (size > 0 ? Math.min(record.downloadedBytes / size, 1) : 0)
   const amountLeft = isDone ? 0 : Math.max(size - record.downloadedBytes, 0)
   return {

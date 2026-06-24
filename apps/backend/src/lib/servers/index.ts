@@ -2,6 +2,7 @@ import type { PeerConfig, ServerConfig } from '../config'
 import type { ArrServerConnector } from './arr/base'
 import type { ServerConnector } from './base'
 import { logger } from '../../logger'
+import { ConnectorInitializationError } from '../errors/ConnectorInitializationError'
 import { RadarrServerConnector } from './arr/radarr'
 import { SonarrServerConnector } from './arr/sonarr'
 import { generateId } from './base'
@@ -17,7 +18,12 @@ export function getServerConnector(config: ServerConfig): ArrServerConnector {
   return new Connector(config)
 }
 
-async function initializeConnector(connector: ServerConnector) {
+// `rethrow` controls what happens when the connectivity check fails. Boot-time
+// callers (`initAll`) leave it false: a connector that's down should stay resident
+// and auto-retry (its `init()` is retry-aware), never crash startup. Interactive
+// callers (an add via the management UI) set it true so the failure surfaces to the
+// user instead of silently persisting a connector that never connected.
+async function initializeConnector(connector: ServerConnector, { rethrow = false }: { rethrow?: boolean } = {}) {
   if (connector.isInitialized)
     return
 
@@ -29,6 +35,8 @@ async function initializeConnector(connector: ServerConnector) {
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
       logger.error({ error, connector: { name: connector.name, url: connector.url } }, `Failed to initialize connector ${connector.name}: ${message}`)
+      if (rethrow)
+        throw error
     })
 }
 export class ConnectorManager {
@@ -102,8 +110,18 @@ export class ConnectorManager {
     )
   }
 
-  public async addServerConnector(config: ServerConfig) {
+  // `rethrowInitError` makes an interactive add/update atomic: when set, a failed
+  // connectivity check restores the live map to exactly its prior state (re-instate a
+  // connector this call replaced, or drop a freshly-added one) and throws, so the
+  // caller can roll the persisted config back. Left false (boot / non-throwing
+  // callers), it keeps the resident-and-retry behavior unchanged.
+  public async addServerConnector(config: ServerConfig, { rethrowInitError = false }: { rethrowInitError?: boolean } = {}) {
     const connector = getServerConnector(config)
+    // Snapshot the slices this call mutates so a failed init can be undone wholesale.
+    const previous = this._serverMap.get(connector.id)
+    const prevDestinationIds = [...this._destinationIds]
+    const prevSourceIds = [...this._sourceIds]
+
     this._serverMap.set(connector.id, connector)
 
     // Reconcile: drop any prior entry for this id, then re-add per current caps.
@@ -114,14 +132,39 @@ export class ConnectorManager {
     if (connector.canSource)
       this._sourceIds.push(connector.id)
 
-    await initializeConnector(connector)
+    try {
+      await initializeConnector(connector, { rethrow: rethrowInitError })
+    }
+    catch (err) {
+      if (previous)
+        this._serverMap.set(connector.id, previous)
+      else
+        this._serverMap.delete(connector.id)
+      this._destinationIds = prevDestinationIds
+      this._sourceIds = prevSourceIds
+      const message = err instanceof Error ? err.message : String(err)
+      throw new ConnectorInitializationError(`Could not connect to server "${connector.name}": ${message}`, err)
+    }
   }
 
-  public async addPeerConnector(config: PeerConfig) {
+  public async addPeerConnector(config: PeerConfig, { rethrowInitError = false }: { rethrowInitError?: boolean } = {}) {
     const connector = new PeerConnector(config)
+    const previous = this._peerMap.get(connector.id)
     this._peerMap.set(connector.id, connector)
 
-    await initializeConnector(connector)
+    try {
+      await initializeConnector(connector, { rethrow: rethrowInitError })
+    }
+    catch (err) {
+      // Restore the prior map state: re-instate a connector this update replaced, or
+      // drop a freshly-added one, so a failed init leaves the live map untouched.
+      if (previous)
+        this._peerMap.set(connector.id, previous)
+      else
+        this._peerMap.delete(connector.id)
+      const message = err instanceof Error ? err.message : String(err)
+      throw new ConnectorInitializationError(`Could not connect to peer "${connector.name}": ${message}`, err)
+    }
   }
 
   /**

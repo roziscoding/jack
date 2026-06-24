@@ -5,11 +5,17 @@ FROM oven/bun:1.3.14-alpine AS deps
 WORKDIR /app
 
 # Copy only the manifests so this layer is cached unless deps change.
+# The root package.json globs `apps/*`, so every workspace manifest referenced
+# by bun.lock must be present or --frozen-lockfile fails. apps/ui (Nuxt) is part
+# of the workspace but not needed for the backend image, so we copy its manifest
+# to satisfy the lockfile and use --filter to skip installing its deps.
 COPY package.json bun.lock ./
 COPY apps/backend/package.json apps/backend/package.json
+COPY apps/ui/package.json apps/ui/package.json
 COPY packages/schemas/package.json packages/schemas/package.json
 
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile --production \
+    --filter '@jack/backend' --filter '@jack/schemas'
 
 # ---- generate: full install + generate the API clients (gitignored) ----
 FROM oven/bun:1.3.14-alpine AS generate
@@ -17,10 +23,13 @@ WORKDIR /app
 
 COPY package.json bun.lock ./
 COPY apps/backend/package.json apps/backend/package.json
+COPY apps/ui/package.json apps/ui/package.json
 COPY packages/schemas/package.json packages/schemas/package.json
 
-# Full install here (openapi-ts is a devDependency).
-RUN bun install --frozen-lockfile
+# Full install here (openapi-ts is a devDependency). apps/ui's manifest is
+# copied to satisfy the frozen lockfile; --filter keeps Nuxt out of the install.
+RUN bun install --frozen-lockfile \
+    --filter '@jack/backend' --filter '@jack/schemas'
 
 COPY packages/schemas ./packages/schemas
 RUN bun run --cwd packages/schemas openapi-ts

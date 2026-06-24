@@ -153,9 +153,9 @@ describe('DownloadsService download progress persistence', () => {
   test('persists a resume reset from a restart event', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
-    // Spy, because a realistic download ends with a `completed` event whose
-    // markCompleted() clears the error markResumeReset() set — so asserting the
-    // final row state cannot prove the reset ran.
+    // Spy, because a realistic download ends by moving to import_queued, which
+    // clears the error markResumeReset() set — so asserting the final row state
+    // cannot prove the reset ran.
     const resetSpy = spyOn(repository, 'markResumeReset')
     const peer = fakePeer({
       downloadFile: async (_itemId: string, _destPath: string, options: any) => {

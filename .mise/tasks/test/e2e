@@ -2,7 +2,7 @@
 #MISE description="Run e2e tests with real containers"
 set -e
 
-E2E_DIR="$(cd "$(dirname "$0")/../../e2e" && pwd)"
+E2E_DIR="$(cd "$(dirname "$0")/../../../e2e" && pwd)"
 JACK_ALPHA_API_KEY="alpha-test-key"
 JACK_BETA_API_KEY="beta-test-key"
 
