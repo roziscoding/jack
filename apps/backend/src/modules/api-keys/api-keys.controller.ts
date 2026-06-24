@@ -1,12 +1,7 @@
-import type { ApiKeysRepository, UpdateApiKeyInput } from './api-keys.repository'
+import type { ApiKeysRepository } from './api-keys.repository'
+import type { CreateApiKeyBody, UpdateApiKeyBody } from './api-keys.schema'
 import { generateApiKey, hashKey } from '../../lib/crypto'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-
-export interface CreateApiKeyRequest {
-  name?: string | null
-  description?: string | null
-  expiresAt?: string | null
-}
 
 export interface ApiKeyResponse {
   id: number
@@ -24,7 +19,7 @@ export interface CreateApiKeyResponse extends ApiKeyResponse {
 export class ApiKeysController {
   constructor(private readonly repository: ApiKeysRepository) {}
 
-  create(input: CreateApiKeyRequest): CreateApiKeyResponse {
+  create(input: CreateApiKeyBody): CreateApiKeyResponse {
     const rawKey = generateApiKey()
     const keyHash = hashKey(rawKey)
 
@@ -73,7 +68,7 @@ export class ApiKeysController {
     }
   }
 
-  update(id: number, input: UpdateApiKeyInput): ApiKeyResponse {
+  update(id: number, input: UpdateApiKeyBody): ApiKeyResponse {
     const record = this.repository.update(id, input)
     if (!record) {
       throw new NotFoundError(`API key ${id} not found`)
