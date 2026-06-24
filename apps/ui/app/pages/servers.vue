@@ -156,7 +156,7 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
           <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-[1.625rem] text-xs text-slate-500">
             <span>{{ roleLabel(server) }}</span>
             <span class="text-slate-700">·</span>
-            <span v-if="server.autoregister.enable">auto-registers in *arr (priority {{ server.autoregister.priority }})</span>
+            <span v-if="server.autoregister.enable">auto-registers with priority {{ server.autoregister.priority }}</span>
             <span v-else>manual registration</span>
           </div>
 
