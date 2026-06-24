@@ -64,13 +64,6 @@
             "key_hash"
           ],
           "isUnique": true
-        },
-        "api_keys_key_hash_idx": {
-          "name": "api_keys_key_hash_idx",
-          "columns": [
-            "key_hash"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {},
