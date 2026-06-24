@@ -9,6 +9,7 @@ import { ConnectorManager } from './lib/servers'
 import { PROTOCOL_VERSION } from './lib/version'
 import { logger } from './logger'
 import { getManagementApp } from './management-app'
+import { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
 import { ConfigService } from './modules/config/config.service'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
@@ -35,6 +36,7 @@ await connectorManager.initAll()
 
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
+const apiKeysRepository = new ApiKeysRepository(database.db)
 
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
@@ -46,7 +48,7 @@ const downloadsService = config.downloads
   ? new DownloadsService(config.downloads, connectorManager, downloadsRepository)
   : undefined
 
-const app = getApp(envs, config, connectorManager, { downloadsRepository, downloadsService })
+const app = getApp(envs, config, connectorManager, { downloadsRepository, downloadsService, apiKeysRepository })
 const server = Bun.serve({
   fetch: app.fetch,
 })
@@ -76,6 +78,7 @@ function startManagementServer() {
     connectors: connectorManager,
     configService,
     downloadsRepository,
+    apiKeysRepository,
   })
   const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
   logger.info({ port: instance.port }, 'Management API listening')

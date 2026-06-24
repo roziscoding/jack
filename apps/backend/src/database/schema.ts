@@ -42,3 +42,18 @@ export const downloads = sqliteTable('downloads', {
 
 export type DownloadRow = typeof downloads.$inferSelect
 export type NewDownloadRow = typeof downloads.$inferInsert
+
+export const apiKeys = sqliteTable('api_keys', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  keyHash: text('key_hash').notNull().unique(),
+  name: text('name'),
+  description: text('description'),
+  expiresAt: text('expires_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, t => [
+  index('api_keys_key_hash_idx').on(t.keyHash),
+])
+
+export type ApiKeyRow = typeof apiKeys.$inferSelect
+export type NewApiKeyRow = typeof apiKeys.$inferInsert

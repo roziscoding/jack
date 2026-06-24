@@ -1,6 +1,7 @@
 import type { AppConfig } from './lib/config'
 import type { Envs } from './lib/envs'
 import type { ConnectorManager } from './lib/servers'
+import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
 import { httpInstrumentationMiddleware } from '@hono/otel'
@@ -28,6 +29,7 @@ import { getTorznabRouter } from './modules/torznab/torznab.router'
 interface AppServices {
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
+  apiKeysRepository?: ApiKeysRepository
 }
 
 // Only the live `servers`/`peers` getters are used here, so accept the structural
@@ -94,7 +96,7 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
     app.route('/api/v2', getQbittorrentRouter(qbController))
   }
 
-  app.use('*', requireApiKey(config.jack?.apiKey ?? ''))
+  app.use('*', requireApiKey(config.jack?.apiKey ?? '', services.apiKeysRepository))
 
   app.route('/servers', serversRouter)
   app.route('/items', itemsRouter)
