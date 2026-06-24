@@ -15,6 +15,19 @@ const confirmTarget = ref<PeerItem | null>(null)
 const deleting = ref(false)
 const deleteError = ref<string | null>(null)
 
+// Surface trouble first: unreachable peers sort to the top, then connecting,
+// then healthy — so the ones you might need to fix are never buried.
+function sortKey(peer: PeerItem) {
+  if (!peer.initialized && peer.initializationError)
+    return 0
+  if (!peer.initialized)
+    return 1
+  return 2
+}
+const peers = computed(() => [...(data.value?.peers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const connected = computed(() => peers.value.filter(p => p.initialized).length)
+const unreachable = computed(() => peers.value.filter(p => !p.initialized && p.initializationError).length)
+
 function closeConfirm() {
   confirmTarget.value = null
   deleteError.value = null
@@ -91,53 +104,57 @@ async function confirmDelete() {
     </div>
 
     <div v-else-if="data && data.peers.length === 0" class="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-sm text-slate-500">
-      No peers configured yet.
+      No peers yet. Add a friend's jack to start pulling from their library.
     </div>
 
-    <div v-else-if="data" class="overflow-hidden rounded-xl border border-slate-800">
-      <table class="w-full text-left text-sm">
-        <thead class="bg-slate-900/60 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th class="px-4 py-3 font-medium">
-              Name
-            </th>
-            <th class="px-4 py-3 font-medium">
-              URL
-            </th>
-            <th class="px-4 py-3 font-medium">
-              Status
-            </th>
-            <th class="px-4 py-3 font-medium">
-              Version
-            </th>
-            <th class="px-4 py-3" />
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-800">
-          <tr v-for="peer in data.peers" :key="peer.id" class="bg-slate-900/20">
-            <td class="px-4 py-3 font-medium">
-              {{ peer.name }}
-            </td>
-            <td class="px-4 py-3 text-slate-400">
-              {{ peer.url }}
-            </td>
-            <td class="px-4 py-3">
-              <StatusBadge :initialized="peer.initialized" :error="peer.initializationError" />
-            </td>
-            <td class="px-4 py-3 text-slate-400">
-              {{ peer.version ?? '—' }}
-            </td>
-            <td class="px-4 py-3 text-right">
+    <div v-else-if="data">
+      <p class="mb-3 text-xs tabular-nums text-slate-500">
+        {{ connected }} of {{ peers.length }} connected<template v-if="unreachable">
+          · <span class="text-rose-300">{{ unreachable }} unreachable</span>
+        </template>
+      </p>
+
+      <div class="space-y-2">
+        <div
+          v-for="peer in peers"
+          :key="peer.id"
+          class="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3.5"
+        >
+          <div class="flex items-center gap-3">
+            <ConnDot :initialized="peer.initialized" :error="peer.initializationError" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-baseline gap-2">
+                <span class="truncate font-medium" :title="peer.name">{{ peer.name }}</span>
+                <span v-if="peer.version" class="shrink-0 text-xs tabular-nums text-slate-500">v{{ peer.version }}</span>
+              </div>
+              <p class="truncate font-mono text-xs text-slate-500" :title="peer.url">
+                {{ peer.url }}
+              </p>
+            </div>
+            <span
+              class="shrink-0 text-xs font-medium"
+              :class="peer.initialized ? 'text-emerald-400' : peer.initializationError ? 'text-rose-300' : 'text-amber-300'"
+            >
+              {{ peer.initialized ? 'Connected' : peer.initializationError ? 'Unreachable' : 'Connecting' }}
+            </span>
+            <div class="shrink-0">
               <button class="text-xs font-medium text-slate-400 hover:text-slate-100" @click="openEdit(peer)">
                 Edit
               </button>
               <button class="ml-3 text-xs font-medium text-slate-400 hover:text-rose-400" @click="confirmTarget = peer">
                 Remove
               </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </div>
+          </div>
+
+          <p
+            v-if="!peer.initialized && peer.initializationError"
+            class="mt-2.5 rounded-lg border border-rose-900/50 bg-rose-950/30 px-3 py-2 font-mono text-xs text-rose-300"
+          >
+            {{ peer.initializationError }}
+          </p>
+        </div>
+      </div>
     </div>
 
     <Modal v-if="showForm" :title="editTarget ? 'Edit peer' : 'Add peer'" @close="showForm = false">

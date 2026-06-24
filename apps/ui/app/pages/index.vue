@@ -139,11 +139,7 @@ function serverRole(server: { source: boolean, destination: boolean }) {
           </p>
           <div v-else class="divide-y divide-slate-800/60">
             <div v-for="peer in overview.peers.items" :key="peer.id" class="flex items-center gap-3 px-4 py-2.5">
-              <span
-                class="cdot"
-                :class="peer.initialized ? 'cdot--up' : 'cdot--down'"
-                :title="peer.initializationError ?? undefined"
-              />
+              <ConnDot :initialized="peer.initialized" :error="peer.initializationError" />
               <span class="flex-1 truncate text-sm" :title="peer.name">{{ peer.name }}</span>
               <span
                 class="text-xs tabular-nums"
@@ -168,11 +164,7 @@ function serverRole(server: { source: boolean, destination: boolean }) {
           </p>
           <div v-else class="divide-y divide-slate-800/60">
             <div v-for="server in overview.servers.items" :key="server.id" class="flex items-center gap-3 px-4 py-2.5">
-              <span
-                class="cdot"
-                :class="server.initialized ? 'cdot--up' : 'cdot--down'"
-                :title="server.initializationError ?? undefined"
-              />
+              <ConnDot :initialized="server.initialized" :error="server.initializationError" />
               <span class="flex-1 truncate text-sm" :title="server.name">{{ server.name }}</span>
               <span
                 class="text-xs"
@@ -187,41 +179,3 @@ function serverRole(server: { source: boolean, destination: boolean }) {
     </template>
   </div>
 </template>
-
-<style scoped>
-.cdot {
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 9999px;
-}
-
-/* Connected: emerald dot that breathes with a soft glow. */
-.cdot--up {
-  background: #34d399;
-  animation: cdot-up 3s ease-in-out infinite;
-}
-
-/* Unreachable: hollow rose ring, blinking a touch faster to draw the eye. */
-.cdot--down {
-  border: 1.5px solid #fb7185;
-  animation: cdot-down 2.2s ease-in-out infinite;
-}
-
-@keyframes cdot-up {
-  0%, 100% { box-shadow: 0 0 5px 0 rgba(52, 211, 153, 0.65); opacity: 1; }
-  50% { box-shadow: 0 0 10px 2px rgba(52, 211, 153, 0.3); opacity: 0.55; }
-}
-
-@keyframes cdot-down {
-  0%, 100% { box-shadow: 0 0 5px 0 rgba(251, 113, 133, 0.6); opacity: 1; }
-  50% { box-shadow: 0 0 10px 2px rgba(251, 113, 133, 0.25); opacity: 0.45; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cdot--up,
-  .cdot--down {
-    animation: none;
-  }
-}
-</style>
