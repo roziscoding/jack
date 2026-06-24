@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in jack isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+        ⚠️ **Security issue?** Don't file it here — report it privately via the
+        [Security Policy](https://github.com/roziscoding/jack/security/advisories).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: How can this be reproduced?
+      placeholder: |
+        1. Configure jack with '...'
+        2. Search from Radarr/Sonarr for '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant log output. This is automatically formatted, no backticks needed.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: jack version
+      description: Which version/tag (or image tag) are you running?
+      placeholder: e.g. v0.3.0 or :main
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: How are you running jack, and what's the *arr setup around it?
+      placeholder: e.g. Docker Compose on Linux, Radarr v5, Sonarr v4
