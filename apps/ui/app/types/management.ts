@@ -79,3 +79,23 @@ export interface ServerInput {
   headers?: Record<string, SecretRef>
   autoregister?: { enable?: boolean, priority?: number }
 }
+
+export interface ApiKey {
+  id: number
+  name: string | null
+  description: string | null
+  expiresAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// POST /api-keys returns the raw key exactly once; every later read omits it.
+export interface CreatedApiKey extends ApiKey {
+  key: string
+}
+
+export interface ApiKeyInput {
+  name?: string | null
+  description?: string | null
+  expiresAt?: string | null
+}

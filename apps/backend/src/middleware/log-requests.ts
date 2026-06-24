@@ -1,5 +1,6 @@
 import type { AttributeValue, Span } from '@opentelemetry/api'
 import type { Context } from 'hono'
+import type { AuthVariables } from './require-auth'
 import { trace } from '@opentelemetry/api'
 import { createMiddleware } from 'hono/factory'
 import { redactUrl, setSpanAttribute, setSpanAttributes } from '../lib/span-attributes'
@@ -224,7 +225,7 @@ async function addHttpSpanAttributes(span: Span, ctx: Context, durationMs: numbe
   }
 }
 
-export const logRequests = createMiddleware(async (ctx, next) => {
+export const logRequests = createMiddleware<{ Variables: AuthVariables }>(async (ctx, next) => {
   const span = trace.getActiveSpan()
   const start = performance.now()
   const requestBody = span ? await captureRequestBody(ctx) : undefined
@@ -233,6 +234,11 @@ export const logRequests = createMiddleware(async (ctx, next) => {
 
   if (span) {
     await addHttpSpanAttributes(span, ctx, durationMs, requestBody)
+
+    const apiKeyName = ctx.get('apiKeyName')
+    if (apiKeyName) {
+      setSpanAttribute(span, 'api_key.name', apiKeyName)
+    }
   }
 
   const logObject = {

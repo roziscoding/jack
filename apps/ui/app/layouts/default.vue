@@ -6,6 +6,7 @@ const links = [
   { to: '/peers', label: 'Peers', icon: '⇄' },
   { to: '/servers', label: 'Servers', icon: '▤' },
   { to: '/downloads', label: 'Downloads', icon: '↓' },
+  { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
 const loggingOut = ref(false)

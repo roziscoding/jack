@@ -43,6 +43,13 @@
       "when": 1782255959947,
       "tag": "0005_young_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1782296886480,
+      "tag": "0006_gigantic_otto_octavius",
+      "breakpoints": true
     }
   ]
 }
