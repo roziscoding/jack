@@ -22,6 +22,11 @@ export interface ServerItem extends ConnectorBase {
   autoregister: { enable: boolean, priority: number }
 }
 
+// The /overview endpoint returns connector items WITHOUT autoregister (that field
+// only comes back on the full /config/servers payload). Keep the type honest so
+// nothing reaches for a field the overview never sends.
+export type OverviewServerItem = Omit<ServerItem, 'autoregister'>
+
 export interface DownloadItem {
   id: number
   filename: string
@@ -42,8 +47,16 @@ export interface DownloadItem {
 
 export interface Overview {
   peers: { total: number, initialized: number, items: PeerItem[] }
-  servers: { total: number, initialized: number, sources: number, destinations: number, items: ServerItem[] }
-  downloads: { total: number, byStatus: Record<string, number>, active: DownloadItem[] }
+  servers: { total: number, initialized: number, sources: number, destinations: number, items: OverviewServerItem[] }
+  downloads: {
+    total: number
+    byStatus: Record<string, number>
+    bytesMoved: number
+    mismatched: number
+    active: DownloadItem[]
+    importQueued: DownloadItem[]
+    failed: DownloadItem[]
+  }
 }
 
 // Secret refs mirror the backend's RawConfigSecret union.
