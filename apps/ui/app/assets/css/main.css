@@ -41,6 +41,7 @@ body {
 
 .conn-dot--pending {
   background: #fbbf24;
+  animation: conn-dot-pending 1.4s ease-in-out infinite;
 }
 
 @keyframes conn-dot-up {
@@ -53,9 +54,16 @@ body {
   50% { box-shadow: 0 0 10px 2px rgb(251 113 133 / 0.25); opacity: 0.45; }
 }
 
+/* Connecting: a quicker amber pulse so a handshaking connector reads as working. */
+@keyframes conn-dot-pending {
+  0%, 100% { box-shadow: 0 0 5px 0 rgb(251 191 36 / 0.6); opacity: 1; }
+  50% { box-shadow: 0 0 9px 2px rgb(251 191 36 / 0.3); opacity: 0.5; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .conn-dot--up,
-  .conn-dot--down {
+  .conn-dot--down,
+  .conn-dot--pending {
     animation: none;
   }
 }
