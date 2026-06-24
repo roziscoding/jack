@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Jack follows a rolling-release model: only the **latest released version** is
+jack follows a rolling-release model: only the **latest released version** is
 supported and gets security fixes. There are no long-term maintenance branches
 for older releases.
 
@@ -33,4 +33,4 @@ When you report, it helps to include:
 - Once I have a fix, I'll ship it as a new release and disclose the advisory
   publicly — and I'll credit you unless you'd rather stay anonymous.
 
-Thanks for helping keep Jack and its users safe.
+Thanks for helping keep jack and its users safe.
