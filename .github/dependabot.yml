@@ -2,7 +2,9 @@ version: 2
 
 updates:
   # JavaScript/TypeScript dependencies across the Bun workspace (root + every app and package).
-  - package-ecosystem: "npm"
+  # Use the "bun" ecosystem so Dependabot updates bun.lock alongside package.json
+  # (the "npm" ecosystem leaves bun.lock stale and breaks `bun install --frozen-lockfile`).
+  - package-ecosystem: "bun"
     directories:
       - "/"
       - "/apps/*"
