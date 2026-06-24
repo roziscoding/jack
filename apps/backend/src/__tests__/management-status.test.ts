@@ -96,6 +96,8 @@ describe('Management status endpoints', () => {
 
     const downloading = downloadsRepository.create({ ...base, filename: 'a.mkv' })
     downloadsRepository.updateProgress(downloading.id, 40)
+    // Flag the in-flight transfer with a size mismatch.
+    downloadsRepository.setExpectedBytes(downloading.id, 40, null, true)
 
     const queued = downloadsRepository.create({ ...base, filename: 'b.mkv' })
     downloadsRepository.updateProgress(queued.id, 100)
@@ -116,6 +118,8 @@ describe('Management status endpoints', () => {
     expect(body.downloads.failed[0].error).toBe('boom')
     // 40 + 100 + 10 bytes pulled across the three transfers.
     expect(body.downloads.bytesMoved).toBe(150)
+    // Only the in-flight transfer carries a size mismatch.
+    expect(body.downloads.mismatched).toBe(1)
   })
 
   test('GET /downloads returns enriched records with progress', async () => {

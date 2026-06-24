@@ -14,7 +14,9 @@ const failed = computed(() => props.overview.downloads.failed)
 const failedCount = computed(() => props.overview.downloads.byStatus.failed ?? 0)
 const queuedCount = computed(() => props.overview.downloads.byStatus.import_queued ?? 0)
 // Live integrity warnings: only for in-flight/queued transfers — failed rows
-// already carry their own error message below.
+// already carry their own error message below. The headline count uses the true
+// backend total (`mismatched`); the rows are example detail from the capped lists.
+const mismatchCount = computed(() => props.overview.downloads.mismatched)
 const mismatches = computed(() =>
   [...props.overview.downloads.active, ...props.overview.downloads.importQueued]
     .filter(d => d.expectedBytesMismatch))
@@ -26,7 +28,7 @@ const issueCount = computed(() =>
   + unreachableServers.value.length
   + (queuedCount.value ? 1 : 0)
   + (failedCount.value ? 1 : 0)
-  + (mismatches.value.length ? 1 : 0))
+  + (mismatchCount.value ? 1 : 0))
 const hasIssues = computed(() => issueCount.value > 0)
 
 const collapsed = ref(false)
@@ -141,11 +143,11 @@ function plural(n: number, word: string) {
       </div>
 
       <!-- Size mismatches -->
-      <div v-if="mismatches.length" class="flex gap-3 px-4 py-3">
+      <div v-if="mismatchCount" class="flex gap-3 px-4 py-3">
         <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
         <div class="min-w-0">
           <p class="text-sm text-slate-200">
-            {{ plural(mismatches.length, 'transfer') }} {{ mismatches.length === 1 ? 'reports' : 'report' }} a size mismatch
+            {{ plural(mismatchCount, 'transfer') }} {{ mismatchCount === 1 ? 'reports' : 'report' }} a size mismatch
           </p>
           <p
             v-for="d in mismatches.slice(0, PREVIEW)"
@@ -154,6 +156,9 @@ function plural(n: number, word: string) {
             :title="d.filename"
           >
             <span class="text-slate-400">{{ d.filename }}</span> · from {{ d.peerName }}
+          </p>
+          <p v-if="mismatchCount > PREVIEW" class="mt-1 text-xs text-slate-600">
+            and {{ mismatchCount - PREVIEW }} more
           </p>
         </div>
       </div>

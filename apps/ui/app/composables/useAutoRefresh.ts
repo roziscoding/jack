@@ -36,7 +36,9 @@ export function useAutoRefresh(refresh: () => unknown | Promise<unknown>, defaul
       void refreshNow()
   }
 
-  watch(intervalMs, resetCountdown)
+  // Picking a new interval refreshes right away — switching to a faster cadence
+  // means "show me fresher data now", mirroring resume-from-pause.
+  watch(intervalMs, () => void refreshNow())
 
   let ticker: ReturnType<typeof setInterval> | undefined
   onMounted(() => {

@@ -54,9 +54,14 @@ export class StatusController {
     // `bytesMoved` is the lifetime total of bytes actually pulled over the wire
     // (partial transfers count what they got), powering the dashboard's vanity stat.
     let bytesMoved = 0
+    // True count of in-flight/queued transfers flagged with a size mismatch, so the
+    // dashboard reports an accurate total even though the detail arrays are capped.
+    let mismatched = 0
     for (const record of records) {
       byStatus[record.status]++
       bytesMoved += record.downloadedBytes
+      if (record.expectedBytesMismatch && (record.status === 'downloading' || record.status === 'import_queued'))
+        mismatched++
     }
 
     return {
@@ -76,6 +81,7 @@ export class StatusController {
         total: records.length,
         byStatus,
         bytesMoved,
+        mismatched,
         // `records` is sorted by updatedAt desc, so each slice is the most recent.
         active: records.filter(r => r.status === 'downloading').map(enrichDownload),
         importQueued: records.filter(r => r.status === 'import_queued').slice(0, ATTENTION_LIMIT).map(enrichDownload),
