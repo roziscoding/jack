@@ -159,6 +159,15 @@ export const JackConfig = z.object({
 
 export type JackConfig = z.infer<typeof JackConfig>
 
+// Raw jack for persistence: preserve {env}/{file} secret refs and the optional
+// apiKey, mirroring RawPeerConfig/RawServerConfig.
+export const RawJackConfig = z.object({
+  baseUrl: z.url(),
+  apiKey: RawConfigSecret.optional(),
+})
+
+export type RawJackConfig = z.infer<typeof RawJackConfig>
+
 export const DownloadsConfig = z.object({
   completedPath: z.string().min(1),
   maxConcurrentDownloads: z.number().int().min(1).default(3),

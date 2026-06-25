@@ -63,6 +63,11 @@ export class ConfigController {
     return { servers: this.connectors.servers.map(s => this.withSecrets('servers', stringifyServer(s))) }
   }
 
+  /** Refs-intact jack config for an edit form, or null when unset / read-only. */
+  getJack() {
+    return this.configService?.getRawJack() ?? null
+  }
+
   /** Whether mutation endpoints are available (a ConfigService was injected). */
   get canMutate() {
     return this.configService !== undefined
@@ -107,5 +112,9 @@ export class ConfigController {
 
   updateServer(id: string, input: unknown) {
     return this.mutate(s => s.updateServer(id, input))
+  }
+
+  updateJack(input: unknown) {
+    return this.mutate(s => s.updateJack(input))
   }
 }

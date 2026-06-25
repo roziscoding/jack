@@ -513,3 +513,73 @@ describe('Management API updatePeer url change', () => {
     expect(downloadsRepository.get(dl.id)?.peerId).toBe(idB)
   })
 })
+
+describe('Management API jack config', () => {
+  test('GET /config/jack returns null when no jack block is configured', async () => {
+    const { app } = await makeMutableApp()
+    const res = await app.request('/config/jack', { headers: KEY })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toBeNull()
+  })
+
+  test('PATCH then GET round-trips baseUrl + apiKey ref intact on disk', async () => {
+    // JackConfig.parse resolves {env} refs to validate them (mirrors the addPeer
+    // path), so the referenced var must exist — exactly as the addPeer test sets
+    // process.env.BOB_KEY before posting { env: 'BOB_KEY' }.
+    process.env.JACK_X = 'jack-secret'
+    const { app, path } = await makeMutableApp()
+
+    const patch = await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } }),
+    })
+    expect(patch.status).toBe(200)
+    expect(await patch.json()).toEqual({ ok: true })
+
+    // The ref is preserved on disk — never resolved into the secret value.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { jack: { baseUrl: string, apiKey: unknown } }
+    expect(onDisk.jack).toEqual({ baseUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } })
+
+    const get = await app.request('/config/jack', { headers: KEY })
+    expect(await get.json()).toEqual({ baseUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } })
+  })
+
+  test('PATCH with no apiKey persists a jack block without one (optional)', async () => {
+    const { app, path } = await makeMutableApp()
+
+    const res = await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'http://jack.test:5225' }),
+    })
+    expect(res.status).toBe(200)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { jack: { baseUrl: string, apiKey?: unknown } }
+    expect(onDisk.jack.baseUrl).toBe('http://jack.test:5225')
+    expect(onDisk.jack.apiKey).toBeUndefined()
+
+    const get = await app.request('/config/jack', { headers: KEY })
+    const body = await get.json() as { baseUrl: string, apiKey?: unknown }
+    expect(body.apiKey).toBeUndefined()
+  })
+
+  test('PATCH with an invalid baseUrl returns 400', async () => {
+    const { app } = await makeMutableApp()
+    const res = await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'not-a-url' }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('PATCH /config/jack is unregistered (404) without a ConfigService', async () => {
+    const res = await mgmtApp().request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: 'http://jack.test:5225' }),
+    })
+    expect(res.status).toBe(404)
+  })
+})
