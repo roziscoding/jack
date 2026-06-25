@@ -57,3 +57,15 @@ export const apiKeys = sqliteTable('api_keys', {
 
 export type ApiKeyRow = typeof apiKeys.$inferSelect
 export type NewApiKeyRow = typeof apiKeys.$inferInsert
+
+export const managedKeys = sqliteTable('managed_keys', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  keyHash: text('key_hash').notNull().unique(),
+  // The destination connector id this key was provisioned for. NOT unique: an old
+  // and a new row coexist briefly mid-rotation.
+  serverId: text('server_id').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+
+export type ManagedKeyRow = typeof managedKeys.$inferSelect
+export type NewManagedKeyRow = typeof managedKeys.$inferInsert

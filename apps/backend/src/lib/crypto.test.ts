@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { API_KEY_PREFIX, generateApiKey, hashKey, isGeneratedKey } from './crypto'
+import { API_KEY_PREFIX, generateApiKey, generateManagedKey, hashKey, isGeneratedKey, isManagedKey } from './crypto'
 
 describe('crypto', () => {
   describe('hashKey', () => {
@@ -54,6 +54,21 @@ describe('crypto', () => {
     test('returns false for other keys', () => {
       expect(isGeneratedKey('other_key')).toBe(false)
       expect(isGeneratedKey('abc123')).toBe(false)
+    })
+  })
+
+  describe('managed key prefix dispatch', () => {
+    test('a managed key is managed, not generated', () => {
+      const key = generateManagedKey()
+      expect(key.startsWith('jack_managed_')).toBe(true)
+      expect(isManagedKey(key)).toBe(true)
+      expect(isGeneratedKey(key)).toBe(false)
+    })
+
+    test('a user key is generated, not managed', () => {
+      const key = generateApiKey()
+      expect(isGeneratedKey(key)).toBe(true)
+      expect(isManagedKey(key)).toBe(false)
     })
   })
 })
