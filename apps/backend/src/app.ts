@@ -4,6 +4,7 @@ import type { ConnectorManager } from './lib/servers'
 import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
+import type { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
@@ -30,6 +31,7 @@ interface AppServices {
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
   apiKeysRepository?: ApiKeysRepository
+  managedKeysRepository?: ManagedKeysRepository
 }
 
 // Only the live `servers`/`peers` getters are used here, so accept the structural
@@ -96,7 +98,7 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
     app.route('/api/v2', getQbittorrentRouter(qbController))
   }
 
-  app.use('*', requireApiKey(config.jack?.apiKey ?? '', services.apiKeysRepository))
+  app.use('*', requireApiKey(config.jack?.apiKey ?? '', services.apiKeysRepository, services.managedKeysRepository))
 
   app.route('/servers', serversRouter)
   app.route('/items', itemsRouter)

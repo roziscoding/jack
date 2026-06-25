@@ -14,6 +14,7 @@ import { ConfigService } from './modules/config/config.service'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
 import { ImportWatcher } from './modules/downloads/import-watcher'
+import { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
@@ -37,6 +38,7 @@ await connectorManager.initAll()
 const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
 const apiKeysRepository = new ApiKeysRepository(database.db)
+const managedKeysRepository = new ManagedKeysRepository(database.db)
 
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
@@ -48,7 +50,7 @@ const downloadsService = config.downloads
   ? new DownloadsService(config.downloads, connectorManager, downloadsRepository)
   : undefined
 
-const app = getApp(envs, config, connectorManager, { downloadsRepository, downloadsService, apiKeysRepository })
+const app = getApp(envs, config, connectorManager, { downloadsRepository, downloadsService, apiKeysRepository, managedKeysRepository })
 const server = Bun.serve({
   fetch: app.fetch,
 })

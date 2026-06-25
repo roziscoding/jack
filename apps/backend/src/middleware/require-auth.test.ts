@@ -5,8 +5,9 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { Hono } from 'hono'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
-import { generateApiKey, hashKey } from '../lib/crypto'
+import { generateApiKey, generateManagedKey, hashKey } from '../lib/crypto'
 import { ApiKeysRepository } from '../modules/api-keys/api-keys.repository'
+import { ManagedKeysRepository } from '../modules/managed-keys/managed-keys.repository'
 import { handleError } from './handle-error'
 import { requireApiKey } from './require-auth'
 
@@ -21,6 +22,7 @@ interface ErrorResponse {
 
 describe('requireApiKey', () => {
   let repo: ApiKeysRepository
+  let managedRepo: ManagedKeysRepository
   const masterKey = 'master-secret-key'
 
   beforeEach(() => {
@@ -28,11 +30,12 @@ describe('requireApiKey', () => {
     const db = drizzle({ client: sqlite, schema })
     runMigrations(db)
     repo = new ApiKeysRepository(db)
+    managedRepo = new ManagedKeysRepository(db)
   })
 
-  function createApp(apiKey: string, repository?: ApiKeysRepository) {
+  function createApp(apiKey: string, repository?: ApiKeysRepository, managedRepository?: ManagedKeysRepository) {
     const app = new Hono<{ Variables: AuthVariables }>()
-    app.use('*', requireApiKey(apiKey, repository))
+    app.use('*', requireApiKey(apiKey, repository, managedRepository))
     app.get('/test', c => c.json({ keyName: c.get('apiKeyName') ?? null }))
     app.onError(handleError('test'))
     return app
@@ -157,6 +160,26 @@ describe('requireApiKey', () => {
     const res = await app.request('/test', {
       headers: { 'X-Api-Key': key },
     })
+
+    expect(res.status).toBe(401)
+  })
+
+  test('valid managed key passes via the managed table', async () => {
+    const key = generateManagedKey()
+    managedRepo.create({ keyHash: hashKey(key), serverId: 'srv-a' })
+    const app = createApp(masterKey, repo, managedRepo)
+
+    const res = await app.request('/test', { headers: { 'X-Api-Key': key } })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as SuccessResponse | ErrorResponse
+    expect((body as SuccessResponse).keyName).toBe('managed')
+  })
+
+  test('unknown managed key returns 401', async () => {
+    const app = createApp(masterKey, repo, managedRepo)
+
+    const res = await app.request('/test', { headers: { 'X-Api-Key': generateManagedKey() } })
 
     expect(res.status).toBe(401)
   })
