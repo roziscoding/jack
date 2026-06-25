@@ -80,7 +80,7 @@ export class TorznabController {
             }, async (peerSpan) => {
               const releases = await search(peer)
               setSpanAttribute(peerSpan, 'release.count', releases.length)
-              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey))
+              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey ?? ''))
             })
           }
           catch (err) {

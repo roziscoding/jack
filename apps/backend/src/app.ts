@@ -87,7 +87,7 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   // (/api/v2/auth/login), not jack's apikey query/header.
   if (config.jack && config.downloads && services.downloadsRepository) {
     const qbController = new QbittorrentController({
-      apiKey: config.jack.apiKey,
+      apiKey: config.jack.apiKey ?? '',
       completedPath: config.downloads.completedPath,
       get servers() { return connManager.servers },
       repository: services.downloadsRepository,

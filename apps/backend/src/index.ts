@@ -113,7 +113,7 @@ if (config.jack) {
           name: 'Jack',
           baseUrl: jackConfig.baseUrl,
           username: dest.name,
-          password: jackConfig.apiKey,
+          password: jackConfig.apiKey ?? '',
           category: qbCategoryForServer(dest.id),
         })
         logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as qBittorrent download client')
@@ -127,7 +127,7 @@ if (config.jack) {
       await dest.registerIndexer({
         name: 'Jack',
         baseUrl: `${jackConfig.baseUrl}/torznab`,
-        apiKey: jackConfig.apiKey,
+        apiKey: jackConfig.apiKey ?? '',
         priority: dest.autoRegister.priority,
         categories: dest.categories,
         downloadClientId,

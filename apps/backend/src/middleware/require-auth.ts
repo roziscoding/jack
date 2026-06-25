@@ -9,17 +9,15 @@ export interface AuthVariables {
 
 export function requireApiKey(masterKey: string, apiKeysRepository?: ApiKeysRepository) {
   return createMiddleware<{ Variables: AuthVariables }>(async (ctx, next) => {
-    if (masterKey === '') {
-      return next()
-    }
-
     const key = ctx.req.query('apikey') ?? ctx.req.header('x-api-key')
 
     if (!key) {
       throw new UnauthorizedError('missing API key')
     }
 
-    if (key === masterKey) {
+    // An empty main key is never a valid comparison target — when no main key is
+    // configured, authentication relies entirely on the generated keys below.
+    if (masterKey !== '' && key === masterKey) {
       return next()
     }
 

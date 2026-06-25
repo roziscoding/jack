@@ -151,7 +151,10 @@ export type RawPeerConfig = z.infer<typeof RawPeerConfig>
 
 export const JackConfig = z.object({
   baseUrl: z.url(),
-  apiKey: ConfigSecret(),
+  // The single "Main API key" (deprecated). Optional: a jack block can carry
+  // only a baseUrl, in which case the public API authenticates via generated
+  // keys (see require-auth.ts), not this key.
+  apiKey: ConfigSecret().optional(),
 })
 
 export type JackConfig = z.infer<typeof JackConfig>

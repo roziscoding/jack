@@ -60,12 +60,26 @@ describe('requireApiKey', () => {
     expect((body as SuccessResponse).keyName).toBeNull()
   })
 
-  test('empty master key disables auth', async () => {
+  test('empty main key: a missing key is rejected (auth not disabled)', async () => {
     const app = createApp('', repo)
 
     const res = await app.request('/test')
 
+    expect(res.status).toBe(401)
+    const body = await res.json() as SuccessResponse | ErrorResponse
+    expect((body as ErrorResponse).error.message).toContain('missing API key')
+  })
+
+  test('empty main key: a valid generated key still passes via the DB', async () => {
+    const key = generateApiKey()
+    repo.create({ keyHash: hashKey(key), name: 'Gen Key' })
+    const app = createApp('', repo)
+
+    const res = await app.request('/test', { headers: { 'X-Api-Key': key } })
+
     expect(res.status).toBe(200)
+    const body = await res.json() as SuccessResponse | ErrorResponse
+    expect((body as SuccessResponse).keyName).toBe('Gen Key')
   })
 
   test('valid jack_ key from DB passes and sets name', async () => {
