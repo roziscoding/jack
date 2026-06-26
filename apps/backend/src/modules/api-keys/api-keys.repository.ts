@@ -2,6 +2,12 @@ import type { AppDatabase } from '../../database/connection'
 import type { ApiKeyRow, NewApiKeyRow } from '../../database/schema'
 import { desc, eq } from 'drizzle-orm'
 import { apiKeys } from '../../database/schema'
+import { hashKey } from '../../lib/crypto'
+
+export type ApiKeyResolution
+  = | { status: 'ok', row: ApiKeyRow }
+    | { status: 'expired' }
+    | { status: 'missing' }
 
 export interface CreateApiKeyInput {
   keyHash: string
@@ -39,6 +45,19 @@ export class ApiKeysRepository {
 
   findByHash(keyHash: string): ApiKeyRow | null {
     return this.db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash)).get() ?? null
+  }
+
+  /**
+   * Resolve a raw user key to its row, distinguishing missing vs expired so callers
+   * can surface the right error (require-auth) or a simple boolean (qB login).
+   */
+  resolve(rawKey: string): ApiKeyResolution {
+    const row = this.findByHash(hashKey(rawKey))
+    if (!row)
+      return { status: 'missing' }
+    if (row.expiresAt && new Date(row.expiresAt) <= new Date())
+      return { status: 'expired' }
+    return { status: 'ok', row }
   }
 
   get(id: number): ApiKeyRow | null {

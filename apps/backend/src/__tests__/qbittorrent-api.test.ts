@@ -5,7 +5,9 @@ import { getApp } from '../app'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
 import { AppConfig, MIGRATIONS } from '../lib/config'
+import { generateManagedKey, hashKey } from '../lib/crypto'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
+import { ManagedKeysRepository } from '../modules/managed-keys/managed-keys.repository'
 import { deriveHash, qbCategoryForServer } from '../modules/qbittorrent/qbittorrent.mapper'
 import { createTorrentStub } from '../modules/torznab/torrent'
 
@@ -20,7 +22,7 @@ function buildApp() {
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
     version: MIGRATIONS.length,
-    jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+    jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     downloads: { completedPath: '/tmp/completed' },
     servers: [],
     peers: [],
@@ -36,7 +38,7 @@ function buildAppWithService(startResult: 'started' | 'duplicate' | 'failed' = '
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
     version: MIGRATIONS.length,
-    jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+    jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     downloads: { completedPath: '/tmp/completed' },
     servers: [],
     peers: [],
@@ -102,6 +104,42 @@ describe('qBittorrent auth + app surface', () => {
       body: new URLSearchParams({ username: 'Nope', password: 'test-api-key' }),
     })
     expect(await res.text()).toBe('Fails.')
+  })
+
+  test('login succeeds with a server-scoped managed key through getApp wiring', async () => {
+    const sqlite = new Database(':memory:')
+    const db = drizzle({ client: sqlite, schema })
+    runMigrations(db)
+    const downloadsRepository = new DownloadsRepository(db)
+    const managedKeysRepository = new ManagedKeysRepository(db)
+    const config = AppConfig.parse({
+      version: MIGRATIONS.length,
+      jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+      downloads: { completedPath: '/tmp/completed' },
+      servers: [],
+      peers: [],
+    })
+    const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository, managedKeysRepository })
+
+    const key = generateManagedKey()
+    managedKeysRepository.create({ keyHash: hashKey(key), serverId: 'abc12345' }) // fakeServer.id
+
+    const ok = await app.request('/api/v2/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: 'My Radarr', password: key }),
+    })
+    expect(await ok.text()).toBe('Ok.')
+
+    // A managed key for another server is rejected for this username (server-scoped).
+    const otherKey = generateManagedKey()
+    managedKeysRepository.create({ keyHash: hashKey(otherKey), serverId: 'other-server' })
+    const fail = await app.request('/api/v2/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: 'My Radarr', password: otherKey }),
+    })
+    expect(await fail.text()).toBe('Fails.')
   })
 
   test('protected endpoint returns 403 without session', async () => {

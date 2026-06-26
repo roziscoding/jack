@@ -23,7 +23,7 @@ function tempPath() {
 describe('Config migration write-back', () => {
   test('migrates a v0 file, backs it up, and persists', async () => {
     const path = tempPath()
-    const original = jsonc.stringify({ version: 0, peers: [], servers: [] }, { space: 2 })
+    const original = jsonc.stringify({ version: 0, jack: { baseUrl: 'http://jack:5225' }, peers: [], servers: [] }, { space: 2 })
     await Bun.write(path, original)
 
     const { appConfig } = await getAppConfig({ APP_CONFIG_PATH: path })
@@ -36,12 +36,22 @@ describe('Config migration write-back', () => {
 
   test('leaves an up-to-date file untouched (no .bak)', async () => {
     const path = tempPath()
-    const current = jsonc.stringify({ version: MIGRATIONS.length, peers: [], servers: [] }, { space: 2 })
+    const current = jsonc.stringify({ version: MIGRATIONS.length, jack: { internalUrl: 'http://jack:5225' }, peers: [], servers: [] }, { space: 2 })
     await Bun.write(path, current)
 
     await getAppConfig({ APP_CONFIG_PATH: path })
 
     expect(await Bun.file(`${path}.bak`).exists()).toBe(false)
     expect(await Bun.file(path).text()).toBe(current)
+  })
+
+  test('renames jack.baseUrl to jack.internalUrl', async () => {
+    const path = tempPath()
+    await Bun.write(path, jsonc.stringify({ version: 1, jack: { baseUrl: 'http://jack:5225' }, peers: [], servers: [] }, { space: 2 }))
+    const { appConfig } = await getAppConfig({ APP_CONFIG_PATH: path })
+    expect(appConfig.jack.internalUrl).toBe('http://jack:5225')
+    const reread = jsonc.parse(await Bun.file(path).text()) as { jack: { internalUrl?: string, baseUrl?: string } }
+    expect(reread.jack.internalUrl).toBe('http://jack:5225')
+    expect(reread.jack.baseUrl).toBeUndefined()
   })
 })

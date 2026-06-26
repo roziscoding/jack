@@ -2,7 +2,7 @@ import type { ConfigController } from './config.controller'
 import { Hono } from 'hono'
 import { validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
-import { RawPeerConfig, RawServerConfig } from '../../lib/config'
+import { RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 
 const idParam = z.object({ id: z.string().min(1) })
 
@@ -12,6 +12,7 @@ export function getConfigRouter(controller: ConfigController) {
   app.get('/', c => c.json(controller.listConfig()))
   app.get('/peers', c => c.json(controller.listPeers()))
   app.get('/servers', c => c.json(controller.listServers()))
+  app.get('/jack', c => c.json(controller.getJack()))
 
   // Mutation routes only exist when a ConfigService is wired in. Without one, these
   // paths are simply unregistered → 404 (rather than a 500 from an unconfigured call).
@@ -42,6 +43,12 @@ export function getConfigRouter(controller: ConfigController) {
 
     app.patch('/servers/:id', zValidator('param', idParam), zValidator('json', RawServerConfig), async (c) => {
       return c.json(await controller.updateServer(c.req.valid('param').id, c.req.valid('json')))
+    })
+
+    // jack has no connectivity check (boot-captured) → a successful PATCH just
+    // persists; internalUrl is required, apiKey optional (RawJackConfig).
+    app.patch('/jack', zValidator('json', RawJackConfig), async (c) => {
+      return c.json(await controller.updateJack(c.req.valid('json')))
     })
   }
 

@@ -8,7 +8,7 @@ const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as 
 function buildApp() {
   const config = AppConfig.parse({
     version: MIGRATIONS.length,
-    jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+    jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     servers: [],
     peers: [],
   })

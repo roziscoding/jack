@@ -1,10 +1,13 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import type { ApiKeysRepository } from '../api-keys/api-keys.repository'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
 import type { DownloadsService } from '../downloads/downloads.service'
+import type { ManagedKeysRepository } from '../managed-keys/managed-keys.repository'
 import type { QbTorrent } from './qbittorrent.mapper'
 import type { QbSession } from './qbittorrent.session'
 import { Buffer } from 'node:buffer'
 import { unlink } from 'node:fs/promises'
+import { hashKey, isGeneratedKey, isManagedKey } from '../../lib/crypto'
 import { parseTorrentStub } from '../torznab/torrent'
 import { deriveHash, qbCategoryForServer, toQbTorrent } from './qbittorrent.mapper'
 import { QbSessionStore } from './qbittorrent.session'
@@ -15,6 +18,8 @@ export interface QbittorrentControllerDeps {
   servers: ArrServerConnector[]
   repository: DownloadsRepository
   downloadsService?: DownloadsService
+  apiKeysRepository?: ApiKeysRepository
+  managedKeysRepository?: ManagedKeysRepository
 }
 
 // Matches a jack download URL path: /torznab/download/<peerId:itemId>.torrent
@@ -26,18 +31,32 @@ export class QbittorrentController {
   constructor(private readonly deps: QbittorrentControllerDeps) {}
 
   /**
-   * New SID on success; null on unknown username or wrong password. Username
-   * must match a configured server connector name; password must equal jack's
-   * apiKey (skipped when apiKey is empty, i.e. jack auth disabled).
+   * New SID on success; null on unknown username or invalid password. Username must
+   * match a configured server connector name; the password must be the main key
+   * (when set), a valid managed auto-registration key, or a valid user API key.
    */
   login(username: string, password: string): string | null {
-    const { apiKey, servers } = this.deps
-    const server = servers.find(s => s.name === username)
+    const server = this.deps.servers.find(s => s.name === username)
     if (!server)
       return null
-    if (apiKey !== '' && password !== apiKey)
+    if (!this.isValidPassword(password, server.id))
       return null
     return this.sessions.create({ serverName: server.name, serverId: server.id })
+  }
+
+  // Prefix dispatch mirrors requireApiKey: exactly one table is consulted. A managed
+  // key is additionally scoped to its destination — Radarr's key can't log in as Sonarr.
+  private isValidPassword(password: string, serverId: string): boolean {
+    const { apiKey, apiKeysRepository, managedKeysRepository } = this.deps
+    if (apiKey !== '' && password === apiKey)
+      return true
+    if (isManagedKey(password)) {
+      const row = managedKeysRepository?.findByHash(hashKey(password))
+      return row?.serverId === serverId
+    }
+    if (isGeneratedKey(password))
+      return apiKeysRepository?.resolve(password).status === 'ok'
+    return false
   }
 
   logout(sid: string | undefined): void {

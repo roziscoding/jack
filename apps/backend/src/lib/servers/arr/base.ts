@@ -195,11 +195,11 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresDestination
   @requiresInitialization
-  async registerIndexer(indexerConfig: { name: string, baseUrl: string, apiKey: string, priority: number, categories: number[], downloadClientId?: number }) {
+  async registerIndexer(indexerConfig: { name: string, internalUrl: string, apiKey: string, priority: number, categories: number[], downloadClientId?: number }) {
     const existingIndexers = await this.arrGet<any[]>('/api/v3/indexer')
     const existing: any = Array.isArray(existingIndexers)
       ? existingIndexers.find((idx: any) =>
-          idx.fields?.some((f: any) => f.name === 'baseUrl' && f.value === indexerConfig.baseUrl))
+          idx.fields?.some((f: any) => f.name === 'baseUrl' && f.value === indexerConfig.internalUrl))
       : null
 
     const body = {
@@ -215,7 +215,7 @@ export abstract class ArrServerConnector extends ServerConnector {
       // Without this, *arr may hand a Jack grab to an unrelated download client.
       ...(indexerConfig.downloadClientId ? { downloadClientId: indexerConfig.downloadClientId } : {}),
       fields: [
-        { name: 'baseUrl', value: indexerConfig.baseUrl },
+        { name: 'baseUrl', value: indexerConfig.internalUrl },
         { name: 'apiPath', value: '/api' },
         { name: 'apiKey', value: indexerConfig.apiKey },
         { name: 'categories', value: indexerConfig.categories },
@@ -247,8 +247,8 @@ export abstract class ArrServerConnector extends ServerConnector {
 
   @requiresDestination
   @requiresInitialization
-  public async registerDownloadClient(clientConfig: { name: string, baseUrl: string, username: string, password: string, category: string }): Promise<number> {
-    const url = new URL(clientConfig.baseUrl)
+  public async registerDownloadClient(clientConfig: { name: string, internalUrl: string, username: string, password: string, category: string }): Promise<number> {
+    const url = new URL(clientConfig.internalUrl)
     const host = url.hostname
     const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80)
     const useSsl = url.protocol === 'https:'

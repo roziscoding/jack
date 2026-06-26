@@ -4,7 +4,7 @@ import type { ConnectorManager } from '../../lib/servers'
 import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
-import { PeerConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
+import { JackConfig, PeerConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
@@ -76,6 +76,18 @@ export class ConfigService {
     if (!entry)
       return undefined
     return { apiKey: entry.apiKey, headers: entry.headers ?? {} }
+  }
+
+  /**
+   * Persisted, refs-intact jack config for the management edit form, or null when
+   * unset. Re-parsing through RawJackConfig keeps `{env}`/`{file}` refs unresolved
+   * and drops an absent apiKey (no `apiKey` key) instead of emitting `undefined`.
+   */
+  getRawJack(): RawJackConfig | null {
+    const jack = this.raw.jack
+    if (!jack)
+      return null
+    return RawJackConfig.parse(jack)
   }
 
   private indexById(entries: RawEntry[], id: string): number {
@@ -235,5 +247,23 @@ export class ConfigService {
     const resolved = ServerConfig.parse(input)
     const rawServer = RawServerConfig.parse(input)
     return this.updateEntry('servers', 'server', id, resolved, rawServer, () => this.connectorManager.addServerConnector(resolved, { rethrowInitError: true }))
+  }
+
+  // ── Jack ───────────────────────────────────────────────────────────────────
+  // jack is a singular object (not an array slice), so it bypasses the generic
+  // CRUD helpers. Its values are captured at boot (main key / qB / torznab /
+  // *arr autoregister), so there is NO live connector to reconcile — persisting
+  // the new block is the whole job; it takes effect on the next restart.
+  async updateJack(input: unknown): Promise<void> {
+    // Validate + resolve secrets up front (bad shape / unresolvable ref → 400
+    // before any write, mirroring addPeer); persist the ref-preserving
+    // RawJackConfig parse so {env}/{file} refs survive the round-trip to disk.
+    JackConfig.parse(input)
+    const rawJack = RawJackConfig.parse(input)
+    return this.enqueue(async () => {
+      const next = { ...this.raw, jack: rawJack } as RawConfig
+      await this.persist(next)
+      this.raw = next
+    })
   }
 }

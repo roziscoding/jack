@@ -150,11 +150,23 @@ export const RawPeerConfig = z.object({
 export type RawPeerConfig = z.infer<typeof RawPeerConfig>
 
 export const JackConfig = z.object({
-  baseUrl: z.url(),
-  apiKey: ConfigSecret(),
+  internalUrl: z.url(),
+  // The single "Main API key" (deprecated). Optional: a jack block can carry
+  // only an internalUrl, in which case the public API authenticates via generated
+  // keys (see require-auth.ts), not this key.
+  apiKey: ConfigSecret().optional(),
 })
 
 export type JackConfig = z.infer<typeof JackConfig>
+
+// Raw jack for persistence: preserve {env}/{file} secret refs and the optional
+// apiKey, mirroring RawPeerConfig/RawServerConfig.
+export const RawJackConfig = z.object({
+  internalUrl: z.url(),
+  apiKey: RawConfigSecret.optional(),
+})
+
+export type RawJackConfig = z.infer<typeof RawJackConfig>
 
 export const DownloadsConfig = z.object({
   completedPath: z.string().min(1),
@@ -172,7 +184,7 @@ export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 
 export const AppConfig = z.object({
   version: z.number(),
-  jack: JackConfig.optional(),
+  jack: JackConfig,
   downloads: DownloadsConfig.optional(),
   servers: z.array(ServerConfig).default([]),
   peers: z.array(PeerConfig).default([]),
@@ -182,6 +194,15 @@ export type AppConfig = z.infer<typeof AppConfig>
 
 export const MIGRATIONS = [
   <T extends object>(obj: T): T & { version: number } => ({ ...obj, version: 1 }),
+  // v2: rename jack.baseUrl → jack.internalUrl (an external URL will be added later).
+  <T extends object>(obj: T): T & { version: number } => {
+    const cfg = obj as T & { jack?: Record<string, unknown> }
+    if (cfg.jack && 'baseUrl' in cfg.jack) {
+      const { baseUrl, ...rest } = cfg.jack
+      return { ...obj, jack: { ...rest, internalUrl: baseUrl }, version: 2 } as T & { version: number }
+    }
+    return { ...obj, version: 2 } as T & { version: number }
+  },
 ]
 const LATEST_MIGRATION = MIGRATIONS.length
 
@@ -208,7 +229,7 @@ export function migrateConfig(rawConfigObject: unknown) {
 const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
   version: MIGRATIONS.length,
   jack: {
-    baseUrl: 'http://jack:5225',
+    internalUrl: 'http://jack:5225',
     apiKey: { env: 'JACK_API_KEY' },
   },
   servers: [],
@@ -217,6 +238,9 @@ const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
 
 const EMPTY_APP_CONFIG: AppConfig = {
   version: MIGRATIONS.length,
+  // jack is required; the resolved fallback carries only an internalUrl (no master key —
+  // auto-registration provisions its own managed keys).
+  jack: { internalUrl: 'http://jack:5225' },
   servers: [],
   peers: [],
 }

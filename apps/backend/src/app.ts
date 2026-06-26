@@ -4,6 +4,7 @@ import type { ConnectorManager } from './lib/servers'
 import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
+import type { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
@@ -30,6 +31,7 @@ interface AppServices {
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
   apiKeysRepository?: ApiKeysRepository
+  managedKeysRepository?: ManagedKeysRepository
 }
 
 // Only the live `servers`/`peers` getters are used here, so accept the structural
@@ -85,18 +87,20 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   // qBittorrent WebUI API -- Radarr/Sonarr poll us as a download client. Mounted
   // BEFORE requireApiKey because qB uses its own SID-cookie auth
   // (/api/v2/auth/login), not jack's apikey query/header.
-  if (config.jack && config.downloads && services.downloadsRepository) {
+  if (config.downloads && services.downloadsRepository) {
     const qbController = new QbittorrentController({
-      apiKey: config.jack.apiKey,
+      apiKey: config.jack.apiKey ?? '',
       completedPath: config.downloads.completedPath,
       get servers() { return connManager.servers },
       repository: services.downloadsRepository,
       downloadsService: services.downloadsService,
+      apiKeysRepository: services.apiKeysRepository,
+      managedKeysRepository: services.managedKeysRepository,
     })
     app.route('/api/v2', getQbittorrentRouter(qbController))
   }
 
-  app.use('*', requireApiKey(config.jack?.apiKey ?? '', services.apiKeysRepository))
+  app.use('*', requireApiKey(config.jack.apiKey ?? '', services.apiKeysRepository, services.managedKeysRepository))
 
   app.route('/servers', serversRouter)
   app.route('/items', itemsRouter)
@@ -104,27 +108,23 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   if (downloadsRouter)
     app.route('/downloads', downloadsRouter)
 
-  if (config.jack) {
-    const jackConfig = config.jack
+  const torznabController = new TorznabController(() => connManager.peers, config.jack)
+  const torznabRouter = getTorznabRouter(torznabController)
+  const downloadRouter = getDownloadRouter(() => connManager.peers)
 
-    const torznabController = new TorznabController(() => connManager.peers, jackConfig)
-    const torznabRouter = getTorznabRouter(torznabController)
-    const downloadRouter = getDownloadRouter(() => connManager.peers)
+  // Peer handshake — other Jacks probe this at init to read our identity and
+  // protocol version, then check it against their minimum compatible version.
+  // Authenticated (mounted after requireApiKey) so a bad API key still fails
+  // loudly at connect time, unlike the unauthenticated /ping health check.
+  app.get('/handshake', c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
 
-    // Peer handshake — other Jacks probe this at init to read our identity and
-    // protocol version, then check it against their minimum compatible version.
-    // Authenticated (mounted after requireApiKey) so a bad API key still fails
-    // loudly at connect time, unlike the unauthenticated /ping health check.
-    app.get('/handshake', c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
+  // Peer API — other Jacks talk to us. Serves empty results
+  // when there's no local source to read from.
+  app.route('/peer', peerRouter)
 
-    // Peer API — other Jacks talk to us. Serves empty results
-    // when there's no local source to read from.
-    app.route('/peer', peerRouter)
-
-    // Torznab API — Radarr/Sonarr search through us. Returns empty results when there are no peers to fan out to.
-    app.route('/torznab', torznabRouter)
-    app.route('/torznab', downloadRouter)
-  }
+  // Torznab API — Radarr/Sonarr search through us. Returns empty results when there are no peers to fan out to.
+  app.route('/torznab', torznabRouter)
+  app.route('/torznab', downloadRouter)
 
   app.onError(handleError(envs.ENVIRONMENT))
 

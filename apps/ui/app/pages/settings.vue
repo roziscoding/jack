@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ApiKey, ApiKeyInput, CreatedApiKey } from '~/types/management'
+import type { ApiKey, ApiKeyInput, CreatedApiKey, JackConfig } from '~/types/management'
 
 const { request, extractError } = useManagement()
 
@@ -7,6 +7,34 @@ const { data, pending, error, refresh } = await useAsyncData('api-keys', () =>
   request<ApiKey[]>('api-keys'))
 
 const keys = computed(() => data.value ?? [])
+
+// Jack config (config.jack). Separate async key from the api-keys load above.
+// Surface pending/error so a failed GET never renders a blank form a user could
+// accidentally save over (mirrors the api-keys load states below).
+const { data: jack, pending: jackPending, error: jackLoadError, refresh: refreshJack }
+  = await useAsyncData('jack-config', () => request<JackConfig | null>('config/jack'))
+
+const jackSubmitting = ref(false)
+const jackError = ref<string | null>(null)
+const jackSaved = ref(false)
+
+async function saveJack(input: JackConfig) {
+  jackSubmitting.value = true
+  jackError.value = null
+  jackSaved.value = false
+  try {
+    await request('config/jack', { method: 'PATCH', body: input })
+    await refreshJack()
+    // jack values are captured at boot, so the change lands on next restart.
+    jackSaved.value = true
+  }
+  catch (err) {
+    jackError.value = extractError(err, 'Could not save the Jack config.')
+  }
+  finally {
+    jackSubmitting.value = false
+  }
+}
 
 const showForm = ref(false)
 const editTarget = ref<ApiKey | null>(null)
@@ -113,6 +141,37 @@ async function confirmRevoke() {
 <template>
   <div>
     <PageHeader title="Settings" subtitle="Configure this Jack instance." />
+
+    <section class="mb-10">
+      <div class="mb-3">
+        <h2 class="text-sm font-medium text-slate-200">
+          Jack
+        </h2>
+      </div>
+
+      <div v-if="jackLoadError" class="rounded-xl border border-rose-900/60 bg-rose-950/30 p-4 text-sm text-rose-200">
+        Failed to load the Jack config.
+      </div>
+
+      <div v-else-if="jackPending" class="text-sm text-slate-500">
+        Loading…
+      </div>
+
+      <div v-else class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+        <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed their
+             once-initialized local state from the resolved data, not a blank/null. -->
+        <JackConfigForm
+          :key="jack?.internalUrl ?? 'empty'"
+          :initial="jack"
+          :submitting="jackSubmitting"
+          :error="jackError"
+          @submit="saveJack"
+        />
+        <p v-if="jackSaved" class="mt-3 text-xs text-emerald-300">
+          Saved. Restart the server for the change to take effect.
+        </p>
+      </div>
+    </section>
 
     <section>
       <div class="mb-3 flex items-end justify-between gap-4">
