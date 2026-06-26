@@ -1,5 +1,6 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
+import type { TmdbClient } from '../../lib/tmdb/client'
 import type { CatalogTitle } from './catalog.lib'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { groupReleasesIntoTitles } from './catalog.lib'
@@ -9,9 +10,16 @@ export interface PeerCatalogResponse {
   titles: CatalogTitle[]
 }
 
+export interface TmdbStatus {
+  configured: boolean
+  ok: boolean
+  error?: string
+}
+
 export class CatalogController {
   constructor(
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
+    private readonly tmdb?: TmdbClient,
   ) {}
 
   private requirePeer(peerId: string): PeerConnector {
@@ -27,6 +35,17 @@ export class CatalogController {
     return {
       peer: { id: peer.id, name: peer.name },
       titles: groupReleasesIntoTitles(releases),
+    }
+  }
+
+  async getTmdbStatus(): Promise<TmdbStatus> {
+    if (!this.tmdb)
+      return { configured: false, ok: false }
+    try {
+      return { configured: true, ok: await this.tmdb.ping() }
+    }
+    catch (err) {
+      return { configured: true, ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   }
 }

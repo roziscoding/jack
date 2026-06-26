@@ -4,6 +4,7 @@ import type { ConfigService } from './modules/config/config.service'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
+import { TmdbClient } from './lib/tmdb/client'
 import { handleError } from './middleware/handle-error'
 import { requireManagementKey } from './middleware/require-management-key'
 import { ApiKeysController } from './modules/api-keys/api-keys.controller'
@@ -23,6 +24,7 @@ export function getManagementApp(params: {
   configService?: ConfigService
   downloadsRepository?: DownloadsRepository
   apiKeysRepository?: ApiKeysRepository
+  tmdbApiKey?: string
 }) {
   const app = new Hono()
 
@@ -40,7 +42,8 @@ export function getManagementApp(params: {
   const statusController = new StatusController(params.connectors, params.downloadsRepository)
   app.route('/', getStatusRouter(statusController))
 
-  const catalogController = new CatalogController(params.connectors)
+  const tmdbClient = params.tmdbApiKey ? new TmdbClient(params.tmdbApiKey) : undefined
+  const catalogController = new CatalogController(params.connectors, tmdbClient)
   app.route('/catalog', getCatalogRouter(catalogController))
 
   if (params.apiKeysRepository) {

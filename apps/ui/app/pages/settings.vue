@@ -15,6 +15,11 @@ const keys = computed(() => data.value ?? [])
 const { data: jack, pending: jackPending, error: jackLoadError, refresh: refreshJack }
   = await useAsyncData('jack-config', () => request<JackConfig | null>('config/jack'))
 
+// Whether the running TMDB key authenticates — surfaced beside the key field so a
+// saved key can be confirmed at a glance.
+const { data: tmdbStatus } = await useAsyncData('tmdb-status', () =>
+  request<{ configured: boolean, ok: boolean }>('catalog/tmdb/status'))
+
 const jackSubmitting = ref(false)
 const jackError = ref<string | null>(null)
 const jackSaved = ref(false)
@@ -191,6 +196,20 @@ async function confirmRevoke() {
               icon="i-ph-check-circle"
               title="Saved. Restart the server for the change to take effect."
             />
+            <p class="flex items-center gap-2 text-xs">
+              <template v-if="tmdbStatus?.ok">
+                <UIcon name="i-ph-check-circle" class="size-4 text-success" />
+                <span class="text-muted">TMDB connected.</span>
+              </template>
+              <template v-else-if="tmdbStatus?.configured">
+                <UIcon name="i-ph-warning" class="size-4 text-warning" />
+                <span class="text-muted">TMDB key set but not authenticating.</span>
+              </template>
+              <template v-else>
+                <UIcon name="i-ph-info" class="size-4 text-dimmed" />
+                <span class="text-muted">TMDB not configured — peer catalogs show names only.</span>
+              </template>
+            </p>
           </UCard>
         </SettingsSection>
 

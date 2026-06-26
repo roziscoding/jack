@@ -120,3 +120,40 @@ describe('catalogController', () => {
     expect(controller.getPeerCatalog('missing')).rejects.toBeInstanceOf(NotFoundError)
   })
 })
+
+describe('catalogController.getTmdbStatus', () => {
+  function makeConnectors() {
+    return { servers: [], peers: [] }
+  }
+
+  test('reports not configured when no tmdb client is supplied', async () => {
+    const controller = new CatalogController(makeConnectors() as any)
+
+    expect(await controller.getTmdbStatus()).toEqual({ configured: false, ok: false })
+  })
+
+  test('reports ok when the client ping resolves true', async () => {
+    const tmdb = { ping: async () => true }
+    const controller = new CatalogController(makeConnectors() as any, tmdb as any)
+
+    expect(await controller.getTmdbStatus()).toEqual({ configured: true, ok: true })
+  })
+
+  test('reports configured but not ok when the client ping resolves false', async () => {
+    const tmdb = { ping: async () => false }
+    const controller = new CatalogController(makeConnectors() as any, tmdb as any)
+
+    expect(await controller.getTmdbStatus()).toEqual({ configured: true, ok: false })
+  })
+
+  test('reports the error message when the client ping throws', async () => {
+    const tmdb = {
+      ping: async () => {
+        throw new Error('boom')
+      },
+    }
+    const controller = new CatalogController(makeConnectors() as any, tmdb as any)
+
+    expect(await controller.getTmdbStatus()).toEqual({ configured: true, ok: false, error: 'boom' })
+  })
+})

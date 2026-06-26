@@ -101,6 +101,7 @@ export interface ServerInput {
 export interface JackConfig {
   internalUrl: string
   apiKey?: SecretRef | null
+  tmdbApiKey?: SecretRef | null
 }
 
 export interface ApiKey {
