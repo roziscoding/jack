@@ -95,13 +95,13 @@ const columns: TableColumn<DownloadItem>[] = [
           <UButton
             v-for="chip in chips"
             :key="chip.key"
-            :color="filter === chip.key ? chip.color : 'neutral'"
+            :color="chip.color"
             :variant="filter === chip.key ? 'subtle' : 'ghost'"
             size="sm"
             @click="filter = chip.key"
           >
             {{ chip.label }}
-            <UBadge :color="filter === chip.key ? chip.color : 'neutral'" variant="solid" size="sm">
+            <UBadge :color="chip.color" :variant="filter === chip.key ? 'solid' : 'soft'" size="sm">
               {{ counts[chip.key] }}
             </UBadge>
           </UButton>
