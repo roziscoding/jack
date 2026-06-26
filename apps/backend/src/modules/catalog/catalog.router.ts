@@ -11,6 +11,9 @@ export function getCatalogRouter(controller: CatalogController) {
   // Register the static path before `/:peerId` so "tmdb" isn't captured as a peerId.
   app.get('/tmdb/status', async c => c.json(await controller.getTmdbStatus()))
 
+  // Register before `/:peerId` so "request-options" isn't captured as a peerId.
+  app.get('/request-options', async c => c.json({ servers: await controller.getRequestOptions() }))
+
   app.get('/:peerId', zValidator('param', peerParam), async (c) => {
     const { peerId } = c.req.valid('param')
     return c.json(await controller.getPeerCatalog(peerId))

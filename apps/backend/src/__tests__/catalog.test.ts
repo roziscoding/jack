@@ -239,6 +239,88 @@ describe('catalogController enrichment', () => {
   })
 })
 
+describe('catalogController.getRequestOptions', () => {
+  function fakeServer(overrides: Partial<{
+    id: string
+    name: string
+    type: 'radarr' | 'sonarr'
+    canDestination: boolean
+    isInitialized: boolean
+    getQualityProfiles: () => Promise<Array<{ id: number, name: string }>>
+    getRootFolders: () => Promise<Array<{ path: string, freeSpace?: number }>>
+  }> = {}) {
+    return {
+      id: 'radarr-1',
+      name: 'Radarr',
+      type: 'radarr',
+      canDestination: true,
+      isInitialized: true,
+      getQualityProfiles: async () => [{ id: 1, name: 'HD-1080p' }],
+      getRootFolders: async () => [{ path: '/movies', freeSpace: 1000 }],
+      ...overrides,
+    }
+  }
+
+  function makeConnectors(servers: any[]) {
+    return { servers, peers: [] }
+  }
+
+  test('returns only initialized destinations and tags movies with mediaType "movie"', async () => {
+    const radarr = fakeServer({ id: 'radarr-1', name: 'My Radarr', type: 'radarr' })
+    const sonarrSourceOnly = fakeServer({ id: 'sonarr-1', name: 'Source Sonarr', type: 'sonarr', canDestination: false })
+    const controller = new CatalogController(makeConnectors([radarr, sonarrSourceOnly]) as any)
+
+    const options = await controller.getRequestOptions()
+
+    expect(options).toHaveLength(1)
+    expect(options[0]!.id).toBe('radarr-1')
+    expect(options[0]!.name).toBe('My Radarr')
+    expect(options[0]!.type).toBe('radarr')
+    expect(options[0]!.mediaType).toBe('movie')
+    expect(options[0]!.qualityProfiles).toEqual([{ id: 1, name: 'HD-1080p' }])
+    expect(options[0]!.rootFolders).toEqual([{ path: '/movies', freeSpace: 1000 }])
+  })
+
+  test('tags a destination Sonarr with mediaType "tv"', async () => {
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      getRootFolders: async () => [{ path: '/tv' }],
+    })
+    const controller = new CatalogController(makeConnectors([sonarr]) as any)
+
+    const options = await controller.getRequestOptions()
+
+    expect(options).toHaveLength(1)
+    expect(options[0]!.mediaType).toBe('tv')
+  })
+
+  test('excludes destinations that are not initialized', async () => {
+    const radarr = fakeServer({ isInitialized: false })
+    const controller = new CatalogController(makeConnectors([radarr]) as any)
+
+    expect(await controller.getRequestOptions()).toEqual([])
+  })
+
+  test('skips a destination whose getQualityProfiles rejects but keeps others', async () => {
+    const broken = fakeServer({
+      id: 'radarr-broken',
+      name: 'Broken Radarr',
+      getQualityProfiles: async () => {
+        throw new Error('unreachable')
+      },
+    })
+    const healthy = fakeServer({ id: 'radarr-ok', name: 'Healthy Radarr' })
+    const controller = new CatalogController(makeConnectors([broken, healthy]) as any)
+
+    const options = await controller.getRequestOptions()
+
+    expect(options).toHaveLength(1)
+    expect(options[0]!.id).toBe('radarr-ok')
+  })
+})
+
 describe('catalogController.getTmdbStatus', () => {
   function makeConnectors() {
     return { servers: [], peers: [] }

@@ -171,6 +171,24 @@ export abstract class ArrServerConnector extends ServerConnector {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
   }
 
+  @requiresDestination
+  @requiresInitialization
+  async getQualityProfiles(): Promise<Array<{ id: number, name: string }>> {
+    const profiles = await this.arrGet<Array<{ id: number, name: string }>>('/api/v3/qualityprofile')
+    return (Array.isArray(profiles) ? profiles : [])
+      .filter(p => p.id != null && p.name != null)
+      .map(p => ({ id: p.id, name: p.name }))
+  }
+
+  @requiresDestination
+  @requiresInitialization
+  async getRootFolders(): Promise<Array<{ path: string, freeSpace?: number }>> {
+    const folders = await this.arrGet<Array<{ path: string, freeSpace?: number }>>('/api/v3/rootfolder')
+    return (Array.isArray(folders) ? folders : [])
+      .filter(f => typeof f.path === 'string')
+      .map(f => ({ path: f.path, freeSpace: f.freeSpace }))
+  }
+
   /**
    * Lowercased torrent infohashes (`downloadId`s) that this *arr has finished
    * importing recently, read from its history. The import watcher matches these

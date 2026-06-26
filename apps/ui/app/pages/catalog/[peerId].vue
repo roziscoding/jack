@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CatalogTitle, PeerCatalogResponse } from '~/types/management'
+import type { CatalogRequestPayload, CatalogTitle, PeerCatalogResponse } from '~/types/management'
 
 const route = useRoute()
 const peerId = computed(() => String(route.params.peerId))
@@ -19,6 +19,19 @@ const titles = computed(() => {
 })
 
 const selected = ref<CatalogTitle | null>(null)
+
+const requestOpen = ref(false)
+const requestTitle = ref<CatalogTitle | null>(null)
+
+function openRequest() {
+  requestTitle.value = selected.value
+  requestOpen.value = true
+}
+
+// Phase 5 replaces this with the POST to catalog/request.
+function onConfirm(_payload: CatalogRequestPayload) {
+  requestOpen.value = false
+}
 </script>
 
 <template>
@@ -75,7 +88,9 @@ const selected = ref<CatalogTitle | null>(null)
     @update:open="(open) => { if (!open) selected = null }"
   >
     <template #body>
-      <CatalogTitleDetail v-if="selected" :title="selected" />
+      <CatalogTitleDetail v-if="selected" :title="selected" @download="openRequest" />
     </template>
   </USlideover>
+
+  <DownloadRequestModal v-model:open="requestOpen" :title="requestTitle" @confirm="onConfirm" />
 </template>

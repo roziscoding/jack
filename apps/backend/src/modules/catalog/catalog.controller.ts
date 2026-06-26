@@ -18,6 +18,15 @@ export interface TmdbStatus {
   error?: string
 }
 
+export interface RequestServerOption {
+  id: string
+  name: string
+  type: 'radarr' | 'sonarr'
+  mediaType: 'movie' | 'tv'
+  qualityProfiles: Array<{ id: number, name: string }>
+  rootFolders: Array<{ path: string, freeSpace?: number }>
+}
+
 export class CatalogController {
   constructor(
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
@@ -57,6 +66,29 @@ export class CatalogController {
         return title
       }
     })
+  }
+
+  async getRequestOptions(): Promise<RequestServerOption[]> {
+    const destinations = this.connectors.servers.filter(s => s.canDestination && s.isInitialized)
+    const options = await Promise.all(destinations.map(async (s) => {
+      try {
+        const [qualityProfiles, rootFolders] = await Promise.all([s.getQualityProfiles(), s.getRootFolders()])
+        const type = s.type as 'radarr' | 'sonarr'
+        return {
+          id: s.id,
+          name: s.name,
+          type,
+          mediaType: type === 'sonarr' ? 'tv' : 'movie',
+          qualityProfiles,
+          rootFolders,
+        } satisfies RequestServerOption
+      }
+      catch {
+        // A destination that can't list its profiles can't take a request — drop it.
+        return null
+      }
+    }))
+    return options.filter((o): o is RequestServerOption => o !== null)
   }
 
   async getTmdbStatus(): Promise<TmdbStatus> {

@@ -73,6 +73,21 @@ export interface PeerCatalogResponse {
   titles: CatalogTitle[]
 }
 
+export interface RequestServerOption {
+  id: string
+  name: string
+  type: 'radarr' | 'sonarr'
+  mediaType: 'movie' | 'tv'
+  qualityProfiles: Array<{ id: number, name: string }>
+  rootFolders: Array<{ path: string, freeSpace?: number }>
+}
+
+export interface CatalogRequestPayload {
+  serverId: string
+  qualityProfileId: number
+  rootFolderPath: string
+}
+
 export interface Overview {
   peers: { total: number, initialized: number, items: PeerItem[] }
   servers: { total: number, initialized: number, sources: number, destinations: number, items: OverviewServerItem[] }

@@ -2,9 +2,13 @@
 import type { CatalogTitle } from '~/types/management'
 
 const props = defineProps<{ title: CatalogTitle }>()
+const emit = defineEmits<{ download: [] }>()
 
 const name = computed(() => props.title.metadata?.title ?? props.title.displayTitle)
 const meta = computed(() => props.title.metadata ?? null)
+const canRequest = computed(() => props.title.mediaType === 'tv'
+  ? props.title.tvdbId != null
+  : props.title.tmdbId != null)
 </script>
 
 <template>
@@ -39,6 +43,14 @@ const meta = computed(() => props.title.metadata ?? null)
       {{ title.releaseCount }} release{{ title.releaseCount === 1 ? '' : 's' }} on this peer · {{ formatBytes(title.totalSize) }}
     </p>
 
-    <!-- Phase 5 inserts the Download button here. -->
+    <UTooltip :disabled="canRequest" text="This title has no matching id to request">
+      <UButton
+        label="Download"
+        icon="i-ph-download-simple"
+        :disabled="!canRequest"
+        block
+        @click="emit('download')"
+      />
+    </UTooltip>
   </div>
 </template>
