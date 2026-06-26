@@ -3,6 +3,18 @@ export default defineAppConfig({
     colors: {
       primary: 'indigo',
     },
+    // 32px side gutters on every page instead of the default 16/24px, so content
+    // has breathing room without stretching flush to the edges.
+    dashboardNavbar: {
+      slots: {
+        root: 'px-8 sm:px-8',
+      },
+    },
+    dashboardPanel: {
+      slots: {
+        body: 'px-8 sm:px-8',
+      },
+    },
     icons: {
       arrowDown: 'i-ph-arrow-down',
       arrowLeft: 'i-ph-arrow-left',
