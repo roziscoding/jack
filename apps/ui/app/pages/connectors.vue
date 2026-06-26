@@ -8,8 +8,8 @@
   <UDashboardPanel id="connectors">
     <template #header>
       <UDashboardNavbar title="Connectors">
-        <template #leading>
-          <UDashboardSidebarCollapse />
+        <template #trailing>
+          <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" />
         </template>
       </UDashboardNavbar>
     </template>

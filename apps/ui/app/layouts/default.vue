@@ -25,8 +25,8 @@ async function onLogout() {
 </script>
 
 <template>
-  <UDashboardGroup>
-    <UDashboardSidebar collapsible resizable :min-size="13" :default-size="16" :max-size="22">
+  <UDashboardGroup unit="rem" storage-key="jack-dashboard">
+    <UDashboardSidebar collapsible :default-size="13">
       <template #header="{ collapsed }">
         <NuxtLink to="/" class="flex items-center gap-2.5">
           <UIcon name="i-ph-plugs-connected" class="size-6 text-primary" />
