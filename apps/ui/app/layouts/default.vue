@@ -30,10 +30,7 @@ async function onLogout() {
       <template #header="{ collapsed }">
         <NuxtLink v-if="!collapsed" to="/" class="flex min-w-0 items-center gap-2.5">
           <UIcon name="i-ph-plugs-connected" class="size-6 shrink-0 text-primary" />
-          <span class="flex min-w-0 flex-col leading-tight">
-            <span class="truncate text-base font-semibold tracking-tight text-highlighted">jack</span>
-            <span class="truncate text-xs text-muted">management console</span>
-          </span>
+          <span class="truncate text-base font-semibold tracking-tight text-highlighted">jack</span>
         </NuxtLink>
         <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" :class="collapsed ? 'mx-auto' : 'ms-auto'" />
       </template>
