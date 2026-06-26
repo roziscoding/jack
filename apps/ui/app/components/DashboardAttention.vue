@@ -33,12 +33,12 @@ const issueCount = computed(() =>
   + (mismatchCount.value ? 1 : 0))
 const hasIssues = computed(() => issueCount.value > 0)
 
-const collapsed = ref(false)
+const open = ref(true)
 onMounted(() => {
-  collapsed.value = localStorage.getItem(STORAGE_KEY) === '1'
+  open.value = localStorage.getItem(STORAGE_KEY) !== '1'
 })
-watch(collapsed, (v) => {
-  localStorage.setItem(STORAGE_KEY, v ? '1' : '0')
+watch(open, (v) => {
+  localStorage.setItem(STORAGE_KEY, v ? '0' : '1')
 })
 
 function plural(n: number, word: string) {
@@ -48,122 +48,113 @@ function plural(n: number, word: string) {
 
 <template>
   <!-- All clear: one calm line, nothing to collapse. -->
-  <div
+  <UAlert
     v-if="!hasIssues"
-    class="flex items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-300"
-  >
-    <span class="text-emerald-400">✓</span>
-    Everything's connected and nothing's failing.
-  </div>
+    color="success"
+    variant="soft"
+    icon="i-ph-check-circle"
+    title="Everything's connected and nothing's failing."
+  />
 
   <!-- Something needs doing. -->
-  <div v-else class="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
-    <button
-      type="button"
-      class="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-slate-800/30"
-      :aria-expanded="!collapsed"
-      aria-controls="attention-body"
-      @click="collapsed = !collapsed"
-    >
-      <span
-        class="text-xs text-slate-500 transition-transform"
-        :class="collapsed ? '-rotate-90' : ''"
-      >▾</span>
-      <span class="text-sm font-semibold text-slate-200">Needs attention</span>
-      <span class="ml-auto rounded-full border border-rose-900/50 bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-300">
-        {{ plural(issueCount, 'issue') }}
-      </span>
-    </button>
+  <UCard v-else variant="subtle" :ui="{ body: '!p-0' }">
+    <UCollapsible v-model:open="open" :ui="{ root: 'group' }">
+      <button type="button" class="flex w-full items-center gap-3 px-4 py-3.5 text-left">
+        <UIcon name="i-ph-caret-down" class="size-4 text-muted transition-transform group-data-[state=closed]:-rotate-90" />
+        <span class="text-sm font-semibold text-highlighted">Needs attention</span>
+        <UBadge class="ml-auto" color="error" variant="subtle" :label="plural(issueCount, 'issue')" />
+      </button>
 
-    <div v-show="!collapsed" id="attention-body" class="divide-y divide-slate-800/60 border-t border-slate-800">
-      <!-- Unreachable peers -->
-      <div v-for="peer in unreachablePeers" :key="`peer-${peer.id}`" class="flex gap-3 px-4 py-3">
-        <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
-        <p class="min-w-0 text-sm text-slate-200">
-          <span class="font-semibold">{{ peer.name }}</span> peer unreachable<template v-if="peer.initializationError">
-            — <span class="font-mono text-xs text-rose-300">{{ peer.initializationError }}</span>
-          </template>
-        </p>
-      </div>
+      <template #content>
+        <div class="divide-y divide-default border-t border-default">
+          <!-- Unreachable peers -->
+          <div v-for="peer in unreachablePeers" :key="`peer-${peer.id}`" class="flex gap-3 px-4 py-3">
+            <UIcon name="i-ph-warning-circle" class="mt-0.5 size-4 shrink-0 text-error" />
+            <p class="min-w-0 text-sm text-default">
+              <span class="font-semibold">{{ peer.name }}</span> peer unreachable<template v-if="peer.initializationError">
+                — <span class="font-mono text-xs text-error">{{ peer.initializationError }}</span>
+              </template>
+            </p>
+          </div>
 
-      <!-- Unreachable servers -->
-      <div v-for="server in unreachableServers" :key="`server-${server.id}`" class="flex gap-3 px-4 py-3">
-        <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
-        <p class="min-w-0 text-sm text-slate-200">
-          <span class="font-semibold">{{ server.name }}</span> server unreachable<template v-if="server.initializationError">
-            — <span class="font-mono text-xs text-rose-300">{{ server.initializationError }}</span>
-          </template>
-        </p>
-      </div>
+          <!-- Unreachable servers -->
+          <div v-for="server in unreachableServers" :key="`server-${server.id}`" class="flex gap-3 px-4 py-3">
+            <UIcon name="i-ph-warning-circle" class="mt-0.5 size-4 shrink-0 text-error" />
+            <p class="min-w-0 text-sm text-default">
+              <span class="font-semibold">{{ server.name }}</span> server unreachable<template v-if="server.initializationError">
+                — <span class="font-mono text-xs text-error">{{ server.initializationError }}</span>
+              </template>
+            </p>
+          </div>
 
-      <!-- Stuck imports -->
-      <div v-if="queuedCount" class="flex gap-3 px-4 py-3">
-        <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-        <div class="min-w-0">
-          <p class="text-sm text-slate-200">
-            {{ plural(queuedCount, 'download') }} waiting for *arr to import
-          </p>
-          <p
-            v-for="d in stuckImports.slice(0, PREVIEW)"
-            :key="d.id"
-            class="mt-1 truncate text-xs text-slate-500"
-            :title="d.filename"
-          >
-            <span class="text-slate-400">{{ d.filename }}</span>
-            · from {{ d.peerName }}
-            · waiting {{ formatAgo(d.completedAt ?? d.updatedAt) }}
-          </p>
-          <p v-if="queuedCount > PREVIEW" class="mt-1 text-xs text-slate-600">
-            and {{ queuedCount - PREVIEW }} more
-          </p>
+          <!-- Stuck imports -->
+          <div v-if="queuedCount" class="flex gap-3 px-4 py-3">
+            <UIcon name="i-ph-clock-countdown" class="mt-0.5 size-4 shrink-0 text-warning" />
+            <div class="min-w-0">
+              <p class="text-sm text-default">
+                {{ plural(queuedCount, 'download') }} waiting for *arr to import
+              </p>
+              <p
+                v-for="d in stuckImports.slice(0, PREVIEW)"
+                :key="d.id"
+                class="mt-1 truncate text-xs text-muted"
+                :title="d.filename"
+              >
+                <span class="text-toned">{{ d.filename }}</span>
+                · from {{ d.peerName }}
+                · waiting {{ formatAgo(d.completedAt ?? d.updatedAt) }}
+              </p>
+              <p v-if="queuedCount > PREVIEW" class="mt-1 text-xs text-dimmed">
+                and {{ queuedCount - PREVIEW }} more
+              </p>
+            </div>
+          </div>
+
+          <!-- Failed downloads -->
+          <div v-if="failedCount" class="flex items-start gap-3 px-4 py-3">
+            <UIcon name="i-ph-x-circle" class="mt-0.5 size-4 shrink-0 text-error" />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm text-default">
+                {{ plural(failedCount, 'download') }} failed
+              </p>
+              <p
+                v-for="d in failed.slice(0, PREVIEW)"
+                :key="d.id"
+                class="mt-1 truncate text-xs text-muted"
+                :title="d.error ?? undefined"
+              >
+                <span class="text-toned">{{ d.filename }}</span>
+                · {{ d.error ?? 'unknown error' }}
+              </p>
+              <p v-if="failedCount > PREVIEW" class="mt-1 text-xs text-dimmed">
+                and {{ failedCount - PREVIEW }} more
+              </p>
+            </div>
+            <UButton to="/downloads" label="View downloads" trailing-icon="i-ph-arrow-right" variant="link" size="sm" class="shrink-0" />
+          </div>
+
+          <!-- Size mismatches -->
+          <div v-if="mismatchCount" class="flex gap-3 px-4 py-3">
+            <UIcon name="i-ph-warning" class="mt-0.5 size-4 shrink-0 text-warning" />
+            <div class="min-w-0">
+              <p class="text-sm text-default">
+                {{ plural(mismatchCount, 'transfer') }} {{ mismatchCount === 1 ? 'reports' : 'report' }} a size mismatch
+              </p>
+              <p
+                v-for="d in mismatches.slice(0, PREVIEW)"
+                :key="d.id"
+                class="mt-1 truncate text-xs text-muted"
+                :title="d.filename"
+              >
+                <span class="text-toned">{{ d.filename }}</span> · from {{ d.peerName }}
+              </p>
+              <p v-if="mismatchCount > PREVIEW" class="mt-1 text-xs text-dimmed">
+                and {{ mismatchCount - PREVIEW }} more
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <!-- Failed downloads -->
-      <div v-if="failedCount" class="flex items-start gap-3 px-4 py-3">
-        <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm text-slate-200">
-            {{ plural(failedCount, 'download') }} failed
-          </p>
-          <p
-            v-for="d in failed.slice(0, PREVIEW)"
-            :key="d.id"
-            class="mt-1 truncate text-xs text-slate-500"
-            :title="d.error ?? undefined"
-          >
-            <span class="text-slate-400">{{ d.filename }}</span>
-            · {{ d.error ?? 'unknown error' }}
-          </p>
-          <p v-if="failedCount > PREVIEW" class="mt-1 text-xs text-slate-600">
-            and {{ failedCount - PREVIEW }} more
-          </p>
-        </div>
-        <NuxtLink to="/downloads" class="shrink-0 text-sm text-brand-400 hover:text-brand-300">
-          View downloads →
-        </NuxtLink>
-      </div>
-
-      <!-- Size mismatches -->
-      <div v-if="mismatchCount" class="flex gap-3 px-4 py-3">
-        <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-        <div class="min-w-0">
-          <p class="text-sm text-slate-200">
-            {{ plural(mismatchCount, 'transfer') }} {{ mismatchCount === 1 ? 'reports' : 'report' }} a size mismatch
-          </p>
-          <p
-            v-for="d in mismatches.slice(0, PREVIEW)"
-            :key="d.id"
-            class="mt-1 truncate text-xs text-slate-500"
-            :title="d.filename"
-          >
-            <span class="text-slate-400">{{ d.filename }}</span> · from {{ d.peerName }}
-          </p>
-          <p v-if="mismatchCount > PREVIEW" class="mt-1 text-xs text-slate-600">
-            and {{ mismatchCount - PREVIEW }} more
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
+      </template>
+    </UCollapsible>
+  </UCard>
 </template>

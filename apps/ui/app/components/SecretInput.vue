@@ -12,6 +12,12 @@ const emit = defineEmits<{ 'update:modelValue': [SecretRef | null] }>()
 
 type Mode = 'literal' | 'env' | 'file'
 
+const modeItems = [
+  { label: 'Value', value: 'literal' },
+  { label: 'Env var', value: 'env' },
+  { label: 'File', value: 'file' },
+]
+
 function detectMode(v: SecretRef | null): Mode {
   if (v && typeof v === 'object')
     return 'env' in v ? 'env' : 'file'
@@ -59,29 +65,24 @@ watch([mode, value], () => {
 
 <template>
   <div class="flex gap-2">
-    <select
-      v-model="mode"
-      class="rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-brand-500"
-    >
-      <option value="literal">
-        Value
-      </option>
-      <option value="env">
-        Env var
-      </option>
-      <option value="file">
-        File
-      </option>
-    </select>
-    <input
+    <USelect v-model="mode" :items="modeItems" class="w-28 shrink-0" />
+    <UInput
       v-model="value"
       :type="inputType"
       :placeholder="placeholder"
       autocomplete="off"
-      class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
+      class="flex-1"
     >
-    <label v-if="mode === 'literal'" class="flex items-center gap-1 whitespace-nowrap text-xs text-slate-400">
-      <input v-model="reveal" type="checkbox" class="rounded border-slate-700 bg-slate-950"> Show
-    </label>
+      <template v-if="mode === 'literal'" #trailing>
+        <UButton
+          color="neutral"
+          variant="link"
+          size="sm"
+          :icon="reveal ? 'i-ph-eye-slash' : 'i-ph-eye'"
+          :aria-label="reveal ? 'Hide value' : 'Show value'"
+          @click="reveal = !reveal"
+        />
+      </template>
+    </UInput>
   </div>
 </template>

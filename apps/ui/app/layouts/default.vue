@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import type { NavigationMenuItem } from '@nuxt/ui'
+
 const { state, logout } = useAuth()
 
-const links = [
-  { to: '/', label: 'Dashboard', icon: '◧' },
-  { to: '/peers', label: 'Peers', icon: '⇄' },
-  { to: '/servers', label: 'Servers', icon: '▤' },
-  { to: '/downloads', label: 'Downloads', icon: '↓' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+// A "jack" is a connector — the whole console is about what this node is plugged
+// into (peers, *arr servers), so the nav leans on that connection vocabulary.
+const items: NavigationMenuItem[] = [
+  { label: 'Dashboard', icon: 'i-ph-gauge', to: '/', exact: true },
+  { label: 'Connectors', icon: 'i-ph-plugs', to: '/connectors' },
+  { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
+  { label: 'Settings', icon: 'i-ph-gear-six', to: '/settings' },
 ]
 
 const loggingOut = ref(false)
@@ -22,50 +25,41 @@ async function onLogout() {
 </script>
 
 <template>
-  <div class="flex min-h-screen">
-    <aside class="flex w-56 shrink-0 flex-col border-r border-slate-800 bg-slate-900/40">
-      <div class="px-5 py-5">
-        <NuxtLink to="/" class="text-xl font-semibold tracking-tight">
-          jack
+  <UDashboardGroup unit="rem" storage-key="jack-dashboard">
+    <UDashboardSidebar collapsible :default-size="13">
+      <template #header="{ collapsed }">
+        <NuxtLink v-if="!collapsed" to="/" class="flex min-w-0 items-center gap-2.5">
+          <UIcon name="i-ph-plugs-connected" class="size-6 shrink-0 text-primary" />
+          <span class="truncate text-base font-semibold tracking-tight text-highlighted">jack</span>
         </NuxtLink>
-        <p class="text-xs text-slate-500">
-          management console
-        </p>
-      </div>
+        <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" :class="collapsed ? 'mx-auto' : 'ms-auto'" />
+      </template>
 
-      <nav class="flex-1 space-y-1 px-3">
-        <NuxtLink
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-slate-800/60 hover:text-slate-100"
-          active-class="bg-slate-800 text-slate-100"
-        >
-          <span class="w-4 text-center text-slate-500">{{ link.icon }}</span>
-          {{ link.label }}
-        </NuxtLink>
-      </nav>
+      <template #default="{ collapsed }">
+        <UNavigationMenu :collapsed="collapsed" :items="items" orientation="vertical" />
+      </template>
 
-      <div class="border-t border-slate-800 px-3 py-4">
-        <p class="px-3 pb-2 text-xs text-slate-600">
-          auth: {{ state.mode === 'env' ? 'injected' : 'cookie' }}
-        </p>
-        <button
-          v-if="state.mode === 'cookie'"
-          :disabled="loggingOut"
-          class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-slate-800/60 hover:text-slate-100 disabled:opacity-50"
-          @click="onLogout"
-        >
-          <span class="w-4 text-center text-slate-500">⎋</span>
-          {{ loggingOut ? 'Signing out…' : 'Sign out' }}
-        </button>
-      </div>
-    </aside>
+      <template #footer="{ collapsed }">
+        <div class="flex w-full items-center gap-1.5" :class="collapsed ? 'flex-col' : ''">
+          <UButton
+            v-if="state.mode === 'cookie'"
+            :label="collapsed ? undefined : 'Sign out'"
+            icon="i-ph-sign-out"
+            color="neutral"
+            variant="ghost"
+            :loading="loggingOut"
+            :block="!collapsed"
+            :class="!collapsed && 'flex-1 justify-start'"
+            @click="onLogout"
+          />
+          <span v-else-if="!collapsed" class="flex-1 truncate px-2.5 text-xs text-muted">
+            Key injected by host
+          </span>
+          <UColorModeButton />
+        </div>
+      </template>
+    </UDashboardSidebar>
 
-    <main class="flex-1 overflow-x-hidden">
-      <div class="mx-auto max-w-6xl px-8 py-8">
-        <slot />
-      </div>
-    </main>
-  </div>
+    <slot />
+  </UDashboardGroup>
 </template>

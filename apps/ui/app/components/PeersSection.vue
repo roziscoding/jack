@@ -1,0 +1,185 @@
+<script setup lang="ts">
+import type { BadgeProps } from '@nuxt/ui'
+import type { PeerInput, PeerItem } from '~/types/management'
+
+const { request, extractError } = useManagement()
+
+const { data, pending, error, refresh } = await useAsyncData('peers', () =>
+  request<{ peers: PeerItem[] }>('config/peers'))
+
+const showForm = ref(false)
+const editTarget = ref<PeerItem | null>(null)
+const submitting = ref(false)
+const formError = ref<string | null>(null)
+
+const confirmTarget = ref<PeerItem | null>(null)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
+const confirmOpen = computed({
+  get: () => confirmTarget.value !== null,
+  set: (v) => {
+    if (!v)
+      closeConfirm()
+  },
+})
+
+// Surface trouble first: unreachable peers sort to the top, then connecting,
+// then healthy — so the ones you might need to fix are never buried.
+function sortKey(peer: PeerItem) {
+  if (!peer.initialized && peer.initializationError)
+    return 0
+  if (!peer.initialized)
+    return 1
+  return 2
+}
+const peers = computed(() => [...(data.value?.peers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const connected = computed(() => peers.value.filter(p => p.initialized).length)
+const unreachable = computed(() => peers.value.filter(p => !p.initialized && p.initializationError).length)
+
+function statusBadge(peer: PeerItem): { color: BadgeProps['color'], label: string } {
+  if (peer.initialized)
+    return { color: 'success', label: 'Connected' }
+  if (peer.initializationError)
+    return { color: 'error', label: 'Unreachable' }
+  return { color: 'warning', label: 'Connecting' }
+}
+
+function closeConfirm() {
+  confirmTarget.value = null
+  deleteError.value = null
+}
+
+function openAdd() {
+  editTarget.value = null
+  formError.value = null
+  showForm.value = true
+}
+function openEdit(peer: PeerItem) {
+  editTarget.value = peer
+  formError.value = null
+  showForm.value = true
+}
+
+async function submit(input: PeerInput, force = false) {
+  submitting.value = true
+  formError.value = null
+  // force (shift-click): persist the peer even if its handshake fails — the
+  // backend keeps it resident and retries lazily instead of rejecting the add.
+  const query = force ? { force: 'true' } : undefined
+  try {
+    if (editTarget.value)
+      await request(`config/peers/${editTarget.value.id}`, { method: 'PATCH', body: input, query })
+    else
+      await request('config/peers', { method: 'POST', body: input, query })
+    showForm.value = false
+    await refresh()
+  }
+  catch (err) {
+    formError.value = extractError(err, 'Could not save the peer.')
+  }
+  finally {
+    submitting.value = false
+  }
+}
+
+async function confirmDelete() {
+  if (!confirmTarget.value)
+    return
+  deleting.value = true
+  deleteError.value = null
+  try {
+    await request(`config/peers/${confirmTarget.value.id}`, { method: 'DELETE' })
+    confirmTarget.value = null
+    await refresh()
+  }
+  catch (err) {
+    deleteError.value = extractError(err, 'Could not remove the peer.')
+  }
+  finally {
+    deleting.value = false
+  }
+}
+</script>
+
+<template>
+  <section class="space-y-4">
+    <SectionHeader
+      icon="i-ph-users-three"
+      title="Peers"
+      description="Other jacks this instance federates with."
+    >
+      <template #action>
+        <UButton label="Add peer" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
+      </template>
+    </SectionHeader>
+
+    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
+
+    <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+      <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+      Loading…
+    </p>
+
+    <UCard v-else-if="data && data.peers.length === 0" variant="subtle">
+      <div class="flex flex-col items-center gap-3 py-6 text-center">
+        <UIcon name="i-ph-users-three" class="size-8 text-dimmed" />
+        <p class="text-sm text-muted">
+          No peers yet. Add a friend's jack to start pulling from their library.
+        </p>
+        <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
+      </div>
+    </UCard>
+
+    <div v-else-if="data" class="space-y-3">
+      <p class="text-xs tabular-nums text-muted">
+        {{ connected }} of {{ peers.length }} connected<template v-if="unreachable">
+          · <span class="text-error">{{ unreachable }} unreachable</span>
+        </template>
+      </p>
+
+      <div class="space-y-2">
+        <ConnectorCard
+          v-for="peer in peers"
+          :key="peer.id"
+          :name="peer.name"
+          :url="peer.url"
+          :initialized="peer.initialized"
+          :error="peer.initializationError"
+          :status="statusBadge(peer)"
+          @edit="openEdit(peer)"
+          @remove="confirmTarget = peer"
+        >
+          <template v-if="peer.version" #badge>
+            <UBadge color="neutral" variant="subtle" size="sm" :label="`v${peer.version}`" />
+          </template>
+        </ConnectorCard>
+      </div>
+    </div>
+  </section>
+
+  <UModal v-model:open="showForm" :title="editTarget ? 'Edit peer' : 'Add peer'">
+    <template #body>
+      <PeerForm
+        :initial="editTarget"
+        :submitting="submitting"
+        :error="formError"
+        @submit="submit"
+        @cancel="showForm = false"
+      />
+    </template>
+  </UModal>
+
+  <UModal v-model:open="confirmOpen" title="Remove peer" :ui="{ footer: 'justify-end' }">
+    <template #body>
+      <p class="text-sm text-default">
+        Remove <strong>{{ confirmTarget?.name }}</strong>? In-flight downloads finish; new
+        searches stop hitting it immediately.
+      </p>
+      <UAlert v-if="deleteError" class="mt-3" color="error" variant="soft" icon="i-ph-warning" :title="deleteError" />
+    </template>
+    <template #footer="{ close }">
+      <UButton label="Cancel" color="neutral" variant="ghost" @click="close" />
+      <UButton label="Remove" color="error" :loading="deleting" @click="confirmDelete" />
+    </template>
+  </UModal>
+</template>

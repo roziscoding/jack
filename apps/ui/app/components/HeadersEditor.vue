@@ -35,20 +35,18 @@ watch(rows, sync, { deep: true })
 <template>
   <div class="space-y-2">
     <div v-for="(row, index) in rows" :key="index" class="flex items-start gap-2">
-      <input
-        v-model="row.key"
-        placeholder="Header"
-        class="w-1/3 shrink-0 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
-      >
+      <UInput v-model="row.key" placeholder="Header" class="w-1/3 shrink-0" />
       <div class="flex-1">
         <SecretInput v-model="row.value" />
       </div>
-      <button type="button" class="px-2 py-2 text-slate-500 hover:text-rose-400" @click="remove(index)">
-        ✕
-      </button>
+      <UButton
+        color="neutral"
+        variant="ghost"
+        icon="i-ph-x"
+        aria-label="Remove header"
+        @click="remove(index)"
+      />
     </div>
-    <button type="button" class="text-xs font-medium text-brand-400 hover:underline" @click="add">
-      + Add header
-    </button>
+    <UButton variant="link" size="sm" icon="i-ph-plus" label="Add header" class="px-0" @click="add" />
   </div>
 </template>

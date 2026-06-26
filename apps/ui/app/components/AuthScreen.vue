@@ -1,18 +1,22 @@
 <script setup lang="ts">
+import type { FormError } from '@nuxt/ui'
+
 const { state, login, refresh } = useAuth()
 
-const key = ref('')
+const form = reactive({ key: '' })
 const submitting = ref(false)
 const error = ref<string | null>(null)
 
-async function submit() {
-  if (!key.value.trim())
-    return
+function validate(s: typeof form): FormError[] {
+  return s.key.trim() ? [] : [{ name: 'key', message: 'Enter your management key.' }]
+}
+
+async function onSubmit() {
   submitting.value = true
   error.value = null
   try {
-    await login(key.value.trim())
-    key.value = ''
+    await login(form.key.trim())
+    form.key = ''
   }
   catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status
@@ -27,75 +31,85 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center px-4">
-    <div class="w-full max-w-md">
-      <div class="mb-8 text-center">
-        <h1 class="text-3xl font-semibold tracking-tight">
-          jack
-        </h1>
-        <p class="mt-1 text-sm text-slate-400">
-          management console
-        </p>
+  <div class="flex min-h-screen items-center justify-center p-4">
+    <div class="w-full max-w-md space-y-6">
+      <div class="flex flex-col items-center gap-2 text-center">
+        <UIcon name="i-ph-plugs-connected" class="size-9 text-primary" />
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight text-highlighted">
+            jack
+          </h1>
+          <p class="text-sm text-muted">
+            management console
+          </p>
+        </div>
       </div>
 
       <!-- Loading -->
-      <div v-if="state.status === 'loading'" class="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center text-slate-400">
-        Checking management API…
-      </div>
+      <UCard v-if="state.status === 'loading'">
+        <p class="flex items-center justify-center gap-2 text-sm text-muted">
+          <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+          Checking management API…
+        </p>
+      </UCard>
 
       <!-- Management API disabled on the server -->
-      <div v-else-if="state.status === 'disabled'" class="rounded-xl border border-amber-900/60 bg-amber-950/30 p-6">
-        <h2 class="font-medium text-amber-200">
-          Management API is disabled
-        </h2>
-        <p class="mt-2 text-sm text-amber-100/70">
-          The jack server has no <code class="rounded bg-slate-800 px-1 py-0.5 text-xs">MANAGEMENT_KEY</code> set, so the
+      <UAlert
+        v-else-if="state.status === 'disabled'"
+        color="warning"
+        variant="soft"
+        icon="i-ph-warning"
+        title="Management API is disabled"
+        :actions="[{ label: 'Retry', color: 'warning', variant: 'soft', onClick: refresh }]"
+      >
+        <template #description>
+          The jack server has no <code class="rounded bg-elevated px-1 py-0.5 text-xs">MANAGEMENT_KEY</code> set, so the
           management API isn't running. Set it on the server and restart to enable this console.
-        </p>
-        <button class="mt-4 text-sm font-medium text-amber-200 hover:underline" @click="refresh">
-          Retry
-        </button>
-      </div>
+        </template>
+      </UAlert>
 
       <!-- Unexpected error -->
-      <div v-else-if="state.status === 'error'" class="rounded-xl border border-rose-900/60 bg-rose-950/30 p-6">
-        <h2 class="font-medium text-rose-200">
-          Something went wrong
-        </h2>
-        <p class="mt-2 text-sm text-rose-100/70">
-          {{ state.message ?? 'Unexpected error talking to the management API.' }}
-        </p>
-        <button class="mt-4 text-sm font-medium text-rose-200 hover:underline" @click="refresh">
-          Retry
-        </button>
-      </div>
+      <UAlert
+        v-else-if="state.status === 'error'"
+        color="error"
+        variant="soft"
+        icon="i-ph-x-circle"
+        title="Something went wrong"
+        :description="state.message ?? 'Unexpected error talking to the management API.'"
+        :actions="[{ label: 'Retry', color: 'error', variant: 'soft', onClick: refresh }]"
+      />
 
       <!-- Needs key: cookie-mode login prompt -->
-      <form v-else class="rounded-xl border border-slate-800 bg-slate-900/60 p-6" @submit.prevent="submit">
-        <h2 class="font-medium">
-          Enter management key
-        </h2>
-        <p class="mt-1 text-sm text-slate-400">
-          This is stored in a secure, http-only cookie — never exposed to the page.
-        </p>
-        <input
-          v-model="key"
-          type="password"
-          autocomplete="current-password"
-          placeholder="X-Management-Key"
-          class="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
-        >
-        <p v-if="error" class="mt-2 text-sm text-rose-400">
-          {{ error }}
-        </p>
-        <button
-          type="submit"
-          :disabled="submitting || !key.trim()"
-          class="mt-4 w-full rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {{ submitting ? 'Validating…' : 'Unlock' }}
-        </button>
-      </form>
+      <UCard v-else>
+        <UForm :state="form" :validate="validate" class="space-y-4" @submit="onSubmit">
+          <div>
+            <h2 class="font-medium text-highlighted">
+              Enter management key
+            </h2>
+            <p class="mt-1 text-sm text-muted">
+              This is stored in a secure, http-only cookie — never exposed to the page.
+            </p>
+          </div>
+
+          <UFormField name="key" :error="error ?? undefined">
+            <UInput
+              v-model="form.key"
+              type="password"
+              autocomplete="current-password"
+              placeholder="X-Management-Key"
+              icon="i-ph-key"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UButton
+            type="submit"
+            block
+            :loading="submitting"
+            :label="submitting ? 'Validating…' : 'Unlock'"
+          />
+        </UForm>
+      </UCard>
     </div>
   </div>
 </template>

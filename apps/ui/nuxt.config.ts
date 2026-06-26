@@ -1,15 +1,18 @@
-import tailwindcss from '@tailwindcss/vite'
-
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },
   ssr: false,
 
+  modules: ['@nuxt/ui'],
+
   css: ['~/assets/css/main.css'],
 
-  vite: {
-    plugins: [tailwindcss()],
+  // Peers and Servers were merged into a single Connectors page; keep old
+  // links/bookmarks working.
+  routeRules: {
+    '/peers': { redirect: '/connectors' },
+    '/servers': { redirect: '/connectors' },
   },
 
   app: {
