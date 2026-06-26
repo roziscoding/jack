@@ -8,6 +8,8 @@ import { handleError } from './middleware/handle-error'
 import { requireManagementKey } from './middleware/require-management-key'
 import { ApiKeysController } from './modules/api-keys/api-keys.controller'
 import { getApiKeysRouter } from './modules/api-keys/api-keys.router'
+import { CatalogController } from './modules/catalog/catalog.controller'
+import { getCatalogRouter } from './modules/catalog/catalog.router'
 import { ConfigController } from './modules/config/config.controller'
 import { getConfigRouter } from './modules/config/config.router'
 import { StatusController } from './modules/status/status.controller'
@@ -37,6 +39,9 @@ export function getManagementApp(params: {
 
   const statusController = new StatusController(params.connectors, params.downloadsRepository)
   app.route('/', getStatusRouter(statusController))
+
+  const catalogController = new CatalogController(params.connectors)
+  app.route('/catalog', getCatalogRouter(catalogController))
 
   if (params.apiKeysRepository) {
     const apiKeysController = new ApiKeysController(params.apiKeysRepository)

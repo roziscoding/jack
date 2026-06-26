@@ -45,6 +45,22 @@ export interface DownloadItem {
   expectedBytesMismatch: boolean
 }
 
+export interface CatalogTitle {
+  key: string
+  mediaType: 'movie' | 'tv'
+  tmdbId?: number
+  imdbId?: string
+  tvdbId?: number
+  displayTitle: string
+  releaseCount: number
+  totalSize: number
+}
+
+export interface PeerCatalogResponse {
+  peer: { id: string, name: string }
+  titles: CatalogTitle[]
+}
+
 export interface Overview {
   peers: { total: number, initialized: number, items: PeerItem[] }
   servers: { total: number, initialized: number, sources: number, destinations: number, items: OverviewServerItem[] }

@@ -7,6 +7,7 @@ defineProps<{
   initialized: boolean
   error?: string | null
   status: { color: BadgeProps['color'], label: string }
+  to?: string
 }>()
 defineEmits<{ edit: [], remove: [] }>()
 </script>
@@ -25,6 +26,7 @@ defineEmits<{ edit: [], remove: [] }>()
         </p>
       </div>
       <UBadge v-bind="status" variant="subtle" />
+      <UButton v-if="to" :to="to" icon="i-ph-list-magnifying-glass" color="neutral" variant="ghost" size="sm" :aria-label="`Browse ${name} catalog`" />
       <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" :aria-label="`Edit ${name}`" @click="$emit('edit')" />
       <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" :aria-label="`Remove ${name}`" @click="$emit('remove')" />
     </div>

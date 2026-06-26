@@ -140,6 +140,7 @@ async function confirmDelete() {
           :initialized="peer.initialized"
           :error="peer.initializationError"
           :status="statusBadge(peer)"
+          :to="`/catalog/${peer.id}`"
           @edit="openEdit(peer)"
           @remove="confirmTarget = peer"
         >
