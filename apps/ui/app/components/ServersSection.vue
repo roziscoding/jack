@@ -106,16 +106,10 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
 </script>
 
 <template>
-  <section class="space-y-4">
-    <SectionHeader
-      icon="i-ph-hard-drives"
-      title="Servers"
-      description="Radarr / Sonarr instances jack reads from and pushes to."
-    >
-      <template #action>
-        <UButton label="Add server" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
-      </template>
-    </SectionHeader>
+  <SettingsSection title="Servers" description="Radarr / Sonarr instances jack reads from and pushes to.">
+    <template #aside>
+      <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
+    </template>
 
     <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
 
@@ -169,7 +163,7 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
         </ConnectorCard>
       </div>
     </div>
-  </section>
+  </SettingsSection>
 
   <UModal v-model:open="showForm" :title="editTarget ? 'Edit server' : 'Add server'">
     <template #body>
