@@ -8,6 +8,13 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  // Peers and Servers were merged into a single Connectors page; keep old
+  // links/bookmarks working.
+  routeRules: {
+    '/peers': { redirect: '/connectors' },
+    '/servers': { redirect: '/connectors' },
+  },
+
   app: {
     head: {
       title: 'jack',

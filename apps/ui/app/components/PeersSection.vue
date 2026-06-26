@@ -102,74 +102,67 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <UDashboardPanel id="peers">
-    <template #header>
-      <UDashboardNavbar title="Peers">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
-        <template #right>
-          <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
-        </template>
-      </UDashboardNavbar>
-    </template>
-
-    <template #body>
-      <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
-
-      <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
-        <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
-        Loading…
-      </p>
-
-      <UCard v-else-if="data && data.peers.length === 0" variant="subtle">
-        <div class="flex flex-col items-center gap-3 py-6 text-center">
-          <UIcon name="i-ph-users-three" class="size-8 text-dimmed" />
-          <p class="text-sm text-muted">
-            No peers yet. Add a friend's jack to start pulling from their library.
+  <section>
+    <div class="mb-4 flex items-end justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-elevated">
+          <UIcon name="i-ph-users-three" class="size-5 text-muted" />
+        </span>
+        <div>
+          <h2 class="text-sm font-semibold text-highlighted">
+            Peers
+          </h2>
+          <p class="text-xs text-muted">
+            Other jacks this instance federates with.
           </p>
-          <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
-        </div>
-      </UCard>
-
-      <div v-else-if="data" class="space-y-3">
-        <p class="text-xs tabular-nums text-muted">
-          {{ connected }} of {{ peers.length }} connected<template v-if="unreachable">
-            · <span class="text-error">{{ unreachable }} unreachable</span>
-          </template>
-        </p>
-
-        <div class="space-y-2">
-          <UCard v-for="peer in peers" :key="peer.id" variant="subtle" :ui="{ body: 'sm:p-4' }">
-            <div class="flex items-center gap-3">
-              <ConnDot :initialized="peer.initialized" :error="peer.initializationError" />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-baseline gap-2">
-                  <span class="truncate font-medium text-default" :title="peer.name">{{ peer.name }}</span>
-                  <UBadge v-if="peer.version" color="neutral" variant="subtle" size="sm" :label="`v${peer.version}`" />
-                </div>
-                <p class="truncate font-mono text-xs text-muted" :title="peer.url">
-                  {{ peer.url }}
-                </p>
-              </div>
-              <UBadge v-bind="statusBadge(peer)" variant="subtle" />
-              <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit peer" @click="openEdit(peer)" />
-              <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Remove peer" @click="confirmTarget = peer" />
-            </div>
-
-            <UAlert
-              v-if="!peer.initialized && peer.initializationError"
-              class="mt-3"
-              color="error"
-              variant="soft"
-              :ui="{ description: 'font-mono text-xs' }"
-              :description="peer.initializationError"
-            />
-          </UCard>
         </div>
       </div>
-    </template>
-  </UDashboardPanel>
+      <UButton label="Add peer" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
+    </div>
+
+    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
+
+    <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+      <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+      Loading…
+    </p>
+
+    <UCard v-else-if="data && data.peers.length === 0" variant="subtle">
+      <div class="flex flex-col items-center gap-3 py-6 text-center">
+        <UIcon name="i-ph-users-three" class="size-8 text-dimmed" />
+        <p class="text-sm text-muted">
+          No peers yet. Add a friend's jack to start pulling from their library.
+        </p>
+        <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
+      </div>
+    </UCard>
+
+    <div v-else-if="data" class="space-y-3">
+      <p class="text-xs tabular-nums text-muted">
+        {{ connected }} of {{ peers.length }} connected<template v-if="unreachable">
+          · <span class="text-error">{{ unreachable }} unreachable</span>
+        </template>
+      </p>
+
+      <div class="space-y-2">
+        <ConnectorCard
+          v-for="peer in peers"
+          :key="peer.id"
+          :name="peer.name"
+          :url="peer.url"
+          :initialized="peer.initialized"
+          :error="peer.initializationError"
+          :status="statusBadge(peer)"
+          @edit="openEdit(peer)"
+          @remove="confirmTarget = peer"
+        >
+          <template v-if="peer.version" #badge>
+            <UBadge color="neutral" variant="subtle" size="sm" :label="`v${peer.version}`" />
+          </template>
+        </ConnectorCard>
+      </div>
+    </div>
+  </section>
 
   <UModal v-model:open="showForm" :title="editTarget ? 'Edit peer' : 'Add peer'">
     <template #body>

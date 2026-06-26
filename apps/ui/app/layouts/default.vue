@@ -7,8 +7,7 @@ const { state, logout } = useAuth()
 // into (peers, *arr servers), so the nav leans on that connection vocabulary.
 const items: NavigationMenuItem[] = [
   { label: 'Dashboard', icon: 'i-ph-gauge', to: '/', exact: true },
-  { label: 'Peers', icon: 'i-ph-users-three', to: '/peers' },
-  { label: 'Servers', icon: 'i-ph-hard-drives', to: '/servers' },
+  { label: 'Connectors', icon: 'i-ph-plugs', to: '/connectors' },
   { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
   { label: 'Settings', icon: 'i-ph-gear-six', to: '/settings' },
 ]

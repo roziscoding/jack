@@ -106,83 +106,77 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
 </script>
 
 <template>
-  <UDashboardPanel id="servers">
-    <template #header>
-      <UDashboardNavbar title="Servers">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
-        <template #right>
-          <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
-        </template>
-      </UDashboardNavbar>
-    </template>
+  <section>
+    <div class="mb-4 flex items-end justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-elevated">
+          <UIcon name="i-ph-hard-drives" class="size-5 text-muted" />
+        </span>
+        <div>
+          <h2 class="text-sm font-semibold text-highlighted">
+            Servers
+          </h2>
+          <p class="text-xs text-muted">
+            Radarr / Sonarr instances jack reads from and pushes to.
+          </p>
+        </div>
+      </div>
+      <UButton label="Add server" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
+    </div>
 
-    <template #body>
-      <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
+    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
 
-      <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
-        <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
-        Loading…
+    <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+      <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+      Loading…
+    </p>
+
+    <UCard v-else-if="data && data.servers.length === 0" variant="subtle">
+      <div class="flex flex-col items-center gap-3 py-6 text-center">
+        <UIcon name="i-ph-hard-drives" class="size-8 text-dimmed" />
+        <p class="text-sm text-muted">
+          No servers yet. Add a Radarr or Sonarr instance for jack to read from and push to.
+        </p>
+        <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
+      </div>
+    </UCard>
+
+    <div v-else-if="data" class="space-y-3">
+      <p class="text-xs tabular-nums text-muted">
+        {{ connected }} of {{ servers.length }} connected<template v-if="unreachable">
+          · <span class="text-error">{{ unreachable }} unreachable</span>
+        </template>
+        · {{ sources }} {{ sources === 1 ? 'source' : 'sources' }}
+        · {{ destinations }} {{ destinations === 1 ? 'destination' : 'destinations' }}
       </p>
 
-      <UCard v-else-if="data && data.servers.length === 0" variant="subtle">
-        <div class="flex flex-col items-center gap-3 py-6 text-center">
-          <UIcon name="i-ph-hard-drives" class="size-8 text-dimmed" />
-          <p class="text-sm text-muted">
-            No servers yet. Add a Radarr or Sonarr instance for jack to read from and push to.
-          </p>
-          <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
-        </div>
-      </UCard>
-
-      <div v-else-if="data" class="space-y-3">
-        <p class="text-xs tabular-nums text-muted">
-          {{ connected }} of {{ servers.length }} connected<template v-if="unreachable">
-            · <span class="text-error">{{ unreachable }} unreachable</span>
+      <div class="space-y-2">
+        <ConnectorCard
+          v-for="server in servers"
+          :key="server.id"
+          :name="server.name"
+          :url="server.url"
+          :initialized="server.initialized"
+          :error="server.initializationError"
+          :status="statusBadge(server)"
+          @edit="openEdit(server)"
+          @remove="confirmTarget = server"
+        >
+          <template #badge>
+            <UBadge color="neutral" variant="subtle" size="sm" class="capitalize" :label="server.type" />
           </template>
-          · {{ sources }} {{ sources === 1 ? 'source' : 'sources' }}
-          · {{ destinations }} {{ destinations === 1 ? 'destination' : 'destinations' }}
-        </p>
-
-        <div class="space-y-2">
-          <UCard v-for="server in servers" :key="server.id" variant="subtle" :ui="{ body: 'sm:p-4' }">
-            <div class="flex items-center gap-3">
-              <ConnDot :initialized="server.initialized" :error="server.initializationError" />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-baseline gap-2">
-                  <span class="truncate font-medium text-default" :title="server.name">{{ server.name }}</span>
-                  <UBadge color="neutral" variant="subtle" size="sm" class="capitalize" :label="server.type" />
-                </div>
-                <p class="truncate font-mono text-xs text-muted" :title="server.url">
-                  {{ server.url }}
-                </p>
-              </div>
-              <UBadge v-bind="statusBadge(server)" variant="subtle" />
-              <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit server" @click="openEdit(server)" />
-              <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Remove server" @click="confirmTarget = server" />
-            </div>
-
+          <template #meta>
             <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-xs text-muted">
               <span>{{ roleLabel(server) }}</span>
               <span class="text-dimmed">·</span>
               <span v-if="server.autoregister.enable">auto-registers with priority {{ server.autoregister.priority }}</span>
               <span v-else>manual registration</span>
             </div>
-
-            <UAlert
-              v-if="!server.initialized && server.initializationError"
-              class="mt-3"
-              color="error"
-              variant="soft"
-              :ui="{ description: 'font-mono text-xs' }"
-              :description="server.initializationError"
-            />
-          </UCard>
-        </div>
+          </template>
+        </ConnectorCard>
       </div>
-    </template>
-  </UDashboardPanel>
+    </div>
+  </section>
 
   <UModal v-model:open="showForm" :title="editTarget ? 'Edit server' : 'Add server'">
     <template #body>
