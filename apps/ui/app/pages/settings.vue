@@ -147,9 +147,6 @@ async function confirmRevoke() {
         <h2 class="text-sm font-medium text-slate-200">
           Jack
         </h2>
-        <p class="mt-0.5 text-xs text-slate-500">
-          The URL your *arr apps (Radarr/Sonarr) use to reach this Jack instance. Changes apply after the server restarts.
-        </p>
       </div>
 
       <div v-if="jackLoadError" class="rounded-xl border border-rose-900/60 bg-rose-950/30 p-4 text-sm text-rose-200">

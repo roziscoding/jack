@@ -29,12 +29,15 @@ function submit() {
 <template>
   <form class="space-y-4" @submit.prevent="submit">
     <div>
-      <label class="mb-1 block text-sm text-slate-300">Internal URL <span class="text-slate-600">(how *arr reaches Jack)</span></label>
+      <label class="mb-1 block text-sm text-slate-300">Internal URL</label>
       <input
         v-model="internalUrl"
         placeholder="http://jack:5225"
         class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
       >
+      <p class="mt-1 text-xs text-slate-500">
+        The URL your *arr apps (Radarr/Sonarr) use to reach this Jack instance. Changes apply after the server restarts.
+      </p>
     </div>
     <div>
       <label class="mb-1 block text-sm text-slate-300">
