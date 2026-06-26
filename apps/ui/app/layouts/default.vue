@@ -3,11 +3,10 @@ import type { NavigationMenuItem } from '@nuxt/ui'
 
 const { state, logout } = useAuth()
 
-// A "jack" is a connector — the whole console is about what this node is plugged
-// into (peers, *arr servers), so the nav leans on that connection vocabulary.
+// Peers and *arr servers are managed as sections under Settings, so the nav is
+// just the three live views plus configuration.
 const items: NavigationMenuItem[] = [
   { label: 'Dashboard', icon: 'i-ph-gauge', to: '/', exact: true },
-  { label: 'Connectors', icon: 'i-ph-plugs', to: '/connectors' },
   { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
   { label: 'Settings', icon: 'i-ph-gear-six', to: '/settings' },
 ]
