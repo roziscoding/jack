@@ -98,40 +98,34 @@ const managementServer = startManagementServer()
 // Jack indexer and client are always present and bound — they start returning
 // results as soon as peers come online.
 const managedApiKeys = new ManagedApiKeys(managedKeysRepository)
-if (config.jack) {
-  const jackConfig = config.jack
-  const downloads = config.downloads
+const jackConfig = config.jack
+const downloads = config.downloads
 
-  if (!downloads) {
-    logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
-  }
+if (!downloads) {
+  logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
+}
 
-  const registrable = connectorManager.destinations.filter(d => d.isInitialized && d.autoRegister.enable)
-  for (const dest of registrable) {
-    await registerManagedForDestination(dest, {
-      managedKeys: managedApiKeys,
-      baseUrl: jackConfig.baseUrl,
-      downloads: Boolean(downloads),
-      category: qbCategoryForServer(dest.id),
-      onSuccess: (kind, name, meta) =>
-        logger.info(
-          kind === 'download client'
-            ? { destination: name, downloadClientId: meta.downloadClientId }
-            : { destination: name, categories: meta.categories, downloadClientId: meta.downloadClientId },
-          kind === 'download client'
-            ? 'Registered Jack as qBittorrent download client'
-            : 'Registered Jack as Torznab indexer',
-        ),
-      onFailure: logRegistrationFailure,
-    })
-  }
-  // Drop managed keys for destinations no longer registrable so stale keys can't authenticate.
-  managedApiKeys.prune(registrable.map(d => d.id))
+const registrable = connectorManager.destinations.filter(d => d.isInitialized && d.autoRegister.enable)
+for (const dest of registrable) {
+  await registerManagedForDestination(dest, {
+    managedKeys: managedApiKeys,
+    baseUrl: jackConfig.baseUrl,
+    downloads: Boolean(downloads),
+    category: qbCategoryForServer(dest.id),
+    onSuccess: (kind, name, meta) =>
+      logger.info(
+        kind === 'download client'
+          ? { destination: name, downloadClientId: meta.downloadClientId }
+          : { destination: name, categories: meta.categories, downloadClientId: meta.downloadClientId },
+        kind === 'download client'
+          ? 'Registered Jack as qBittorrent download client'
+          : 'Registered Jack as Torznab indexer',
+      ),
+    onFailure: logRegistrationFailure,
+  })
 }
-else {
-  // No jack config → nothing is registrable; drop any managed keys left from a prior config.
-  managedApiKeys.prune([])
-}
+// Drop managed keys for destinations no longer registrable so stale keys can't authenticate.
+managedApiKeys.prune(registrable.map(d => d.id))
 
 // Detect *arr imports of finished downloads and flip them import_queued → imported.
 const importWatcher = config.downloads

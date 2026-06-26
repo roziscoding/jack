@@ -23,7 +23,7 @@ function tempPath() {
 describe('Config migration write-back', () => {
   test('migrates a v0 file, backs it up, and persists', async () => {
     const path = tempPath()
-    const original = jsonc.stringify({ version: 0, peers: [], servers: [] }, { space: 2 })
+    const original = jsonc.stringify({ version: 0, jack: { baseUrl: 'http://jack:5225' }, peers: [], servers: [] }, { space: 2 })
     await Bun.write(path, original)
 
     const { appConfig } = await getAppConfig({ APP_CONFIG_PATH: path })
@@ -36,7 +36,7 @@ describe('Config migration write-back', () => {
 
   test('leaves an up-to-date file untouched (no .bak)', async () => {
     const path = tempPath()
-    const current = jsonc.stringify({ version: MIGRATIONS.length, peers: [], servers: [] }, { space: 2 })
+    const current = jsonc.stringify({ version: MIGRATIONS.length, jack: { baseUrl: 'http://jack:5225' }, peers: [], servers: [] }, { space: 2 })
     await Bun.write(path, current)
 
     await getAppConfig({ APP_CONFIG_PATH: path })

@@ -184,7 +184,7 @@ export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 
 export const AppConfig = z.object({
   version: z.number(),
-  jack: JackConfig.optional(),
+  jack: JackConfig,
   downloads: DownloadsConfig.optional(),
   servers: z.array(ServerConfig).default([]),
   peers: z.array(PeerConfig).default([]),
@@ -229,6 +229,9 @@ const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
 
 const EMPTY_APP_CONFIG: AppConfig = {
   version: MIGRATIONS.length,
+  // jack is required; the resolved fallback carries only a baseUrl (no master key —
+  // auto-registration provisions its own managed keys).
+  jack: { baseUrl: 'http://jack:5225' },
   servers: [],
   peers: [],
 }
