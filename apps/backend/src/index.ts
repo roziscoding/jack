@@ -97,6 +97,7 @@ const managementServer = startManagementServer()
 // there are no peers / an empty catalog (forceSave on the *arr side), so the
 // Jack indexer and client are always present and bound — they start returning
 // results as soon as peers come online.
+const managedApiKeys = new ManagedApiKeys(managedKeysRepository)
 if (config.jack) {
   const jackConfig = config.jack
   const downloads = config.downloads
@@ -105,7 +106,6 @@ if (config.jack) {
     logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
   }
 
-  const managedApiKeys = new ManagedApiKeys(managedKeysRepository)
   const registrable = connectorManager.destinations.filter(d => d.isInitialized && d.autoRegister.enable)
   for (const dest of registrable) {
     await registerManagedForDestination(dest, {
@@ -127,6 +127,10 @@ if (config.jack) {
   }
   // Drop managed keys for destinations no longer registrable so stale keys can't authenticate.
   managedApiKeys.prune(registrable.map(d => d.id))
+}
+else {
+  // No jack config → nothing is registrable; drop any managed keys left from a prior config.
+  managedApiKeys.prune([])
 }
 
 // Detect *arr imports of finished downloads and flip them import_queued → imported.

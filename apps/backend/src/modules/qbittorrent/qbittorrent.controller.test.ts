@@ -64,6 +64,13 @@ describe('QbittorrentController.login', () => {
     expect(controller('').login('Radarr', key)).not.toBeNull()
   })
 
+  test('an expired user key is rejected', () => {
+    const key = generateApiKey()
+    const past = new Date(Date.now() - 86_400_000).toISOString()
+    api.create({ keyHash: hashKey(key), expiresAt: past })
+    expect(controller('').login('Radarr', key)).toBeNull()
+  })
+
   test('with no main key, an unknown password is rejected (no longer open)', () => {
     expect(controller('').login('Radarr', 'whatever')).toBeNull()
   })

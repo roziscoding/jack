@@ -62,6 +62,17 @@ describe('registerManagedForDestination', () => {
     expect(ids).toHaveLength(2)
   })
 
+  test('partial failure (download client fails) keeps both old and new keys', async () => {
+    const old = service.provision('srv-a')
+    await registerManagedForDestination(
+      stubDest({ registerDownloadClient: async () => { throw new Error('dc') } }),
+      deps(),
+    )
+    const ids = repo.findByServerId('srv-a').map(r => r.id)
+    expect(ids).toContain(old.id)
+    expect(ids).toHaveLength(2)
+  })
+
   test('total failure discards the new key (only the old remains)', async () => {
     const old = service.provision('srv-a')
     await registerManagedForDestination(

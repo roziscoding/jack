@@ -54,14 +54,8 @@ export class QbittorrentController {
       const row = managedKeysRepository?.findByHash(hashKey(password))
       return row?.serverId === serverId
     }
-    if (isGeneratedKey(password)) {
-      const row = apiKeysRepository?.findByHash(hashKey(password))
-      if (!row)
-        return false
-      if (row.expiresAt && new Date(row.expiresAt) <= new Date())
-        return false
-      return true
-    }
+    if (isGeneratedKey(password))
+      return apiKeysRepository?.resolve(password).status === 'ok'
     return false
   }
 

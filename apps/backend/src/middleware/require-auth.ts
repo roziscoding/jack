@@ -36,30 +36,18 @@ export function requireApiKey(
       throw new UnauthorizedError('invalid API key')
     }
 
-    if (!isGeneratedKey(key)) {
+    if (!isGeneratedKey(key))
       throw new UnauthorizedError('invalid API key')
-    }
-
-    if (!apiKeysRepository) {
+    if (!apiKeysRepository)
       throw new UnauthorizedError('invalid API key')
-    }
 
-    const keyHash = hashKey(key)
-    const apiKey = apiKeysRepository.findByHash(keyHash)
-
-    if (!apiKey) {
+    const resolution = apiKeysRepository.resolve(key)
+    if (resolution.status === 'missing')
       throw new UnauthorizedError('invalid API key')
-    }
+    if (resolution.status === 'expired')
+      throw new UnauthorizedError('API key expired')
 
-    if (apiKey.expiresAt) {
-      const expiresAt = new Date(apiKey.expiresAt)
-      if (expiresAt <= new Date()) {
-        throw new UnauthorizedError('API key expired')
-      }
-    }
-
-    ctx.set('apiKeyName', apiKey.name ?? 'unnamed')
-
+    ctx.set('apiKeyName', resolution.row.name ?? 'unnamed')
     return next()
   })
 }

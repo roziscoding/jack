@@ -22,12 +22,11 @@ describe('ManagedKeysRepository', () => {
   })
 
   test('deleteByServerId keeps only exceptId', () => {
-    const a = repo.create({ keyHash: 'h1', serverId: 'srv-a' })
+    repo.create({ keyHash: 'h1', serverId: 'srv-a' })
     const b = repo.create({ keyHash: 'h2', serverId: 'srv-a' })
     repo.deleteByServerId('srv-a', b.id)
     expect(repo.findByServerId('srv-a').map(r => r.id)).toEqual([b.id])
     expect(repo.findByHash('h1')).toBeNull()
-    void a
   })
 
   test('deleteOrphans removes non-active servers; empty set clears all', () => {
