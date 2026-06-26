@@ -94,6 +94,8 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
       get servers() { return connManager.servers },
       repository: services.downloadsRepository,
       downloadsService: services.downloadsService,
+      apiKeysRepository: services.apiKeysRepository,
+      managedKeysRepository: services.managedKeysRepository,
     })
     app.route('/api/v2', getQbittorrentRouter(qbController))
   }

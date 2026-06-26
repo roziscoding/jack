@@ -2,6 +2,7 @@ import process from 'node:process'
 import { getApp } from './app'
 import { openDatabase } from './database/connection'
 import { shutdownTelemetry } from './instrumentation'
+import { registerManagedForDestination } from './lib/autoregister'
 import { getAppConfig } from './lib/config'
 import { getAppEnvs } from './lib/envs'
 import { FetchError } from './lib/errors/FetchError'
@@ -15,6 +16,7 @@ import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
 import { ImportWatcher } from './modules/downloads/import-watcher'
 import { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
+import { ManagedApiKeys } from './modules/managed-keys/managed-keys.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
@@ -103,43 +105,28 @@ if (config.jack) {
     logger.warn('No "downloads" config set; skipping download client auto-registration. Grabs will fail until a qBittorrent client is configured.')
   }
 
+  const managedApiKeys = new ManagedApiKeys(managedKeysRepository)
   const registrable = connectorManager.destinations.filter(d => d.isInitialized && d.autoRegister.enable)
   for (const dest of registrable) {
-    // Register the download client first so we can bind the indexer to it:
-    // grabs from the Jack indexer must go to the Jack qBittorrent client, not
-    // whatever client *arr would otherwise pick.
-    let downloadClientId: number | undefined
-    if (downloads) {
-      try {
-        downloadClientId = await dest.registerDownloadClient({
-          name: 'Jack',
-          baseUrl: jackConfig.baseUrl,
-          username: dest.name,
-          password: jackConfig.apiKey ?? '',
-          category: qbCategoryForServer(dest.id),
-        })
-        logger.info({ destination: dest.name, downloadClientId }, 'Registered Jack as qBittorrent download client')
-      }
-      catch (err) {
-        logRegistrationFailure('download client', dest.name, err)
-      }
-    }
-
-    try {
-      await dest.registerIndexer({
-        name: 'Jack',
-        baseUrl: `${jackConfig.baseUrl}/torznab`,
-        apiKey: jackConfig.apiKey ?? '',
-        priority: dest.autoRegister.priority,
-        categories: dest.categories,
-        downloadClientId,
-      })
-      logger.info({ destination: dest.name, categories: dest.categories, downloadClientId }, 'Registered Jack as Torznab indexer')
-    }
-    catch (err) {
-      logRegistrationFailure('indexer', dest.name, err)
-    }
+    await registerManagedForDestination(dest, {
+      managedKeys: managedApiKeys,
+      baseUrl: jackConfig.baseUrl,
+      downloads: Boolean(downloads),
+      category: qbCategoryForServer(dest.id),
+      onSuccess: (kind, name, meta) =>
+        logger.info(
+          kind === 'download client'
+            ? { destination: name, downloadClientId: meta.downloadClientId }
+            : { destination: name, categories: meta.categories, downloadClientId: meta.downloadClientId },
+          kind === 'download client'
+            ? 'Registered Jack as qBittorrent download client'
+            : 'Registered Jack as Torznab indexer',
+        ),
+      onFailure: logRegistrationFailure,
+    })
   }
+  // Drop managed keys for destinations no longer registrable so stale keys can't authenticate.
+  managedApiKeys.prune(registrable.map(d => d.id))
 }
 
 // Detect *arr imports of finished downloads and flip them import_queued → imported.
