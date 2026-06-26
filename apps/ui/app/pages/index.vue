@@ -23,9 +23,6 @@ function serverRole(server: { source: boolean, destination: boolean }) {
   <UDashboardPanel id="dashboard">
     <template #header>
       <UDashboardNavbar title="Dashboard">
-        <template #trailing>
-          <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" />
-        </template>
         <template #right>
           <RefreshControls
             v-model:interval-ms="intervalMs"

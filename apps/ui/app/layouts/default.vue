@@ -28,13 +28,14 @@ async function onLogout() {
   <UDashboardGroup unit="rem" storage-key="jack-dashboard">
     <UDashboardSidebar collapsible :default-size="13">
       <template #header="{ collapsed }">
-        <NuxtLink to="/" class="flex items-center gap-2.5">
-          <UIcon name="i-ph-plugs-connected" class="size-6 text-primary" />
-          <span v-if="!collapsed" class="flex flex-col leading-tight">
-            <span class="text-base font-semibold tracking-tight text-highlighted">jack</span>
-            <span class="text-xs text-muted">management console</span>
+        <NuxtLink v-if="!collapsed" to="/" class="flex min-w-0 items-center gap-2.5">
+          <UIcon name="i-ph-plugs-connected" class="size-6 shrink-0 text-primary" />
+          <span class="flex min-w-0 flex-col leading-tight">
+            <span class="truncate text-base font-semibold tracking-tight text-highlighted">jack</span>
+            <span class="truncate text-xs text-muted">management console</span>
           </span>
         </NuxtLink>
+        <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" :class="collapsed ? 'mx-auto' : 'ms-auto'" />
       </template>
 
       <template #default="{ collapsed }">

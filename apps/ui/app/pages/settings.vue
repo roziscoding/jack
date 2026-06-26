@@ -151,11 +151,7 @@ async function confirmRevoke() {
 <template>
   <UDashboardPanel id="settings">
     <template #header>
-      <UDashboardNavbar title="Settings">
-        <template #trailing>
-          <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" />
-        </template>
-      </UDashboardNavbar>
+      <UDashboardNavbar title="Settings" />
     </template>
 
     <template #body>

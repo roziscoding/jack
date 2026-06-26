@@ -7,11 +7,7 @@
 <template>
   <UDashboardPanel id="connectors">
     <template #header>
-      <UDashboardNavbar title="Connectors">
-        <template #trailing>
-          <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" />
-        </template>
-      </UDashboardNavbar>
+      <UDashboardNavbar title="Connectors" />
     </template>
 
     <template #body>

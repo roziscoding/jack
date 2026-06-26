@@ -57,9 +57,6 @@ const columns: TableColumn<DownloadItem>[] = [
   <UDashboardPanel id="downloads">
     <template #header>
       <UDashboardNavbar title="Downloads">
-        <template #trailing>
-          <UDashboardSidebarCollapse icon="i-ph-sidebar-simple" />
-        </template>
         <template #right>
           <RefreshControls
             v-model:interval-ms="intervalMs"
