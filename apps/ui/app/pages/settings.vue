@@ -163,101 +163,96 @@ async function confirmRevoke() {
     <template #body>
       <div class="space-y-10">
         <!-- Jack -->
-        <section class="flex flex-col gap-x-8 gap-y-4 lg:flex-row">
-          <div class="lg:w-72 lg:shrink-0">
-            <h2 class="text-sm font-semibold text-highlighted">
-              Jack
-            </h2>
-            <p class="mt-1 text-xs text-muted">
-              How this instance presents itself to your *arr apps. Changes apply after a restart.
-            </p>
-          </div>
+        <SettingsSection
+          title="Jack"
+          description="How this instance presents itself to your *arr apps. Changes apply after a restart."
+        >
+          <UAlert v-if="jackLoadError" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the Jack config." />
 
-          <div class="min-w-0 flex-1">
-            <UAlert v-if="jackLoadError" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the Jack config." />
+          <p v-else-if="jackPending" class="flex items-center gap-2 text-sm text-muted">
+            <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+            Loading…
+          </p>
 
-            <p v-else-if="jackPending" class="flex items-center gap-2 text-sm text-muted">
-              <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
-              Loading…
-            </p>
+          <UCard v-else variant="subtle" :ui="{ body: 'space-y-4' }">
+            <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed
+                 their once-initialized local state from the resolved data. -->
+            <JackConfigForm
+              :key="jack?.internalUrl ?? 'empty'"
+              :initial="jack"
+              :submitting="jackSubmitting"
+              :error="jackError"
+              @submit="saveJack"
+            />
+            <UAlert
+              v-if="jackSaved"
+              color="success"
+              variant="soft"
+              icon="i-ph-check-circle"
+              title="Saved. Restart the server for the change to take effect."
+            />
+          </UCard>
+        </SettingsSection>
 
-            <UCard v-else variant="subtle" :ui="{ body: 'space-y-4' }">
-              <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed
-                   their once-initialized local state from the resolved data. -->
-              <JackConfigForm
-                :key="jack?.internalUrl ?? 'empty'"
-                :initial="jack"
-                :submitting="jackSubmitting"
-                :error="jackError"
-                @submit="saveJack"
-              />
-              <UAlert
-                v-if="jackSaved"
-                color="success"
-                variant="soft"
-                icon="i-ph-check-circle"
-                title="Saved. Restart the server for the change to take effect."
-              />
-            </UCard>
-          </div>
-        </section>
+        <USeparator />
+
+        <PeersSection />
+
+        <USeparator />
+
+        <ServersSection />
 
         <USeparator />
 
         <!-- API keys -->
-        <section class="flex flex-col gap-x-8 gap-y-4 lg:flex-row">
-          <div class="lg:w-72 lg:shrink-0">
-            <h2 class="text-sm font-semibold text-highlighted">
-              API keys
-            </h2>
-            <p class="mt-1 text-xs text-muted">
-              Keys external tools use to authenticate with Jack's API.
-            </p>
-            <UButton label="Create key" icon="i-ph-plus" class="mt-3" @click="openAdd" />
-          </div>
+        <SettingsSection
+          title="API keys"
+          description="Keys external tools use to authenticate with Jack's API."
+        >
+          <template #aside>
+            <UButton label="Create key" icon="i-ph-plus" @click="openAdd" />
+          </template>
 
-          <div class="min-w-0 flex-1">
-            <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load API keys." />
+          <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load API keys." />
 
-            <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
-              <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
-              Loading…
-            </p>
+          <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+            <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+            Loading…
+          </p>
 
-            <UCard v-else-if="keys.length === 0" variant="subtle">
-              <div class="flex flex-col items-center gap-3 py-6 text-center">
-                <UIcon name="i-ph-key" class="size-8 text-dimmed" />
-                <p class="text-sm text-muted">
-                  No API keys yet. Create one to let external tools authenticate with Jack.
-                </p>
-                <UButton label="Create key" icon="i-ph-plus" @click="openAdd" />
+          <UCard v-else-if="keys.length === 0" variant="subtle">
+            <div class="flex flex-col items-center gap-3 py-6 text-center">
+              <UIcon name="i-ph-key" class="size-8 text-dimmed" />
+              <p class="text-sm text-muted">
+                No API keys yet. Create one to let external tools authenticate with Jack.
+              </p>
+              <UButton label="Create key" icon="i-ph-plus" @click="openAdd" />
+            </div>
+          </UCard>
+
+          <div v-else class="space-y-2">
+            <UCard v-for="key in keys" :key="key.id" variant="subtle" :ui="{ body: 'sm:p-4' }">
+              <div class="flex items-center gap-3">
+                <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-elevated">
+                  <UIcon name="i-ph-key" class="size-4 text-muted" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-baseline gap-2">
+                    <span v-if="key.name" class="truncate font-medium text-default" :title="key.name">{{ key.name }}</span>
+                    <span v-else class="truncate font-medium text-muted">Unnamed key</span>
+                    <span class="shrink-0 font-mono text-xs text-dimmed">#{{ key.id }}</span>
+                  </div>
+                  <p class="truncate text-xs text-muted" :title="formatDate(key.createdAt)">
+                    {{ keyMeta(key) }}
+                  </p>
+                </div>
+                <UBadge v-bind="expiryInfo(key)" variant="subtle" />
+                <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit key" @click="openEdit(key)" />
+                <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Revoke key" @click="confirmTarget = key" />
               </div>
             </UCard>
-
-            <div v-else class="space-y-2">
-              <UCard v-for="key in keys" :key="key.id" variant="subtle" :ui="{ body: 'sm:p-4' }">
-                <div class="flex items-center gap-3">
-                  <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-elevated">
-                    <UIcon name="i-ph-key" class="size-4 text-muted" />
-                  </span>
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-baseline gap-2">
-                      <span v-if="key.name" class="truncate font-medium text-default" :title="key.name">{{ key.name }}</span>
-                      <span v-else class="truncate font-medium text-muted">Unnamed key</span>
-                      <span class="shrink-0 font-mono text-xs text-dimmed">#{{ key.id }}</span>
-                    </div>
-                    <p class="truncate text-xs text-muted" :title="formatDate(key.createdAt)">
-                      {{ keyMeta(key) }}
-                    </p>
-                  </div>
-                  <UBadge v-bind="expiryInfo(key)" variant="subtle" />
-                  <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit key" @click="openEdit(key)" />
-                  <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Revoke key" @click="confirmTarget = key" />
-                </div>
-              </UCard>
-            </div>
           </div>
-        </section>
+        </SettingsSection>
       </div>
     </template>
   </UDashboardPanel>
