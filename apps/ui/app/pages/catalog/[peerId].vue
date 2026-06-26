@@ -3,7 +3,8 @@ import type { CatalogRequestPayload, CatalogTitle, PeerCatalogResponse } from '~
 
 const route = useRoute()
 const peerId = computed(() => String(route.params.peerId))
-const { request } = useManagement()
+const { request, extractError } = useManagement()
+const toast = useToast()
 
 const { data, pending, error } = await useAsyncData(
   `catalog-${peerId.value}`,
@@ -22,15 +23,46 @@ const selected = ref<CatalogTitle | null>(null)
 
 const requestOpen = ref(false)
 const requestTitle = ref<CatalogTitle | null>(null)
+const requestSubmitting = ref(false)
+const requestError = ref<string | null>(null)
 
 function openRequest() {
   requestTitle.value = selected.value
+  requestError.value = null
   requestOpen.value = true
 }
 
-// Phase 5 replaces this with the POST to catalog/request.
-function onConfirm(_payload: CatalogRequestPayload) {
-  requestOpen.value = false
+async function onConfirm(payload: CatalogRequestPayload) {
+  const title = requestTitle.value
+  if (!title)
+    return
+  requestSubmitting.value = true
+  requestError.value = null
+  try {
+    await request('catalog/request', {
+      method: 'POST',
+      body: {
+        ...payload,
+        mediaType: title.mediaType,
+        tmdbId: title.tmdbId,
+        tvdbId: title.tvdbId,
+      },
+    })
+    requestOpen.value = false
+    selected.value = null
+    toast.add({
+      title: 'Added to your library',
+      description: `"${title.metadata?.title ?? title.displayTitle}" is being searched by your *arr.`,
+      color: 'success',
+      icon: 'i-ph-check-circle',
+    })
+  }
+  catch (err) {
+    requestError.value = extractError(err, 'Could not request this title.')
+  }
+  finally {
+    requestSubmitting.value = false
+  }
 }
 </script>
 
@@ -92,5 +124,11 @@ function onConfirm(_payload: CatalogRequestPayload) {
     </template>
   </USlideover>
 
-  <DownloadRequestModal v-model:open="requestOpen" :title="requestTitle" @confirm="onConfirm" />
+  <DownloadRequestModal
+    v-model:open="requestOpen"
+    :title="requestTitle"
+    :submitting="requestSubmitting"
+    :error="requestError"
+    @confirm="onConfirm"
+  />
 </template>

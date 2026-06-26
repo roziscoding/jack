@@ -42,6 +42,13 @@ const JACK_DOWNLOAD_CLIENT_PRIORITY = 50
 
 export type ReleaseKind = 'movie' | 'episode'
 
+export interface AddAndSearchParams {
+  tmdbId?: number
+  tvdbId?: number
+  qualityProfileId: number
+  rootFolderPath: string
+}
+
 export function basename(path: string): string {
   return path.split(BASENAME_SEPARATOR_REGEX).pop() ?? path
 }
@@ -188,6 +195,15 @@ export abstract class ArrServerConnector extends ServerConnector {
       .filter(f => typeof f.path === 'string')
       .map(f => ({ path: f.path, freeSpace: f.freeSpace }))
   }
+
+  /** Add a title to this *arr (monitored) and kick off an automatic search. */
+  @requiresDestination
+  @requiresInitialization
+  async addAndSearch(params: AddAndSearchParams): Promise<void> {
+    return this.doAddAndSearch(params)
+  }
+
+  protected abstract doAddAndSearch(params: AddAndSearchParams): Promise<void>
 
   /**
    * Lowercased torrent infohashes (`downloadId`s) that this *arr has finished

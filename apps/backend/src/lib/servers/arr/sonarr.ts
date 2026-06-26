@@ -1,6 +1,8 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
+import type { AddAndSearchParams } from './base'
+import { BadRequestError } from '../../errors/BadRequestError'
 import { ReleaseCategory } from '../../release'
 import { setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
@@ -162,5 +164,28 @@ export class SonarrServerConnector extends ArrServerConnector {
   protected override async doGetFilePath(id: string): Promise<string | null> {
     const bundle = await this.fetchEpisodeBundle(id)
     return bundle?.file?.path ?? null
+  }
+
+  protected override async doAddAndSearch(params: AddAndSearchParams): Promise<void> {
+    if (params.tvdbId == null)
+      throw new BadRequestError('A tvdbId is required to add a series to Sonarr')
+    const lookup = await this.arrGet<SeriesResource[]>('/api/v3/series/lookup', { term: `tvdb:${params.tvdbId}` })
+    const series = Array.isArray(lookup) ? lookup[0] : undefined
+    if (!series)
+      throw new BadRequestError(`No series found on ${this.name} for tvdbId ${params.tvdbId}`)
+
+    const body = {
+      ...series,
+      qualityProfileId: params.qualityProfileId,
+      rootFolderPath: params.rootFolderPath,
+      monitored: true,
+      seasonFolder: true,
+      addOptions: { monitor: 'all', searchForMissingEpisodes: true },
+    }
+    await this.fetch('/api/v3/series', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    } as any)
   }
 }

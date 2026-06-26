@@ -2,6 +2,7 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { TmdbClient } from '../../lib/tmdb/client'
 import type { CatalogTitle } from './catalog.lib'
+import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { groupReleasesIntoTitles, mapLimit } from './catalog.lib'
 
@@ -25,6 +26,15 @@ export interface RequestServerOption {
   mediaType: 'movie' | 'tv'
   qualityProfiles: Array<{ id: number, name: string }>
   rootFolders: Array<{ path: string, freeSpace?: number }>
+}
+
+export interface CatalogRequestInput {
+  serverId: string
+  mediaType: 'movie' | 'tv'
+  tmdbId?: number
+  tvdbId?: number
+  qualityProfileId: number
+  rootFolderPath: string
 }
 
 export class CatalogController {
@@ -89,6 +99,26 @@ export class CatalogController {
       }
     }))
     return options.filter((o): o is RequestServerOption => o !== null)
+  }
+
+  async requestDownload(input: CatalogRequestInput): Promise<{ ok: true, server: string }> {
+    const server = this.connectors.servers.find(s => s.id === input.serverId)
+    if (!server)
+      throw new NotFoundError(`No server found with id "${input.serverId}"`)
+    if (!server.canDestination)
+      throw new BadRequestError(`Server "${server.name}" is not a destination`)
+    // Defense in depth (the UI already filters): a movie must go to Radarr, tv to Sonarr.
+    const expectedType = input.mediaType === 'tv' ? 'sonarr' : 'radarr'
+    if (server.type !== expectedType)
+      throw new BadRequestError(`Server "${server.name}" cannot handle ${input.mediaType} requests`)
+
+    await server.addAndSearch({
+      tmdbId: input.tmdbId,
+      tvdbId: input.tvdbId,
+      qualityProfileId: input.qualityProfileId,
+      rootFolderPath: input.rootFolderPath,
+    })
+    return { ok: true, server: server.name }
   }
 
   async getTmdbStatus(): Promise<TmdbStatus> {

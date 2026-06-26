@@ -1,6 +1,8 @@
 import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
+import type { AddAndSearchParams } from './base'
+import { BadRequestError } from '../../errors/BadRequestError'
 import { normalizeImdbId, ReleaseCategory } from '../../release'
 import { setSpanAttribute, setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
@@ -145,5 +147,28 @@ export class RadarrServerConnector extends ArrServerConnector {
   protected override async doGetFilePath(id: string): Promise<string | null> {
     const movie = await this.getMovie(id)
     return (movie?.movieFile as MovieFileResource | undefined)?.path ?? null
+  }
+
+  protected override async doAddAndSearch(params: AddAndSearchParams): Promise<void> {
+    if (params.tmdbId == null)
+      throw new BadRequestError('A tmdbId is required to add a movie to Radarr')
+    const lookup = await this.arrGet<MovieResource[]>('/api/v3/movie/lookup', { term: `tmdb:${params.tmdbId}` })
+    const movie = Array.isArray(lookup) ? lookup[0] : undefined
+    if (!movie)
+      throw new BadRequestError(`No movie found on ${this.name} for tmdbId ${params.tmdbId}`)
+
+    const body = {
+      ...movie,
+      qualityProfileId: params.qualityProfileId,
+      rootFolderPath: params.rootFolderPath,
+      monitored: true,
+      minimumAvailability: 'released',
+      addOptions: { searchForMovie: true },
+    }
+    await this.fetch('/api/v3/movie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    } as any)
   }
 }

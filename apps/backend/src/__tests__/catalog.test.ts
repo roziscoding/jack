@@ -1,5 +1,6 @@
 import type { Release } from '../lib/release'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
+import { BadRequestError } from '../lib/errors/BadRequestError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
 import { CatalogController } from '../modules/catalog/catalog.controller'
 import { groupReleasesIntoTitles, mapLimit } from '../modules/catalog/catalog.lib'
@@ -318,6 +319,123 @@ describe('catalogController.getRequestOptions', () => {
 
     expect(options).toHaveLength(1)
     expect(options[0]!.id).toBe('radarr-ok')
+  })
+})
+
+describe('catalogController.requestDownload', () => {
+  function fakeServer(overrides: Partial<{
+    id: string
+    name: string
+    type: 'radarr' | 'sonarr'
+    canDestination: boolean
+    addAndSearch: (params: any) => Promise<void>
+  }> = {}) {
+    return {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      type: 'radarr',
+      canDestination: true,
+      addAndSearch: mock(async () => {}),
+      ...overrides,
+    }
+  }
+
+  function makeConnectors(servers: any[]) {
+    return { servers, peers: [] }
+  }
+
+  test('throws NotFoundError for an unknown serverId', () => {
+    const controller = new CatalogController(makeConnectors([]) as any)
+
+    expect(controller.requestDownload({
+      serverId: 'missing',
+      mediaType: 'movie',
+      tmdbId: 603,
+      qualityProfileId: 1,
+      rootFolderPath: '/movies',
+    })).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  test('throws BadRequestError when the server is not a destination', () => {
+    const radarr = fakeServer({ canDestination: false })
+    const controller = new CatalogController(makeConnectors([radarr]) as any)
+
+    expect(controller.requestDownload({
+      serverId: 'radarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      qualityProfileId: 1,
+      rootFolderPath: '/movies',
+    })).rejects.toBeInstanceOf(BadRequestError)
+  })
+
+  test('throws BadRequestError when a movie request targets a Sonarr server', () => {
+    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
+    const controller = new CatalogController(makeConnectors([sonarr]) as any)
+
+    expect(controller.requestDownload({
+      serverId: 'sonarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      qualityProfileId: 1,
+      rootFolderPath: '/movies',
+    })).rejects.toBeInstanceOf(BadRequestError)
+  })
+
+  test('throws BadRequestError when a tv request targets a Radarr server', () => {
+    const radarr = fakeServer()
+    const controller = new CatalogController(makeConnectors([radarr]) as any)
+
+    expect(controller.requestDownload({
+      serverId: 'radarr-1',
+      mediaType: 'tv',
+      tvdbId: 81189,
+      qualityProfileId: 1,
+      rootFolderPath: '/tv',
+    })).rejects.toBeInstanceOf(BadRequestError)
+  })
+
+  test('calls addAndSearch and returns ok for a valid matching request', async () => {
+    const radarr = fakeServer()
+    const controller = new CatalogController(makeConnectors([radarr]) as any)
+
+    const result = await controller.requestDownload({
+      serverId: 'radarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      qualityProfileId: 4,
+      rootFolderPath: '/movies',
+    })
+
+    expect(result).toEqual({ ok: true, server: 'My Radarr' })
+    expect(radarr.addAndSearch).toHaveBeenCalledTimes(1)
+    expect(radarr.addAndSearch).toHaveBeenCalledWith({
+      tmdbId: 603,
+      tvdbId: undefined,
+      qualityProfileId: 4,
+      rootFolderPath: '/movies',
+    })
+  })
+
+  test('routes a tv request to the matching Sonarr destination', async () => {
+    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
+    const controller = new CatalogController(makeConnectors([sonarr]) as any)
+
+    const result = await controller.requestDownload({
+      serverId: 'sonarr-1',
+      mediaType: 'tv',
+      tvdbId: 81189,
+      qualityProfileId: 7,
+      rootFolderPath: '/tv',
+    })
+
+    expect(result).toEqual({ ok: true, server: 'My Sonarr' })
+    expect(sonarr.addAndSearch).toHaveBeenCalledWith({
+      tmdbId: undefined,
+      tvdbId: 81189,
+      qualityProfileId: 7,
+      rootFolderPath: '/tv',
+    })
   })
 })
 
