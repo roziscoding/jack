@@ -4,11 +4,18 @@ const props = defineProps<{
   error?: string | null
 }>()
 
-// Connected → emerald; unreachable (failed to initialize, has an error) → rose;
-// still handshaking → amber. Mirrors StatusBadge's three tones.
-const tone = computed(() => (props.initialized ? 'up' : props.error ? 'down' : 'pending'))
+// Connected → success; unreachable (failed to initialize, has an error) → error;
+// still handshaking → warning. A soft halo ring gives the live console a pulse
+// without any custom CSS.
+const dot = computed(() => {
+  if (props.initialized)
+    return 'bg-success ring-success/20'
+  if (props.error)
+    return 'bg-error ring-error/20'
+  return 'bg-warning ring-warning/20'
+})
 </script>
 
 <template>
-  <span class="conn-dot" :class="`conn-dot--${tone}`" :title="error ?? undefined" />
+  <span class="size-2 shrink-0 rounded-full ring-4" :class="dot" :title="error ?? undefined" />
 </template>

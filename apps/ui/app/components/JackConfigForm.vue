@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { FormError } from '@nuxt/ui'
 import type { JackConfig, SecretRef } from '~/types/management'
 
 const props = defineProps<{
@@ -9,56 +10,50 @@ const props = defineProps<{
 const emit = defineEmits<{ submit: [JackConfig] }>()
 
 const editing = computed(() => Boolean(props.initial))
-const internalUrl = ref(props.initial?.internalUrl ?? '')
-const apiKey = ref<SecretRef | null>(props.initial?.apiKey ?? null)
+
+const state = reactive({
+  internalUrl: props.initial?.internalUrl ?? '',
+  apiKey: (props.initial?.apiKey ?? null) as SecretRef | null,
+})
 
 // internalUrl is the only required field; the Main API key is optional/clearable.
-const valid = computed(() => Boolean(internalUrl.value.trim()))
+function validate(s: typeof state): FormError[] {
+  if (!s.internalUrl.trim())
+    return [{ name: 'internalUrl', message: 'Enter the internal URL.' }]
+  return []
+}
 
-function submit() {
-  if (!valid.value)
-    return
-  const input: JackConfig = { internalUrl: internalUrl.value.trim() }
+function onSubmit() {
+  const input: JackConfig = { internalUrl: state.internalUrl.trim() }
   // SecretInput emits null when cleared → omit apiKey entirely (optional).
-  if (apiKey.value)
-    input.apiKey = apiKey.value
+  if (state.apiKey)
+    input.apiKey = state.apiKey
   emit('submit', input)
 }
 </script>
 
 <template>
-  <form class="space-y-4" @submit.prevent="submit">
-    <div>
-      <label class="mb-1 block text-sm text-slate-300">Internal URL</label>
-      <input
-        v-model="internalUrl"
-        placeholder="http://jack:5225"
-        class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
-      >
-      <p class="mt-1 text-xs text-slate-500">
-        The URL your *arr apps (Radarr/Sonarr) use to reach this Jack instance. Changes apply after the server restarts.
-      </p>
-    </div>
-    <div>
-      <label class="mb-1 block text-sm text-slate-300">
-        Main API key <span class="text-slate-600">(optional)</span>
-      </label>
-      <SecretInput v-model="apiKey" :editing="editing" />
-      <p class="mt-1 text-xs text-amber-400/80">
-        Deprecated — this single key will stop working soon. Use the API keys below instead.
-      </p>
-    </div>
+  <UForm :state="state" :validate="validate" class="space-y-4" @submit="onSubmit">
+    <UFormField
+      name="internalUrl"
+      label="Internal URL"
+      description="The URL your *arr apps (Radarr/Sonarr) use to reach this Jack instance. Changes apply after the server restarts."
+      required
+    >
+      <UInput v-model="state.internalUrl" placeholder="http://jack:5225" class="w-full" />
+    </UFormField>
 
-    <FormAlert v-if="error" :message="error" />
+    <UFormField name="apiKey" label="Main API key" hint="Optional">
+      <SecretInput v-model="state.apiKey" :editing="editing" />
+      <template #help>
+        <span class="text-warning">Deprecated — this single key will stop working soon. Use the API keys below instead.</span>
+      </template>
+    </UFormField>
+
+    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
 
     <div class="flex justify-end pt-2">
-      <button
-        type="submit"
-        :disabled="!valid || submitting"
-        class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {{ submitting ? 'Saving…' : 'Save' }}
-      </button>
+      <UButton type="submit" :loading="submitting" :label="submitting ? 'Saving…' : 'Save'" />
     </div>
-  </form>
+  </UForm>
 </template>

@@ -13,12 +13,10 @@ if (data.value)
 </script>
 
 <template>
-  <div class="min-h-screen">
-    <template v-if="state.status === 'ok'">
-      <NuxtLayout>
-        <NuxtPage />
-      </NuxtLayout>
-    </template>
+  <UApp>
+    <NuxtLayout v-if="state.status === 'ok'">
+      <NuxtPage />
+    </NuxtLayout>
     <AuthScreen v-else />
-  </div>
+  </UApp>
 </template>

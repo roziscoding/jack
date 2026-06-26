@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { BadgeProps } from '@nuxt/ui'
 import type { ApiKey, ApiKeyInput, CreatedApiKey, JackConfig } from '~/types/management'
 
 const { request, extractError } = useManagement()
@@ -43,28 +44,37 @@ const formError = ref<string | null>(null)
 
 // The one-time reveal: set after a successful create, cleared when dismissed.
 const created = ref<CreatedApiKey | null>(null)
+const createdOpen = computed({
+  get: () => created.value !== null,
+  set: (v) => {
+    if (!v)
+      dismissReveal()
+  },
+})
 const copied = ref(false)
 
 const confirmTarget = ref<ApiKey | null>(null)
 const revoking = ref(false)
 const revokeError = ref<string | null>(null)
+const confirmOpen = computed({
+  get: () => confirmTarget.value !== null,
+  set: (v) => {
+    if (!v)
+      closeConfirm()
+  },
+})
 
 // Expiration as an at-a-glance signal rather than a raw timestamp.
-function expiryInfo(key: ApiKey): { label: string, tone: 'muted' | 'warn' | 'dead' } {
+function expiryInfo(key: ApiKey): { label: string, color: BadgeProps['color'] } {
   if (!key.expiresAt)
-    return { label: 'Never expires', tone: 'muted' }
+    return { label: 'Never expires', color: 'neutral' }
   const ms = new Date(key.expiresAt).getTime() - Date.now()
   if (ms <= 0)
-    return { label: 'Expired', tone: 'dead' }
+    return { label: 'Expired', color: 'error' }
   const days = Math.ceil(ms / 86_400_000)
   if (days <= 7)
-    return { label: `Expires in ${days}d`, tone: 'warn' }
-  return { label: `Expires ${new Date(key.expiresAt).toLocaleDateString()}`, tone: 'muted' }
-}
-const toneClass: Record<'muted' | 'warn' | 'dead', string> = {
-  muted: 'text-slate-500',
-  warn: 'text-amber-300',
-  dead: 'text-rose-300',
+    return { label: `Expires in ${days}d`, color: 'warning' }
+  return { label: `Expires ${new Date(key.expiresAt).toLocaleDateString()}`, color: 'neutral' }
 }
 
 function openAdd() {
@@ -139,106 +149,113 @@ async function confirmRevoke() {
 </script>
 
 <template>
-  <div>
-    <PageHeader title="Settings" subtitle="Configure this Jack instance." />
+  <UDashboardPanel id="settings">
+    <template #header>
+      <UDashboardNavbar title="Settings">
+        <template #leading>
+          <UDashboardSidebarCollapse />
+        </template>
+      </UDashboardNavbar>
+    </template>
 
-    <section class="mb-10">
-      <div class="mb-3">
-        <h2 class="text-sm font-medium text-slate-200">
-          Jack
-        </h2>
-      </div>
-
-      <div v-if="jackLoadError" class="rounded-xl border border-rose-900/60 bg-rose-950/30 p-4 text-sm text-rose-200">
-        Failed to load the Jack config.
-      </div>
-
-      <div v-else-if="jackPending" class="text-sm text-slate-500">
-        Loading…
-      </div>
-
-      <div v-else class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-        <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed their
-             once-initialized local state from the resolved data, not a blank/null. -->
-        <JackConfigForm
-          :key="jack?.internalUrl ?? 'empty'"
-          :initial="jack"
-          :submitting="jackSubmitting"
-          :error="jackError"
-          @submit="saveJack"
-        />
-        <p v-if="jackSaved" class="mt-3 text-xs text-emerald-300">
-          Saved. Restart the server for the change to take effect.
-        </p>
-      </div>
-    </section>
-
-    <section>
-      <div class="mb-3 flex items-end justify-between gap-4">
-        <div>
-          <h2 class="text-sm font-medium text-slate-200">
-            API keys
+    <template #body>
+      <div class="space-y-10">
+        <!-- Jack -->
+        <section class="space-y-3">
+          <h2 class="text-sm font-medium text-highlighted">
+            Jack
           </h2>
-          <p class="mt-0.5 text-xs text-slate-500">
-            Keys external tools use to authenticate with Jack's API.
+
+          <UAlert v-if="jackLoadError" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the Jack config." />
+
+          <p v-else-if="jackPending" class="flex items-center gap-2 text-sm text-muted">
+            <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+            Loading…
           </p>
-        </div>
-        <button class="shrink-0 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500" @click="openAdd">
-          Create key
-        </button>
-      </div>
 
-      <div v-if="error" class="rounded-xl border border-rose-900/60 bg-rose-950/30 p-4 text-sm text-rose-200">
-        Failed to load API keys.
-      </div>
+          <UCard v-else variant="subtle">
+            <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed their
+                 once-initialized local state from the resolved data, not a blank/null. -->
+            <JackConfigForm
+              :key="jack?.internalUrl ?? 'empty'"
+              :initial="jack"
+              :submitting="jackSubmitting"
+              :error="jackError"
+              @submit="saveJack"
+            />
+            <UAlert
+              v-if="jackSaved"
+              class="mt-4"
+              color="success"
+              variant="soft"
+              icon="i-ph-check-circle"
+              title="Saved. Restart the server for the change to take effect."
+            />
+          </UCard>
+        </section>
 
-      <div v-else-if="pending" class="text-sm text-slate-500">
-        Loading…
-      </div>
-
-      <div v-else-if="keys.length === 0" class="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-sm text-slate-500">
-        No API keys yet. Create one to let external tools authenticate with Jack.
-      </div>
-
-      <div v-else class="space-y-2">
-        <div
-          v-for="key in keys"
-          :key="key.id"
-          class="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3.5"
-        >
-          <div class="flex items-center gap-3">
-            <div class="min-w-0 flex-1">
-              <div class="flex items-baseline gap-2">
-                <span v-if="key.name" class="truncate font-medium" :title="key.name">{{ key.name }}</span>
-                <span v-else class="truncate font-medium text-slate-500">Unnamed key</span>
-                <span class="shrink-0 font-mono text-xs text-slate-600">#{{ key.id }}</span>
-              </div>
-              <p v-if="key.description" class="truncate text-xs text-slate-500" :title="key.description">
-                {{ key.description }}
+        <!-- API keys -->
+        <section class="space-y-3">
+          <div class="flex items-end justify-between gap-4">
+            <div>
+              <h2 class="text-sm font-medium text-highlighted">
+                API keys
+              </h2>
+              <p class="mt-0.5 text-xs text-muted">
+                Keys external tools use to authenticate with Jack's API.
               </p>
             </div>
-            <div class="shrink-0 text-right">
-              <p class="text-xs font-medium" :class="toneClass[expiryInfo(key).tone]">
-                {{ expiryInfo(key).label }}
-              </p>
-              <p class="text-xs text-slate-600" :title="formatDate(key.createdAt)">
-                Created {{ formatAgo(key.createdAt) }} ago
-              </p>
-            </div>
-            <div class="shrink-0">
-              <button class="text-xs font-medium text-slate-400 hover:text-slate-100" @click="openEdit(key)">
-                Edit
-              </button>
-              <button class="ml-3 text-xs font-medium text-slate-400 hover:text-rose-400" @click="confirmTarget = key">
-                Revoke
-              </button>
-            </div>
+            <UButton label="Create key" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
           </div>
-        </div>
-      </div>
-    </section>
 
-    <Modal v-if="showForm" :title="editTarget ? 'Edit API key' : 'Create API key'" @close="showForm = false">
+          <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load API keys." />
+
+          <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+            <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+            Loading…
+          </p>
+
+          <UCard v-else-if="keys.length === 0" variant="subtle">
+            <div class="flex flex-col items-center gap-3 py-6 text-center">
+              <UIcon name="i-ph-key" class="size-8 text-dimmed" />
+              <p class="text-sm text-muted">
+                No API keys yet. Create one to let external tools authenticate with Jack.
+              </p>
+              <UButton label="Create key" icon="i-ph-plus" @click="openAdd" />
+            </div>
+          </UCard>
+
+          <div v-else class="space-y-2">
+            <UCard v-for="key in keys" :key="key.id" variant="subtle" :ui="{ body: 'sm:p-4' }">
+              <div class="flex items-center gap-3">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-baseline gap-2">
+                    <span v-if="key.name" class="truncate font-medium text-default" :title="key.name">{{ key.name }}</span>
+                    <span v-else class="truncate font-medium text-muted">Unnamed key</span>
+                    <span class="shrink-0 font-mono text-xs text-dimmed">#{{ key.id }}</span>
+                  </div>
+                  <p v-if="key.description" class="truncate text-xs text-muted" :title="key.description">
+                    {{ key.description }}
+                  </p>
+                </div>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <UBadge v-bind="expiryInfo(key)" variant="subtle" />
+                  <p class="text-xs text-dimmed" :title="formatDate(key.createdAt)">
+                    Created {{ formatAgo(key.createdAt) }} ago
+                  </p>
+                </div>
+                <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit key" @click="openEdit(key)" />
+                <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Revoke key" @click="confirmTarget = key" />
+              </div>
+            </UCard>
+          </div>
+        </section>
+      </div>
+    </template>
+  </UDashboardPanel>
+
+  <UModal v-model:open="showForm" :title="editTarget ? 'Edit API key' : 'Create API key'">
+    <template #body>
       <ApiKeyForm
         :initial="editTarget"
         :submitting="submitting"
@@ -246,55 +263,50 @@ async function confirmRevoke() {
         @submit="submit"
         @cancel="showForm = false"
       />
-    </Modal>
+    </template>
+  </UModal>
 
-    <Modal v-if="created" title="API key created" @close="dismissReveal">
+  <UModal v-model:open="createdOpen" title="API key created" :ui="{ footer: 'justify-end' }">
+    <template #body>
       <div class="space-y-4">
-        <div class="rounded-lg border border-amber-900/60 bg-amber-950/30 px-3.5 py-3 text-sm leading-relaxed text-amber-200">
-          Copy this key now — it's the only time it's shown. Store it somewhere safe; you won't be able to view it again.
-        </div>
+        <UAlert
+          color="warning"
+          variant="soft"
+          icon="i-ph-warning"
+          title="Copy this key now"
+          description="It's the only time it's shown. Store it somewhere safe; you won't be able to view it again."
+        />
 
-        <div>
-          <label class="mb-1 block text-sm text-slate-300">{{ created.name || 'Unnamed key' }}</label>
-          <div class="flex items-stretch gap-2">
-            <code class="min-w-0 flex-1 select-all break-all rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-emerald-300">{{ created.key }}</code>
-            <button
-              class="shrink-0 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white transition hover:bg-brand-500"
+        <UFormField :label="created?.name || 'Unnamed key'">
+          <UButtonGroup class="w-full">
+            <UInput :model-value="created?.key" readonly class="flex-1 font-mono" :ui="{ base: 'text-success' }" />
+            <UButton
+              :icon="copied ? 'i-ph-check' : 'i-ph-copy'"
+              :color="copied ? 'success' : 'neutral'"
+              variant="subtle"
+              :label="copied ? 'Copied' : 'Copy'"
               @click="copyKey"
-            >
-              {{ copied ? 'Copied' : 'Copy' }}
-            </button>
-          </div>
-        </div>
-
-        <div class="flex justify-end pt-1">
-          <button class="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-slate-700" @click="dismissReveal">
-            Done
-          </button>
-        </div>
+            />
+          </UButtonGroup>
+        </UFormField>
       </div>
-    </Modal>
+    </template>
+    <template #footer="{ close }">
+      <UButton label="Done" color="neutral" @click="close" />
+    </template>
+  </UModal>
 
-    <Modal v-if="confirmTarget" title="Revoke API key" @close="closeConfirm">
-      <p class="text-sm text-slate-300">
-        Revoke <strong>{{ confirmTarget.name || `key #${confirmTarget.id}` }}</strong>? Any tool using this key
+  <UModal v-model:open="confirmOpen" title="Revoke API key" :ui="{ footer: 'justify-end' }">
+    <template #body>
+      <p class="text-sm text-default">
+        Revoke <strong>{{ confirmTarget?.name || `key #${confirmTarget?.id}` }}</strong>? Any tool using this key
         stops working immediately. This can't be undone.
       </p>
-      <p v-if="revokeError" class="mt-3 rounded-lg border border-rose-900/60 bg-rose-950/30 p-3 text-sm text-rose-200">
-        {{ revokeError }}
-      </p>
-      <div class="mt-5 flex justify-end gap-2">
-        <button class="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-slate-100" @click="closeConfirm">
-          Cancel
-        </button>
-        <button
-          :disabled="revoking"
-          class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-50"
-          @click="confirmRevoke"
-        >
-          {{ revoking ? 'Revoking…' : 'Revoke' }}
-        </button>
-      </div>
-    </Modal>
-  </div>
+      <UAlert v-if="revokeError" class="mt-3" color="error" variant="soft" icon="i-ph-warning" :title="revokeError" />
+    </template>
+    <template #footer="{ close }">
+      <UButton label="Cancel" color="neutral" variant="ghost" @click="close" />
+      <UButton label="Revoke" color="error" :loading="revoking" @click="confirmRevoke" />
+    </template>
+  </UModal>
 </template>

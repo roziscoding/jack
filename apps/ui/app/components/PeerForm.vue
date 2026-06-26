@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { FormError } from '@nuxt/ui'
 import type { PeerInput, PeerItem, SecretRef } from '~/types/management'
 
 const props = defineProps<{
@@ -9,66 +10,67 @@ const props = defineProps<{
 const emit = defineEmits<{ submit: [PeerInput, boolean], cancel: [] }>()
 
 const editing = computed(() => Boolean(props.initial))
-const name = ref(props.initial?.name ?? '')
-const url = ref(props.initial?.url ?? '')
-const apiKey = ref<SecretRef | null>(props.initial?.apiKey ?? null)
-const headers = ref<Record<string, SecretRef>>(props.initial?.headers ?? {})
 
-const valid = computed(() => Boolean(name.value.trim() && url.value.trim() && apiKey.value))
+const state = reactive({
+  name: props.initial?.name ?? '',
+  url: props.initial?.url ?? '',
+  apiKey: (props.initial?.apiKey ?? null) as SecretRef | null,
+  headers: { ...(props.initial?.headers ?? {}) } as Record<string, SecretRef>,
+})
+
+function validate(s: typeof state): FormError[] {
+  const errors: FormError[] = []
+  if (!s.name.trim())
+    errors.push({ name: 'name', message: 'Give the peer a name.' })
+  if (!s.url.trim())
+    errors.push({ name: 'url', message: 'Enter the peer URL.' })
+  if (!s.apiKey)
+    errors.push({ name: 'apiKey', message: 'An API key is required.' })
+  return errors
+}
 
 // Set by a shift-click on the submit button (the click fires before the form's
 // submit). Enter-to-submit leaves it false → a normal, connectivity-checked save.
 const forceNext = ref(false)
-
 function onForceModifier(e: MouseEvent) {
   forceNext.value = e.shiftKey
 }
 
-function submit() {
-  if (!valid.value)
-    return
-  const input: PeerInput = { name: name.value.trim(), url: url.value.trim(), apiKey: apiKey.value! }
-  if (Object.keys(headers.value).length)
-    input.headers = headers.value
+function onSubmit() {
+  const input: PeerInput = { name: state.name.trim(), url: state.url.trim(), apiKey: state.apiKey! }
+  if (Object.keys(state.headers).length)
+    input.headers = state.headers
   emit('submit', input, forceNext.value)
   forceNext.value = false
 }
 </script>
 
 <template>
-  <form class="space-y-4" @submit.prevent="submit">
-    <div>
-      <label class="mb-1 block text-sm text-slate-300">Name</label>
-      <input v-model="name" placeholder="Friend's Jack" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500">
-    </div>
-    <div>
-      <label class="mb-1 block text-sm text-slate-300">URL</label>
-      <input v-model="url" placeholder="https://jack.friend.example" class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500">
-    </div>
-    <div>
-      <label class="mb-1 block text-sm text-slate-300">API key</label>
-      <SecretInput v-model="apiKey" :editing="editing" />
-    </div>
-    <div>
-      <label class="mb-1 block text-sm text-slate-300">Headers <span class="text-slate-600">(optional)</span></label>
-      <HeadersEditor v-model="headers" />
-    </div>
+  <UForm :state="state" :validate="validate" class="space-y-4" @submit="onSubmit">
+    <UFormField name="name" label="Name" required>
+      <UInput v-model="state.name" placeholder="Friend's Jack" class="w-full" />
+    </UFormField>
+    <UFormField name="url" label="URL" required>
+      <UInput v-model="state.url" placeholder="https://jack.friend.example" class="w-full" />
+    </UFormField>
+    <UFormField name="apiKey" label="API key" required>
+      <SecretInput v-model="state.apiKey" :editing="editing" />
+    </UFormField>
+    <UFormField label="Headers" hint="Optional">
+      <HeadersEditor v-model="state.headers" />
+    </UFormField>
 
-    <FormAlert v-if="error" :message="error" />
+    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
 
     <div class="flex justify-end gap-2 pt-2">
-      <button type="button" class="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-slate-100" @click="emit('cancel')">
-        Cancel
-      </button>
-      <button
+      <UButton label="Cancel" color="neutral" variant="ghost" @click="emit('cancel')" />
+      <UButton
         type="submit"
-        :disabled="!valid || submitting"
+        :loading="submitting"
+        :label="submitting ? 'Saving…' : 'Save'"
         title="Shift-click to save even if the peer can't be reached (it'll retry later)"
-        class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
         @click="onForceModifier"
-      >
-        {{ submitting ? 'Saving…' : 'Save' }}
-      </button>
+      />
     </div>
-  </form>
+  </UForm>
 </template>

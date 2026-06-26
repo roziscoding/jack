@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { BadgeProps } from '@nuxt/ui'
 import type { ServerInput, ServerItem } from '~/types/management'
 
 const { request, extractError } = useManagement()
@@ -14,6 +15,13 @@ const formError = ref<string | null>(null)
 const confirmTarget = ref<ServerItem | null>(null)
 const deleting = ref(false)
 const deleteError = ref<string | null>(null)
+const confirmOpen = computed({
+  get: () => confirmTarget.value !== null,
+  set: (v) => {
+    if (!v)
+      closeConfirm()
+  },
+})
 
 function closeConfirm() {
   confirmTarget.value = null
@@ -73,6 +81,14 @@ function roleLabel(server: ServerItem): string {
   return roles.length ? roles.join(' · ') : 'disabled'
 }
 
+function statusBadge(server: ServerItem): { color: BadgeProps['color'], label: string } {
+  if (server.initialized)
+    return { color: 'success', label: 'Connected' }
+  if (server.initializationError)
+    return { color: 'error', label: 'Unreachable' }
+  return { color: 'warning', label: 'Connecting' }
+}
+
 // Unreachable servers first (a broken *arr connector stops searches/imports),
 // then connecting, then healthy.
 function sortKey(server: ServerItem) {
@@ -90,87 +106,86 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
 </script>
 
 <template>
-  <div>
-    <PageHeader title="Servers" subtitle="Radarr / Sonarr instances jack reads from and pushes to.">
-      <template #actions>
-        <button class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500" @click="openAdd">
-          Add server
-        </button>
-      </template>
-    </PageHeader>
-
-    <div v-if="error" class="rounded-xl border border-rose-900/60 bg-rose-950/30 p-4 text-sm text-rose-200">
-      Failed to load servers.
-    </div>
-
-    <div v-else-if="pending" class="text-sm text-slate-500">
-      Loading…
-    </div>
-
-    <div v-else-if="data && data.servers.length === 0" class="rounded-xl border border-slate-800 bg-slate-900/40 p-8 text-center text-sm text-slate-500">
-      No servers yet. Add a Radarr or Sonarr instance for jack to read from and push to.
-    </div>
-
-    <div v-else-if="data">
-      <p class="mb-3 text-xs tabular-nums text-slate-500">
-        {{ connected }} of {{ servers.length }} connected<template v-if="unreachable">
-          · <span class="text-rose-300">{{ unreachable }} unreachable</span>
+  <UDashboardPanel id="servers">
+    <template #header>
+      <UDashboardNavbar title="Servers">
+        <template #leading>
+          <UDashboardSidebarCollapse />
         </template>
-        · {{ sources }} {{ sources === 1 ? 'source' : 'sources' }}
-        · {{ destinations }} {{ destinations === 1 ? 'destination' : 'destinations' }}
+        <template #right>
+          <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
+        </template>
+      </UDashboardNavbar>
+    </template>
+
+    <template #body>
+      <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
+
+      <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+        <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+        Loading…
       </p>
 
-      <div class="space-y-2">
-        <div
-          v-for="server in servers"
-          :key="server.id"
-          class="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3.5"
-        >
-          <div class="flex items-center gap-3">
-            <ConnDot :initialized="server.initialized" :error="server.initializationError" />
-            <div class="min-w-0 flex-1">
-              <div class="flex items-baseline gap-2">
-                <span class="truncate font-medium" :title="server.name">{{ server.name }}</span>
-                <span class="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 text-xs capitalize text-slate-400">{{ server.type }}</span>
-              </div>
-              <p class="truncate font-mono text-xs text-slate-500" :title="server.url">
-                {{ server.url }}
-              </p>
-            </div>
-            <span
-              class="shrink-0 text-xs font-medium"
-              :class="server.initialized ? 'text-emerald-400' : server.initializationError ? 'text-rose-300' : 'text-amber-300'"
-            >
-              {{ server.initialized ? 'Connected' : server.initializationError ? 'Unreachable' : 'Connecting' }}
-            </span>
-            <div class="shrink-0">
-              <button class="text-xs font-medium text-slate-400 hover:text-slate-100" @click="openEdit(server)">
-                Edit
-              </button>
-              <button class="ml-3 text-xs font-medium text-slate-400 hover:text-rose-400" @click="confirmTarget = server">
-                Remove
-              </button>
-            </div>
-          </div>
-
-          <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-[1.625rem] text-xs text-slate-500">
-            <span>{{ roleLabel(server) }}</span>
-            <span class="text-slate-700">·</span>
-            <span v-if="server.autoregister.enable">auto-registers with priority {{ server.autoregister.priority }}</span>
-            <span v-else>manual registration</span>
-          </div>
-
-          <p
-            v-if="!server.initialized && server.initializationError"
-            class="mt-2.5 rounded-lg border border-rose-900/50 bg-rose-950/30 px-3 py-2 font-mono text-xs text-rose-300"
-          >
-            {{ server.initializationError }}
+      <UCard v-else-if="data && data.servers.length === 0" variant="subtle">
+        <div class="flex flex-col items-center gap-3 py-6 text-center">
+          <UIcon name="i-ph-hard-drives" class="size-8 text-dimmed" />
+          <p class="text-sm text-muted">
+            No servers yet. Add a Radarr or Sonarr instance for jack to read from and push to.
           </p>
+          <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
+        </div>
+      </UCard>
+
+      <div v-else-if="data" class="space-y-3">
+        <p class="text-xs tabular-nums text-muted">
+          {{ connected }} of {{ servers.length }} connected<template v-if="unreachable">
+            · <span class="text-error">{{ unreachable }} unreachable</span>
+          </template>
+          · {{ sources }} {{ sources === 1 ? 'source' : 'sources' }}
+          · {{ destinations }} {{ destinations === 1 ? 'destination' : 'destinations' }}
+        </p>
+
+        <div class="space-y-2">
+          <UCard v-for="server in servers" :key="server.id" variant="subtle" :ui="{ body: 'sm:p-4' }">
+            <div class="flex items-center gap-3">
+              <ConnDot :initialized="server.initialized" :error="server.initializationError" />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline gap-2">
+                  <span class="truncate font-medium text-default" :title="server.name">{{ server.name }}</span>
+                  <UBadge color="neutral" variant="subtle" size="sm" class="capitalize" :label="server.type" />
+                </div>
+                <p class="truncate font-mono text-xs text-muted" :title="server.url">
+                  {{ server.url }}
+                </p>
+              </div>
+              <UBadge v-bind="statusBadge(server)" variant="subtle" />
+              <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit server" @click="openEdit(server)" />
+              <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Remove server" @click="confirmTarget = server" />
+            </div>
+
+            <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-xs text-muted">
+              <span>{{ roleLabel(server) }}</span>
+              <span class="text-dimmed">·</span>
+              <span v-if="server.autoregister.enable">auto-registers with priority {{ server.autoregister.priority }}</span>
+              <span v-else>manual registration</span>
+            </div>
+
+            <UAlert
+              v-if="!server.initialized && server.initializationError"
+              class="mt-3"
+              color="error"
+              variant="soft"
+              :ui="{ description: 'font-mono text-xs' }"
+              :description="server.initializationError"
+            />
+          </UCard>
         </div>
       </div>
-    </div>
+    </template>
+  </UDashboardPanel>
 
-    <Modal v-if="showForm" :title="editTarget ? 'Edit server' : 'Add server'" @close="showForm = false">
+  <UModal v-model:open="showForm" :title="editTarget ? 'Edit server' : 'Add server'">
+    <template #body>
       <ServerForm
         :initial="editTarget"
         :submitting="submitting"
@@ -178,28 +193,20 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
         @submit="submit"
         @cancel="showForm = false"
       />
-    </Modal>
+    </template>
+  </UModal>
 
-    <Modal v-if="confirmTarget" title="Remove server" @close="closeConfirm">
-      <p class="text-sm text-slate-300">
-        Remove <strong>{{ confirmTarget.name }}</strong>? jack stops reading from / pushing to it.
+  <UModal v-model:open="confirmOpen" title="Remove server" :ui="{ footer: 'justify-end' }">
+    <template #body>
+      <p class="text-sm text-default">
+        Remove <strong>{{ confirmTarget?.name }}</strong>? jack stops reading from / pushing to it.
         The indexer/client already registered inside *arr is not removed automatically.
       </p>
-      <p v-if="deleteError" class="mt-3 rounded-lg border border-rose-900/60 bg-rose-950/30 p-3 text-sm text-rose-200">
-        {{ deleteError }}
-      </p>
-      <div class="mt-5 flex justify-end gap-2">
-        <button class="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-slate-100" @click="closeConfirm">
-          Cancel
-        </button>
-        <button
-          :disabled="deleting"
-          class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-50"
-          @click="confirmDelete"
-        >
-          {{ deleting ? 'Removing…' : 'Remove' }}
-        </button>
-      </div>
-    </Modal>
-  </div>
+      <UAlert v-if="deleteError" class="mt-3" color="error" variant="soft" icon="i-ph-warning" :title="deleteError" />
+    </template>
+    <template #footer="{ close }">
+      <UButton label="Cancel" color="neutral" variant="ghost" @click="close" />
+      <UButton label="Remove" color="error" :loading="deleting" @click="confirmDelete" />
+    </template>
+  </UModal>
 </template>
