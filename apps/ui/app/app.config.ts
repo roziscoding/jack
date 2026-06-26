@@ -3,16 +3,16 @@ export default defineAppConfig({
     colors: {
       primary: 'indigo',
     },
-    // 32px side gutters on every page instead of the default 16/24px, so content
-    // has breathing room without stretching flush to the edges.
+    // Side gutters: 16px on phones (so the navbar toggle and content aren't pushed
+    // in from the edge), 32px from sm up where there's room to breathe.
     dashboardNavbar: {
       slots: {
-        root: 'px-8 sm:px-8',
+        root: 'px-4 sm:px-8',
       },
     },
     dashboardPanel: {
       slots: {
-        body: 'px-8 sm:px-8',
+        body: 'px-4 sm:px-8',
       },
     },
     icons: {
