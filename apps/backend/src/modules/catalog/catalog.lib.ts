@@ -1,4 +1,5 @@
 import type { Release } from '../../lib/release'
+import type { TmdbMetadata } from '../../lib/tmdb/client'
 import { ReleaseCategory } from '../../lib/release'
 
 export interface CatalogTitle {
@@ -12,6 +13,26 @@ export interface CatalogTitle {
   displayTitle: string
   releaseCount: number
   totalSize: number
+  metadata?: TmdbMetadata | null
+}
+
+/** Run `fn` over `items` with at most `limit` in flight; preserves order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = Array.from({ length: items.length }) as R[]
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await fn(items[index]!)
+    }
+  }
+  // Spawn each worker via its own call so they run concurrently; `.fill(worker())`
+  // would share one promise and silently collapse the pool to a single worker.
+  const workers: Array<Promise<void>> = []
+  for (let i = 0; i < Math.min(limit, items.length); i++)
+    workers.push(worker())
+  await Promise.all(workers)
+  return results
 }
 
 function mediaTypeOf(release: Release): 'movie' | 'tv' {

@@ -45,6 +45,17 @@ export interface DownloadItem {
   expectedBytesMismatch: boolean
 }
 
+export interface TmdbMetadata {
+  tmdbId: number
+  title: string
+  overview: string | null
+  year: number | null
+  rating: number | null
+  posterUrl: string | null
+  backdropUrl: string | null
+  genres: string[]
+}
+
 export interface CatalogTitle {
   key: string
   mediaType: 'movie' | 'tv'
@@ -54,6 +65,7 @@ export interface CatalogTitle {
   displayTitle: string
   releaseCount: number
   totalSize: number
+  metadata?: TmdbMetadata | null
 }
 
 export interface PeerCatalogResponse {

@@ -3,7 +3,9 @@ import type { PeerConnector } from '../../lib/servers/peer'
 import type { TmdbClient } from '../../lib/tmdb/client'
 import type { CatalogTitle } from './catalog.lib'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-import { groupReleasesIntoTitles } from './catalog.lib'
+import { groupReleasesIntoTitles, mapLimit } from './catalog.lib'
+
+const TMDB_ENRICH_CONCURRENCY = 8
 
 export interface PeerCatalogResponse {
   peer: { id: string, name: string }
@@ -32,10 +34,29 @@ export class CatalogController {
   async getPeerCatalog(peerId: string): Promise<PeerCatalogResponse> {
     const peer = this.requirePeer(peerId)
     const releases = await peer.listReleases()
+    const titles = await this.enrichTitles(groupReleasesIntoTitles(releases))
     return {
       peer: { id: peer.id, name: peer.name },
-      titles: groupReleasesIntoTitles(releases),
+      titles,
     }
+  }
+
+  private async enrichTitles(titles: CatalogTitle[]): Promise<CatalogTitle[]> {
+    if (!this.tmdb)
+      return titles
+    const tmdb = this.tmdb
+    return mapLimit(titles, TMDB_ENRICH_CONCURRENCY, async (title) => {
+      if (!title.tmdbId)
+        return title
+      try {
+        const metadata = await tmdb.getMetadata(title.mediaType, title.tmdbId)
+        return { ...title, metadata }
+      }
+      catch {
+        // Enrichment is best-effort: a failed lookup must not blank the catalog.
+        return title
+      }
+    })
   }
 
   async getTmdbStatus(): Promise<TmdbStatus> {
