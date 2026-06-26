@@ -102,23 +102,16 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <section>
-    <div class="mb-4 flex items-end justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-elevated">
-          <UIcon name="i-ph-users-three" class="size-5 text-muted" />
-        </span>
-        <div>
-          <h2 class="text-sm font-semibold text-highlighted">
-            Peers
-          </h2>
-          <p class="text-xs text-muted">
-            Other jacks this instance federates with.
-          </p>
-        </div>
-      </div>
-      <UButton label="Add peer" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
-    </div>
+  <section class="space-y-4">
+    <SectionHeader
+      icon="i-ph-users-three"
+      title="Peers"
+      description="Other jacks this instance federates with."
+    >
+      <template #action>
+        <UButton label="Add peer" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
+      </template>
+    </SectionHeader>
 
     <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
 

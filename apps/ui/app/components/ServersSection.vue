@@ -106,23 +106,16 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
 </script>
 
 <template>
-  <section>
-    <div class="mb-4 flex items-end justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-elevated">
-          <UIcon name="i-ph-hard-drives" class="size-5 text-muted" />
-        </span>
-        <div>
-          <h2 class="text-sm font-semibold text-highlighted">
-            Servers
-          </h2>
-          <p class="text-xs text-muted">
-            Radarr / Sonarr instances jack reads from and pushes to.
-          </p>
-        </div>
-      </div>
-      <UButton label="Add server" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
-    </div>
+  <section class="space-y-4">
+    <SectionHeader
+      icon="i-ph-hard-drives"
+      title="Servers"
+      description="Radarr / Sonarr instances jack reads from and pushes to."
+    >
+      <template #action>
+        <UButton label="Add server" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
+      </template>
+    </SectionHeader>
 
     <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
 
