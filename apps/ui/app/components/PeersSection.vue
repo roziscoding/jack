@@ -102,16 +102,10 @@ async function confirmDelete() {
 </script>
 
 <template>
-  <section class="space-y-4">
-    <SectionHeader
-      icon="i-ph-users-three"
-      title="Peers"
-      description="Other jacks this instance federates with."
-    >
-      <template #action>
-        <UButton label="Add peer" icon="i-ph-plus" class="shrink-0" @click="openAdd" />
-      </template>
-    </SectionHeader>
+  <SettingsSection title="Peers" description="Other jacks this instance federates with.">
+    <template #aside>
+      <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
+    </template>
 
     <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
 
@@ -155,7 +149,7 @@ async function confirmDelete() {
         </ConnectorCard>
       </div>
     </div>
-  </section>
+  </SettingsSection>
 
   <UModal v-model:open="showForm" :title="editTarget ? 'Edit peer' : 'Add peer'">
     <template #body>
