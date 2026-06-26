@@ -35,7 +35,7 @@ describe('registerManagedForDestination', () => {
   function deps(): ManagedRegistrationDeps {
     return {
       managedKeys: service,
-      baseUrl: 'http://jack:5225',
+      internalUrl: 'http://jack:5225',
       downloads: true,
       category: 'jack-srv-a',
       onSuccess: () => {},

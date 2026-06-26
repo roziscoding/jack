@@ -80,10 +80,10 @@ export interface ServerInput {
   autoregister?: { enable?: boolean, priority?: number }
 }
 
-// config.jack: baseUrl + the optional, deprecated single "Main API key".
+// config.jack: internalUrl + the optional, deprecated single "Main API key".
 // apiKey mirrors the backend RawConfigSecret ref (or null/absent when unset).
 export interface JackConfig {
-  baseUrl: string
+  internalUrl: string
   apiKey?: SecretRef | null
 }
 

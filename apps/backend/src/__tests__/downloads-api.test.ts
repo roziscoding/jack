@@ -23,7 +23,7 @@ const envs: Envs = {
 
 const config = AppConfig.parse({
   version: MIGRATIONS.length,
-  jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
+  jack: { internalUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { completedPath: '/tmp/completed' },
   servers: [],
   peers: [],

@@ -22,7 +22,7 @@ function buildApp() {
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
     version: MIGRATIONS.length,
-    jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+    jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     downloads: { completedPath: '/tmp/completed' },
     servers: [],
     peers: [],
@@ -38,7 +38,7 @@ function buildAppWithService(startResult: 'started' | 'duplicate' | 'failed' = '
   const repository = new DownloadsRepository(db)
   const config = AppConfig.parse({
     version: MIGRATIONS.length,
-    jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+    jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
     downloads: { completedPath: '/tmp/completed' },
     servers: [],
     peers: [],
@@ -114,7 +114,7 @@ describe('qBittorrent auth + app surface', () => {
     const managedKeysRepository = new ManagedKeysRepository(db)
     const config = AppConfig.parse({
       version: MIGRATIONS.length,
-      jack: { baseUrl: 'http://jack:5225', apiKey: 'test-api-key' },
+      jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
       downloads: { completedPath: '/tmp/completed' },
       servers: [],
       peers: [],

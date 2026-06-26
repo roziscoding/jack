@@ -109,7 +109,7 @@ const registrable = connectorManager.destinations.filter(d => d.isInitialized &&
 for (const dest of registrable) {
   await registerManagedForDestination(dest, {
     managedKeys: managedApiKeys,
-    baseUrl: jackConfig.baseUrl,
+    internalUrl: jackConfig.internalUrl,
     downloads: Boolean(downloads),
     category: qbCategoryForServer(dest.id),
     onSuccess: (kind, name, meta) =>

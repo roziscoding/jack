@@ -110,13 +110,13 @@ describe('migrateConfig', () => {
     const result = migrateConfig({ version: 0, foo: 'bar' })
     expect(result).toBeDefined()
     expect(result).toMatchObject({ foo: 'bar' })
-    expect(result!.version).toBe(1)
+    expect(result!.version).toBe(MIGRATIONS.length)
   })
 
   test('treats a non-numeric version as unmigrated', () => {
     const result = migrateConfig({ version: 'nope' as unknown as number }) as Record<string, unknown>
     expect(result).toBeDefined()
-    expect(result.version).toBe(1)
+    expect(result.version).toBe(MIGRATIONS.length)
   })
 
   test('returns undefined when already at the latest version', () => {
@@ -126,7 +126,7 @@ describe('migrateConfig', () => {
 
   test('returns undefined when the version is ahead of the known migrations', () => {
     const result = migrateConfig({ version: MIGRATIONS.length + 5 })
-    expect(result).toMatchObject({ version: 1 })
+    expect(result).toMatchObject({ version: MIGRATIONS.length })
   })
 
   test('applies only the migrations newer than the current version', () => {

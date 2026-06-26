@@ -110,7 +110,7 @@ afterAll(() => server.close())
 
 const config = AppConfig.parse({
   version: MIGRATIONS.length,
-  jack: { baseUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
+  jack: { internalUrl: 'http://localhost:3000', apiKey: 'test-api-key' },
   downloads: { completedPath: '/tmp/jack-test-completed' },
   servers: [],
   peers: [],
@@ -335,7 +335,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     await radarr.registerIndexer({
       name: 'Jack',
-      baseUrl: 'http://localhost:3000/torznab',
+      internalUrl: 'http://localhost:3000/torznab',
       apiKey: 'test-api-key',
       priority: 1,
       categories: [2000],
@@ -355,7 +355,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     await radarr.registerIndexer({
       name: 'Jack',
-      baseUrl: 'http://localhost:3000/torznab',
+      internalUrl: 'http://localhost:3000/torznab',
       apiKey: 'test-api-key',
       priority: 1,
       categories: [2000],
@@ -377,7 +377,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     await radarr.registerIndexer({
       name: 'Jack',
-      baseUrl: 'http://localhost:3000/torznab',
+      internalUrl: 'http://localhost:3000/torznab',
       apiKey: 'test-api-key',
       priority: 1,
       categories: [2000],
@@ -390,7 +390,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr({ source: true, destination: false }))
     await expect(radarr.registerIndexer({
       name: 'Jack',
-      baseUrl: 'http://localhost:3000/torznab',
+      internalUrl: 'http://localhost:3000/torznab',
       apiKey: 'test-api-key',
       priority: 1,
       categories: [2000],
@@ -407,7 +407,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     await expect(radarr.registerIndexer({
       name: 'Jack',
-      baseUrl: 'http://localhost:3000/torznab',
+      internalUrl: 'http://localhost:3000/torznab',
       apiKey: 'test-api-key',
       priority: 1,
       categories: [2000],
@@ -426,7 +426,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     const id = await radarr.registerDownloadClient({
       name: 'Jack',
-      baseUrl: 'http://jack:5225',
+      internalUrl: 'http://jack:5225',
       username: 'My Radarr',
       password: 'secret',
       category: 'jack-abc',
@@ -462,7 +462,7 @@ describe('Auto-registration', () => {
     const sonarr = markInitialized(makeSonarr())
     const id = await sonarr.registerDownloadClient({
       name: 'Jack',
-      baseUrl: 'http://jack:5225',
+      internalUrl: 'http://jack:5225',
       username: 'My Sonarr',
       password: 'secret',
       category: 'jack-def',
@@ -490,7 +490,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     const id = await radarr.registerDownloadClient({
       name: 'Jack',
-      baseUrl: 'http://jack:5225',
+      internalUrl: 'http://jack:5225',
       username: 'My Radarr',
       password: 'secret',
       category: 'jack-abc',
@@ -516,7 +516,7 @@ describe('Auto-registration', () => {
     const radarr = markInitialized(makeRadarr())
     const id = await radarr.registerDownloadClient({
       name: 'Jack',
-      baseUrl: 'http://jack:5225',
+      internalUrl: 'http://jack:5225',
       username: 'My Radarr',
       password: 'secret',
       category: 'jack-abc',

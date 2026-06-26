@@ -8,7 +8,7 @@ export interface ManagedRegistrationMeta {
 
 export interface ManagedRegistrationDeps {
   managedKeys: ManagedApiKeys
-  baseUrl: string
+  internalUrl: string
   downloads: boolean
   category: string
   onSuccess: (kind: 'download client' | 'indexer', name: string, meta: ManagedRegistrationMeta) => void
@@ -27,7 +27,7 @@ export async function registerManagedForDestination(
   dest: ArrServerConnector,
   deps: ManagedRegistrationDeps,
 ): Promise<void> {
-  const { managedKeys, baseUrl, downloads, category } = deps
+  const { managedKeys, internalUrl, downloads, category } = deps
   const { id: keyId, key } = managedKeys.provision(dest.id)
 
   let downloadClientId: number | undefined
@@ -36,7 +36,7 @@ export async function registerManagedForDestination(
     try {
       downloadClientId = await dest.registerDownloadClient({
         name: 'Jack',
-        baseUrl,
+        internalUrl,
         username: dest.name,
         password: key,
         category,
@@ -53,7 +53,7 @@ export async function registerManagedForDestination(
   try {
     await dest.registerIndexer({
       name: 'Jack',
-      baseUrl: `${baseUrl}/torznab`,
+      internalUrl: `${internalUrl}/torznab`,
       apiKey: key,
       priority: dest.autoRegister.priority,
       categories: dest.categories,

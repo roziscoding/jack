@@ -21,21 +21,21 @@ export interface TorznabItem {
   peerName?: string
 }
 
-function buildDownloadUrl(baseUrl: string, guid: string, apiKey: string): string {
-  const trimmedBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-  const url = new URL(`${trimmedBaseUrl}/torznab/download/${encodeURIComponent(guid)}.torrent`)
+function buildDownloadUrl(internalUrl: string, guid: string, apiKey: string): string {
+  const trimmedInternalUrl = internalUrl.endsWith('/') ? internalUrl.slice(0, -1) : internalUrl
+  const url = new URL(`${trimmedInternalUrl}/torznab/download/${encodeURIComponent(guid)}.torrent`)
   url.searchParams.set('apikey', apiKey)
   return url.toString()
 }
 
-export function releaseToTorznab(release: Release, peerId: string, peerName: string | undefined, baseUrl: string, apiKey: string): TorznabItem {
+export function releaseToTorznab(release: Release, peerId: string, peerName: string | undefined, internalUrl: string, apiKey: string): TorznabItem {
   const guid = `${peerId}:${release.id}`
 
   return {
     title: release.title,
     guid,
     size: release.size,
-    downloadUrl: buildDownloadUrl(baseUrl, guid, apiKey),
+    downloadUrl: buildDownloadUrl(internalUrl, guid, apiKey),
     category: release.category,
     imdbId: release.imdbId,
     tmdbId: release.tmdbId,
@@ -80,7 +80,7 @@ export class TorznabController {
             }, async (peerSpan) => {
               const releases = await search(peer)
               setSpanAttribute(peerSpan, 'release.count', releases.length)
-              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.baseUrl, this.jackConfig.apiKey ?? ''))
+              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.internalUrl, this.jackConfig.apiKey ?? ''))
             })
           }
           catch (err) {

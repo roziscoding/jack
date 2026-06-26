@@ -46,7 +46,7 @@ export function getConfigRouter(controller: ConfigController) {
     })
 
     // jack has no connectivity check (boot-captured) → a successful PATCH just
-    // persists; baseUrl is required, apiKey optional (RawJackConfig).
+    // persists; internalUrl is required, apiKey optional (RawJackConfig).
     app.patch('/jack', zValidator('json', RawJackConfig), async (c) => {
       return c.json(await controller.updateJack(c.req.valid('json')))
     })

@@ -9,16 +9,16 @@ const props = defineProps<{
 const emit = defineEmits<{ submit: [JackConfig] }>()
 
 const editing = computed(() => Boolean(props.initial))
-const baseUrl = ref(props.initial?.baseUrl ?? '')
+const internalUrl = ref(props.initial?.internalUrl ?? '')
 const apiKey = ref<SecretRef | null>(props.initial?.apiKey ?? null)
 
-// baseUrl is the only required field; the Main API key is optional/clearable.
-const valid = computed(() => Boolean(baseUrl.value.trim()))
+// internalUrl is the only required field; the Main API key is optional/clearable.
+const valid = computed(() => Boolean(internalUrl.value.trim()))
 
 function submit() {
   if (!valid.value)
     return
-  const input: JackConfig = { baseUrl: baseUrl.value.trim() }
+  const input: JackConfig = { internalUrl: internalUrl.value.trim() }
   // SecretInput emits null when cleared → omit apiKey entirely (optional).
   if (apiKey.value)
     input.apiKey = apiKey.value
@@ -29,9 +29,9 @@ function submit() {
 <template>
   <form class="space-y-4" @submit.prevent="submit">
     <div>
-      <label class="mb-1 block text-sm text-slate-300">Base URL</label>
+      <label class="mb-1 block text-sm text-slate-300">Internal URL <span class="text-slate-600">(how *arr reaches Jack)</span></label>
       <input
-        v-model="baseUrl"
+        v-model="internalUrl"
         placeholder="http://jack:5225"
         class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-brand-500"
       >

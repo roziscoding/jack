@@ -148,7 +148,7 @@ async function confirmRevoke() {
           Jack
         </h2>
         <p class="mt-0.5 text-xs text-slate-500">
-          How this instance reaches the Jack backend. Changes apply after the server restarts.
+          The URL your *arr apps (Radarr/Sonarr) use to reach this Jack instance. Changes apply after the server restarts.
         </p>
       </div>
 
@@ -161,10 +161,10 @@ async function confirmRevoke() {
       </div>
 
       <div v-else class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-        <!-- Re-key on the loaded baseUrl so the form (and SecretInput) seed their
+        <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed their
              once-initialized local state from the resolved data, not a blank/null. -->
         <JackConfigForm
-          :key="jack?.baseUrl ?? 'empty'"
+          :key="jack?.internalUrl ?? 'empty'"
           :initial="jack"
           :submitting="jackSubmitting"
           :error="jackError"
