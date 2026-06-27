@@ -20,16 +20,6 @@ const titles = computed(() => {
   return typeFilter.value === 'all' ? all : all.filter(t => t.mediaType === typeFilter.value)
 })
 
-// Paginate so only the current page's cards mount — that bounds how many TMDB
-// lookups fire at once (each card fetches its own metadata on mount).
-const PAGE_SIZE = 48
-const page = ref(1)
-const pagedTitles = computed(() => titles.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
-// Jump back to the first page whenever the filter narrows the list.
-watch(typeFilter, () => {
-  page.value = 1
-})
-
 function titleName(title: CatalogTitle): string {
   return entryFor(title)?.data?.title ?? title.metadata?.title ?? title.displayTitle
 }
@@ -119,20 +109,17 @@ async function onConfirm(payload: CatalogRequestPayload) {
         </div>
       </UCard>
 
-      <template v-else>
-        <div class="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-          <CatalogPosterCard
-            v-for="title in pagedTitles"
-            :key="title.key"
-            :title="title"
-            @select="selected = title"
-          />
-        </div>
-
-        <div v-if="titles.length > PAGE_SIZE" class="mt-6 flex justify-center">
-          <UPagination v-model:page="page" :total="titles.length" :items-per-page="PAGE_SIZE" />
-        </div>
-      </template>
+      <div
+        v-else
+        class="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]"
+      >
+        <CatalogPosterCard
+          v-for="title in titles"
+          :key="title.key"
+          :title="title"
+          @select="selected = title"
+        />
+      </div>
     </template>
   </UDashboardPanel>
 

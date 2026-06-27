@@ -8,6 +8,13 @@ const { load, entryFor } = useCatalogMetadata()
 // Reuse the cache the grid populated; load() is a no-op if the card already fetched it.
 const meta = computed(() => entryFor(props.title)?.data ?? props.title.metadata ?? null)
 const name = computed(() => meta.value?.title ?? props.title.displayTitle)
+// Prefer the wide backdrop, fall back to the poster — covers titles with only one
+// image and transient TMDB load failures (the poster is usually already cached by
+// the card). Null once both fail, so the box is hidden rather than left blank.
+const { src: heroImage, onError: onHeroError } = useFallbackImage(() => [
+  meta.value?.backdropUrl,
+  meta.value?.posterUrl,
+])
 
 onMounted(() => load(props.title))
 const canRequest = computed(() => props.title.mediaType === 'tv'
@@ -17,8 +24,8 @@ const canRequest = computed(() => props.title.mediaType === 'tv'
 
 <template>
   <div class="space-y-4">
-    <div v-if="meta?.backdropUrl" class="aspect-video overflow-hidden rounded-lg bg-muted">
-      <img :src="meta.backdropUrl" :alt="name" class="size-full object-cover">
+    <div v-if="heroImage" class="aspect-video overflow-hidden rounded-lg bg-muted">
+      <img :src="heroImage" :alt="name" class="size-full object-cover" @error="onHeroError">
     </div>
 
     <div class="flex items-baseline gap-2">
