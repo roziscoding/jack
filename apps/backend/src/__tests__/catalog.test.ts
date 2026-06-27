@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { BadRequestError } from '../lib/errors/BadRequestError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
 import { CatalogController } from '../modules/catalog/catalog.controller'
-import { groupReleasesIntoTitles, pickBestPerEpisode, pickBestRelease } from '../modules/catalog/catalog.lib'
+import { groupReleasesIntoUnifiedTitles, pickBestPerEpisode, pickBestRelease } from '../modules/catalog/catalog.lib'
 
 function movie(overrides: Partial<Release> = {}): Release {
   return {
@@ -27,69 +27,60 @@ function episode(overrides: Partial<Release> = {}): Release {
   }
 }
 
-describe('groupReleasesIntoTitles', () => {
-  test('groups movie + tv releases by their strong ids', () => {
-    const releases: Release[] = [
-      movie({ tmdbId: 603, size: 100 }),
-      movie({ tmdbId: 603, size: 200, quality: { resolution: 1080 } }),
-      movie({ tmdbId: 603, size: 300, quality: { resolution: 2160 } }),
-      episode({ tvdbId: 1396, seriesTitle: 'Breaking Bad', size: 50 }),
-      episode({ tvdbId: 1396, seriesTitle: 'Breaking Bad', size: 60 }),
-    ]
-
-    const titles = groupReleasesIntoTitles(releases)
-
-    expect(titles).toHaveLength(2)
-
-    const movieTitle = titles.find(t => t.mediaType === 'movie')
-    expect(movieTitle).toBeDefined()
-    expect(movieTitle!.tmdbId).toBe(603)
-    expect(movieTitle!.releaseCount).toBe(3)
-    expect(movieTitle!.totalSize).toBe(600)
-
-    const tvTitle = titles.find(t => t.mediaType === 'tv')
-    expect(tvTitle).toBeDefined()
-    expect(tvTitle!.tvdbId).toBe(1396)
-    expect(tvTitle!.releaseCount).toBe(2)
-    expect(tvTitle!.totalSize).toBe(110)
-    expect(tvTitle!.displayTitle).toBe('Breaking Bad')
-  })
-
-  test('collapses id-less movies with the same title into one name-keyed entry', () => {
-    const releases: Release[] = [
-      movie({ title: 'Foo.2024', size: 100 }),
-      movie({ title: 'Foo.2024', size: 200 }),
-    ]
-
-    const titles = groupReleasesIntoTitles(releases)
+describe('groupReleasesIntoUnifiedTitles', () => {
+  test('unifies the same movie across two peers into one title with per-peer buckets', () => {
+    const titles = groupReleasesIntoUnifiedTitles([
+      { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ tmdbId: 603, size: 100 })] },
+      { peer: { id: 'p2', name: 'Beta' }, releases: [movie({ tmdbId: 603, size: 200 })] },
+    ])
 
     expect(titles).toHaveLength(1)
+    expect(titles[0]!.tmdbId).toBe(603)
     expect(titles[0]!.releaseCount).toBe(2)
     expect(titles[0]!.totalSize).toBe(300)
-    expect(titles[0]!.key).toContain('name:')
+    expect(titles[0]!.peers).toHaveLength(2)
+
+    const alpha = titles[0]!.peers.find(p => p.id === 'p1')!
+    expect(alpha.name).toBe('Alpha')
+    expect(alpha.releaseCount).toBe(1)
+    expect(alpha.totalSize).toBe(100)
   })
 
-  test('aliases an id-less tv release into the strong-id bucket of the same series', () => {
-    const releases: Release[] = [
-      episode({ seriesTitle: 'Some Show', size: 50 }),
-      episode({ seriesTitle: 'Some Show', tvdbId: 999, size: 60 }),
-    ]
+  test('preserves per-release detail in each peer bucket', () => {
+    const titles = groupReleasesIntoUnifiedTitles([
+      { peer: { id: 'p1', name: 'Alpha' }, releases: [
+        episode({ id: 'ep:1', tvdbId: 1396, seriesTitle: 'Breaking Bad', season: 1, episode: 1, size: 50, quality: { resolution: 1080 } }),
+      ] },
+    ])
 
-    const titles = groupReleasesIntoTitles(releases)
+    const bucket = titles[0]!.peers[0]!
+    expect(bucket.releases).toHaveLength(1)
+    expect(bucket.releases[0]).toMatchObject({
+      id: 'ep:1',
+      filename: 'Show.S01E01.1080p.mkv',
+      size: 50,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+    })
+  })
+
+  test('collapses an id-less release on one peer into the strong-id bucket from another peer', () => {
+    const titles = groupReleasesIntoUnifiedTitles([
+      { peer: { id: 'p1', name: 'Alpha' }, releases: [episode({ seriesTitle: 'Some Show', size: 50 })] },
+      { peer: { id: 'p2', name: 'Beta' }, releases: [episode({ seriesTitle: 'Some Show', tvdbId: 999, size: 60 })] },
+    ])
 
     expect(titles).toHaveLength(1)
-    expect(titles[0]!.releaseCount).toBe(2)
     expect(titles[0]!.tvdbId).toBe(999)
     expect(titles[0]!.key).toContain('id:999')
+    expect(titles[0]!.peers.map(p => p.id).sort()).toEqual(['p1', 'p2'])
   })
 
-  test('sorts titles by display title', () => {
-    const releases: Release[] = [
-      movie({ title: 'Zebra', tmdbId: 1 }),
-      movie({ title: 'Apple', tmdbId: 2 }),
-    ]
-
-    const titles = groupReleasesIntoTitles(releases)
+  test('sorts unified titles by display title', () => {
+    const titles = groupReleasesIntoUnifiedTitles([
+      { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ title: 'Zebra', tmdbId: 1 }), movie({ title: 'Apple', tmdbId: 2 })] },
+    ])
 
     expect(titles.map(t => t.displayTitle)).toEqual(['Apple', 'Zebra'])
   })
@@ -133,51 +124,52 @@ describe('pickBestPerEpisode', () => {
   })
 })
 
-describe('catalogController', () => {
+describe('catalogController.getCatalog', () => {
   function makeConnectors(peers: any[]) {
     return { servers: [], peers }
   }
 
-  test('returns the peer and its grouped titles', async () => {
-    const peer = {
-      id: 'peer-1',
-      name: 'Friend Jack',
-      listReleases: async () => [movie({ tmdbId: 603 }), movie({ tmdbId: 603 })],
-    }
-    const controller = new CatalogController(makeConnectors([peer]) as any)
+  test('aggregates the same title across two initialized peers', async () => {
+    const p1 = { id: 'p1', name: 'Alpha', isInitialized: true, listReleases: async () => [movie({ tmdbId: 603, size: 100 })] }
+    const p2 = { id: 'p2', name: 'Beta', isInitialized: true, listReleases: async () => [movie({ tmdbId: 603, size: 200 })] }
+    const controller = new CatalogController(makeConnectors([p1, p2]) as any)
 
-    const result = await controller.getPeerCatalog('peer-1')
+    const result = await controller.getCatalog()
 
-    expect(result.peer).toEqual({ id: 'peer-1', name: 'Friend Jack' })
+    expect(result.peers).toEqual([{ id: 'p1', name: 'Alpha' }, { id: 'p2', name: 'Beta' }])
     expect(result.titles).toHaveLength(1)
     expect(result.titles[0]!.releaseCount).toBe(2)
+    expect(result.titles[0]!.peers).toHaveLength(2)
   })
 
-  test('throws NotFoundError for an unknown peer id', () => {
-    const controller = new CatalogController(makeConnectors([]) as any)
-
-    expect(controller.getPeerCatalog('missing')).rejects.toBeInstanceOf(NotFoundError)
-  })
-})
-
-describe('catalogController.getPeerCatalog metadata', () => {
-  function makeConnectors(peers: any[]) {
-    return { servers: [], peers }
-  }
-
-  test('returns titles unenriched and makes no TMDB calls', async () => {
-    const getMetadata = mock(async () => ({ title: 'Should not be called' }))
-    const peer = {
-      id: 'peer-1',
-      name: 'Friend Jack',
-      listReleases: async () => [movie({ tmdbId: 603 })],
+  test('skips a peer whose listReleases rejects but keeps the rest', async () => {
+    const broken = {
+      id: 'p1',
+      name: 'Broken',
+      isInitialized: true,
+      listReleases: async () => {
+        throw new Error('unreachable')
+      },
     }
-    const controller = new CatalogController(makeConnectors([peer]) as any, { getMetadata } as any)
+    const healthy = { id: 'p2', name: 'Healthy', isInitialized: true, listReleases: async () => [movie({ tmdbId: 603 })] }
+    const controller = new CatalogController(makeConnectors([broken, healthy]) as any)
 
-    const result = await controller.getPeerCatalog('peer-1')
+    const result = await controller.getCatalog()
 
-    expect(result.titles[0]!.metadata).toBeUndefined()
-    expect(getMetadata).not.toHaveBeenCalled()
+    expect(result.peers).toEqual([{ id: 'p2', name: 'Healthy' }])
+    expect(result.titles).toHaveLength(1)
+  })
+
+  test('does not query uninitialized peers', async () => {
+    const called = mock(async () => [movie({ tmdbId: 603 })])
+    const peer = { id: 'p1', name: 'Offline', isInitialized: false, listReleases: called }
+    const controller = new CatalogController(makeConnectors([peer]) as any)
+
+    const result = await controller.getCatalog()
+
+    expect(called).not.toHaveBeenCalled()
+    expect(result.peers).toEqual([])
+    expect(result.titles).toEqual([])
   })
 })
 

@@ -2,14 +2,15 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { TmdbClient, TmdbMediaType, TmdbMetadata } from '../../lib/tmdb/client'
 import type { DownloadsService } from '../downloads/downloads.service'
-import type { CatalogTitle } from './catalog.lib'
+import type { PeerReleases, UnifiedCatalogTitle } from './catalog.lib'
 import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-import { groupReleasesIntoTitles, pickBestPerEpisode, pickBestRelease } from './catalog.lib'
+import { groupReleasesIntoUnifiedTitles, pickBestPerEpisode, pickBestRelease } from './catalog.lib'
 
-export interface PeerCatalogResponse {
-  peer: { id: string, name: string }
-  titles: CatalogTitle[]
+export interface CatalogResponse {
+  // Peers that responded and contributed to this catalog.
+  peers: Array<{ id: string, name: string }>
+  titles: UnifiedCatalogTitle[]
 }
 
 export interface TmdbStatus {
@@ -49,15 +50,23 @@ export class CatalogController {
     return peer
   }
 
-  async getPeerCatalog(peerId: string): Promise<PeerCatalogResponse> {
-    const peer = this.requirePeer(peerId)
-    const releases = await peer.listReleases()
-    // Return titles immediately, unenriched. TMDB lookups are driven per-title by
-    // the client (see getTitleMetadata) so the catalog renders without waiting on
-    // hundreds of upstream round-trips.
+  async getCatalog(): Promise<CatalogResponse> {
+    // Fan out to every initialized peer. A peer that can't serve its catalog is
+    // skipped (partial results) rather than failing the whole aggregate.
+    const peers = this.connectors.peers.filter(p => p.isInitialized)
+    const results = await Promise.all(peers.map(async (peer): Promise<PeerReleases | null> => {
+      try {
+        const releases = await peer.listReleases()
+        return { peer: { id: peer.id, name: peer.name }, releases }
+      }
+      catch {
+        return null
+      }
+    }))
+    const responded = results.filter((r): r is PeerReleases => r !== null)
     return {
-      peer: { id: peer.id, name: peer.name },
-      titles: groupReleasesIntoTitles(releases),
+      peers: responded.map(r => r.peer),
+      titles: groupReleasesIntoUnifiedTitles(responded),
     }
   }
 
