@@ -321,11 +321,15 @@ describe('catalogController.requestDownload', () => {
     }
   }
 
-  function fakePeer(overrides: Partial<{ searchByTmdbId: (tmdbId: string) => Promise<Release[]> }> = {}) {
+  function fakePeer(overrides: Partial<{
+    searchByTmdbId: (tmdbId: string) => Promise<Release[]>
+    searchByTvdbId: (tvdbId: string) => Promise<Release[]>
+  }> = {}) {
     return {
       id: 'peer-1',
       name: 'Friend Jack',
       searchByTmdbId: overrides.searchByTmdbId ?? mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]),
+      searchByTvdbId: overrides.searchByTvdbId ?? mock(async () => [episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 } })]),
     }
   }
 
@@ -390,7 +394,7 @@ describe('catalogController.requestDownload', () => {
     })).rejects.toBeInstanceOf(BadRequestError)
   })
 
-  test('throws BadRequestError for a tv request (not supported until Phase 2)', () => {
+  test('throws BadRequestError when a tv request has no tvdbId', () => {
     const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
     const controller = new CatalogController(makeConnectors([sonarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
 
@@ -398,7 +402,6 @@ describe('catalogController.requestDownload', () => {
       peerId: 'peer-1',
       serverId: 'sonarr-1',
       mediaType: 'tv',
-      tvdbId: 81189,
       rootFolderPath: '/tv',
     })).rejects.toBeInstanceOf(BadRequestError)
   })
@@ -441,6 +444,56 @@ describe('catalogController.requestDownload', () => {
       itemId: 'rel:best',
       destinationServerName: 'My Radarr',
       importTarget: { kind: 'movie', movieId: 123 },
+    })
+  })
+
+  test('throws NotFoundError when the peer has no episodes for the tvdbId, and does not add', async () => {
+    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
+    const peer = fakePeer({ searchByTvdbId: mock(async () => []) })
+    const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, fakeDownloads() as any)
+
+    await expect(controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'sonarr-1',
+      mediaType: 'tv',
+      tvdbId: 81189,
+      rootFolderPath: '/tv',
+    })).rejects.toBeInstanceOf(NotFoundError)
+    expect(sonarr.add).not.toHaveBeenCalled()
+  })
+
+  test('adds the series without search and starts a direct download for the best release per episode', async () => {
+    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
+    const ep1a = episode({ id: 'ep:1a', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 720 }, size: 50 })
+    const ep1b = episode({ id: 'ep:1b', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
+    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
+    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1a, ep1b, ep2]) })
+    const downloads = fakeDownloads()
+    const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, downloads as any)
+
+    const result = await controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'sonarr-1',
+      mediaType: 'tv',
+      tvdbId: 81189,
+      rootFolderPath: '/tv',
+    })
+
+    expect(result).toEqual({ ok: true, server: 'My Sonarr', started: 2 })
+    expect(sonarr.add).toHaveBeenCalledTimes(1)
+    expect(sonarr.add).toHaveBeenCalledWith({ tvdbId: 81189, rootFolderPath: '/tv' })
+    expect(downloads.startDirectDownload).toHaveBeenCalledTimes(2)
+    expect(downloads.startDirectDownload).toHaveBeenCalledWith({
+      peerId: 'peer-1',
+      itemId: 'ep:1b',
+      destinationServerName: 'My Sonarr',
+      importTarget: { kind: 'series', seriesId: 55 },
+    })
+    expect(downloads.startDirectDownload).toHaveBeenCalledWith({
+      peerId: 'peer-1',
+      itemId: 'ep:2',
+      destinationServerName: 'My Sonarr',
+      importTarget: { kind: 'series', seriesId: 55 },
     })
   })
 })

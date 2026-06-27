@@ -46,6 +46,9 @@ const canRequest = computed(() => props.title.mediaType === 'tv'
     <p class="text-xs text-muted">
       {{ title.releaseCount }} release{{ title.releaseCount === 1 ? '' : 's' }} on this peer · {{ formatBytes(title.totalSize) }}
     </p>
+    <p v-if="title.mediaType === 'tv'" class="text-xs text-muted">
+      Downloads every available episode from this peer.
+    </p>
 
     <UTooltip :disabled="canRequest" text="This title has no matching id to request">
       <UButton

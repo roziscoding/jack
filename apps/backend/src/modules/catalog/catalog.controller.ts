@@ -5,7 +5,7 @@ import type { DownloadsService } from '../downloads/downloads.service'
 import type { CatalogTitle } from './catalog.lib'
 import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-import { groupReleasesIntoTitles, pickBestRelease } from './catalog.lib'
+import { groupReleasesIntoTitles, pickBestPerEpisode, pickBestRelease } from './catalog.lib'
 
 export interface PeerCatalogResponse {
   peer: { id: string, name: string }
@@ -106,24 +106,43 @@ export class CatalogController {
 
     const peer = this.requirePeer(input.peerId)
 
-    if (input.mediaType !== 'movie')
-      throw new BadRequestError('TV requests are not supported yet') // implemented in Phase 2
+    if (input.mediaType === 'movie') {
+      if (input.tmdbId == null)
+        throw new BadRequestError('A tmdbId is required for a movie request')
+      const releases = await peer.searchByTmdbId(String(input.tmdbId))
+      const best = pickBestRelease(releases)
+      if (!best)
+        throw new NotFoundError(`Peer "${peer.name}" has no release for tmdbId ${input.tmdbId}`)
 
-    if (input.tmdbId == null)
-      throw new BadRequestError('A tmdbId is required for a movie request')
-    const releases = await peer.searchByTmdbId(String(input.tmdbId))
-    const best = pickBestRelease(releases)
-    if (!best)
-      throw new NotFoundError(`Peer "${peer.name}" has no release for tmdbId ${input.tmdbId}`)
+      const movieId = await server.add({ tmdbId: input.tmdbId, rootFolderPath: input.rootFolderPath })
+      await this.downloads.startDirectDownload({
+        peerId: peer.id,
+        itemId: best.id,
+        destinationServerName: server.name,
+        importTarget: { kind: 'movie', movieId },
+      })
+      return { ok: true, server: server.name, started: 1 }
+    }
 
-    const movieId = await server.add({ tmdbId: input.tmdbId, rootFolderPath: input.rootFolderPath })
-    await this.downloads.startDirectDownload({
-      peerId: peer.id,
-      itemId: best.id,
-      destinationServerName: server.name,
-      importTarget: { kind: 'movie', movieId },
-    })
-    return { ok: true, server: server.name, started: 1 }
+    // --- series (tv): one direct download per best-per-episode release, all bound
+    // to the same series so the watcher imports each file into the right show. ---
+    if (input.tvdbId == null)
+      throw new BadRequestError('A tvdbId is required for a series request')
+    const episodeReleases = await peer.searchByTvdbId(String(input.tvdbId))
+    const best = pickBestPerEpisode(episodeReleases)
+    if (best.length === 0)
+      throw new NotFoundError(`Peer "${peer.name}" has no episodes for tvdbId ${input.tvdbId}`)
+
+    const seriesId = await server.add({ tvdbId: input.tvdbId, rootFolderPath: input.rootFolderPath })
+    for (const release of best) {
+      await this.downloads.startDirectDownload({
+        peerId: peer.id,
+        itemId: release.id,
+        destinationServerName: server.name,
+        importTarget: { kind: 'series', seriesId },
+      })
+    }
+    return { ok: true, server: server.name, started: best.length }
   }
 
   async getTmdbStatus(): Promise<TmdbStatus> {
