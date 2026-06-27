@@ -34,10 +34,6 @@ export const DestinationServerHealthIssue = z.array(
 // the auto-registered indexer to it.
 const DownloadClientResource = z.object({ id: z.number().int() })
 
-// *arr returns the saved custom format / quality profile on create; we only need
-// its id (to score the format and to force the profile on catalog downloads).
-const CreatedResourceId = z.object({ id: z.number().int() })
-
 // Register the Jack client at *arr's lowest selectable priority (the UI caps it
 // at 50). *arr's general client pool only round-robins among the best-priority
 // group, so a worst-priority Jack client is never picked for real torrents from
@@ -197,103 +193,6 @@ export abstract class ArrServerConnector extends ServerConnector {
   @requiresInitialization
   async getHealthIssues() {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
-  }
-
-  /**
-   * Upsert a custom format named "Jack" that matches *arr's Internal indexer flag
-   * (which jack emits as `tag=internal` on its Torznab items). Returns the format id.
-   */
-  @requiresDestination
-  @requiresInitialization
-  async ensureJackCustomFormat(): Promise<number> {
-    const existingFormats = await this.arrGet<any[]>('/api/v3/customformat')
-    const existing: any = Array.isArray(existingFormats)
-      ? existingFormats.find((cf: any) => cf.name === 'Jack')
-      : null
-
-    const body = {
-      name: 'Jack',
-      includeCustomFormatWhenRenaming: false,
-      specifications: [{
-        name: 'Internal',
-        implementation: 'IndexerFlagSpecification',
-        negate: false,
-        required: true,
-        fields: [{ name: 'value', value: this.internalIndexerFlagValue }],
-      }],
-    }
-
-    if (existing) {
-      await this.fetch(`/api/v3/customformat/${existing.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, id: existing.id }),
-      } as any)
-      return existing.id as number
-    }
-
-    const created = await this.fetch<typeof CreatedResourceId>('/api/v3/customformat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      schema: CreatedResourceId,
-    } as any)
-    return created.id
-  }
-
-  /**
-   * Ensure the Jack custom format exists, then upsert a quality profile named
-   * "Jack" that accepts every quality but only scores the Jack flag (minFormatScore
-   * 1), so *arr won't grab a matching release from a non-Jack indexer. Returns the
-   * profile id.
-   */
-  @requiresDestination
-  @requiresInitialization
-  async ensureJackQualityProfile(): Promise<number> {
-    const cfId = await this.ensureJackCustomFormat()
-    const schema = await this.arrGet<any>('/api/v3/qualityprofile/schema')
-
-    // Each item may itself nest an `items` array (quality groups); allow at every level.
-    const allowAll = (items: any[]): any[] =>
-      items.map((item: any) => ({
-        ...item,
-        allowed: true,
-        ...(Array.isArray(item.items) ? { items: allowAll(item.items) } : {}),
-      }))
-
-    const profile = {
-      ...schema,
-      name: 'Jack',
-      // Grab the peer's file once and stop — no chasing "better" Jack releases.
-      upgradeAllowed: false,
-      items: allowAll(Array.isArray(schema?.items) ? schema.items : []),
-      minFormatScore: 1,
-      cutoffFormatScore: 1,
-      formatItems: (Array.isArray(schema?.formatItems) ? schema.formatItems : []).map((fi: any) =>
-        (fi.name === 'Jack' || fi.format === cfId) ? { ...fi, score: 1 } : fi),
-    }
-
-    const existingProfiles = await this.arrGet<any[]>('/api/v3/qualityprofile')
-    const existing: any = Array.isArray(existingProfiles)
-      ? existingProfiles.find((p: any) => p.name === 'Jack')
-      : null
-
-    if (existing) {
-      await this.fetch(`/api/v3/qualityprofile/${existing.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...profile, id: existing.id }),
-      } as any)
-      return existing.id as number
-    }
-
-    const created = await this.fetch<typeof CreatedResourceId>('/api/v3/qualityprofile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(profile),
-      schema: CreatedResourceId,
-    } as any)
-    return created.id
   }
 
   @requiresDestination

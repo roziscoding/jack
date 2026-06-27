@@ -1,7 +1,7 @@
 import type { ManagedRegistrationDeps } from './autoregister'
 import type { ArrServerConnector } from './servers/arr/base'
 import { Database } from 'bun:sqlite'
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
@@ -21,7 +21,7 @@ describe('registerManagedForDestination', () => {
     service = new ManagedApiKeys(repo)
   })
 
-  function stubDest(over: Partial<{ registerIndexer: () => Promise<void>, registerDownloadClient: () => Promise<number>, ensureJackQualityProfile: () => Promise<number> }> = {}): ArrServerConnector {
+  function stubDest(over: Partial<{ registerIndexer: () => Promise<void>, registerDownloadClient: () => Promise<number> }> = {}): ArrServerConnector {
     return {
       id: 'srv-a',
       name: 'Radarr',
@@ -29,7 +29,6 @@ describe('registerManagedForDestination', () => {
       autoRegister: { enable: true, priority: 1 },
       registerDownloadClient: over.registerDownloadClient ?? (async () => 1),
       registerIndexer: over.registerIndexer ?? (async () => {}),
-      ensureJackQualityProfile: over.ensureJackQualityProfile ?? (async () => 99),
     } as unknown as ArrServerConnector
   }
 
@@ -93,30 +92,5 @@ describe('registerManagedForDestination', () => {
       { ...deps(), downloads: false },
     )
     expect(repo.findByServerId('srv-a').map(r => r.id)).toEqual([old.id])
-  })
-
-  test('registers the Jack quality profile and reports it via onSuccess', async () => {
-    const profileCall = mock(async () => 77)
-    const successes: Array<[string, number | undefined]> = []
-    await registerManagedForDestination(
-      stubDest({ ensureJackQualityProfile: profileCall }),
-      { ...deps(), onSuccess: (kind, _name, meta) => successes.push([kind, meta.profileId]) },
-    )
-    expect(profileCall).toHaveBeenCalledTimes(1)
-    expect(successes).toContainEqual(['quality profile', 77])
-  })
-
-  test('a failing quality-profile registration does not gate the managed-key commit', async () => {
-    const old = service.provision('srv-a')
-    const failures: string[] = []
-    await registerManagedForDestination(
-      stubDest({ ensureJackQualityProfile: async () => { throw new Error('qp') } }),
-      { ...deps(), onFailure: kind => failures.push(kind) },
-    )
-    // Download client + indexer both succeeded → still a full commit despite the profile failing.
-    const rows = repo.findByServerId('srv-a')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]!.id).not.toBe(old.id)
-    expect(failures).toContain('quality profile')
   })
 })

@@ -4,7 +4,6 @@ import type { ArrServerConnector } from './servers/arr/base'
 export interface ManagedRegistrationMeta {
   downloadClientId?: number
   categories?: number[]
-  profileId?: number
 }
 
 export interface ManagedRegistrationDeps {
@@ -12,8 +11,8 @@ export interface ManagedRegistrationDeps {
   internalUrl: string
   downloads: boolean
   category: string
-  onSuccess: (kind: 'download client' | 'indexer' | 'quality profile', name: string, meta: ManagedRegistrationMeta) => void
-  onFailure: (kind: 'download client' | 'indexer' | 'quality profile', name: string, err: unknown) => void
+  onSuccess: (kind: 'download client' | 'indexer', name: string, meta: ManagedRegistrationMeta) => void
+  onFailure: (kind: 'download client' | 'indexer', name: string, err: unknown) => void
 }
 
 /**
@@ -65,17 +64,6 @@ export async function registerManagedForDestination(
   }
   catch (err) {
     deps.onFailure('indexer', dest.name, err)
-  }
-
-  // Best-effort: register the Jack-only custom format + quality profile so *arr
-  // won't grab a catalog title from a non-Jack indexer. Independent of the
-  // download client/indexer; its failure must not gate the managed-key commit.
-  try {
-    const profileId = await dest.ensureJackQualityProfile()
-    deps.onSuccess('quality profile', dest.name, { profileId })
-  }
-  catch (err) {
-    deps.onFailure('quality profile', dest.name, err)
   }
 
   // "Attempted" download = only when downloads is enabled. The indexer is always attempted.

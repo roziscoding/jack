@@ -119,10 +119,6 @@ for (const dest of registrable) {
         logger.info({ destination: name, downloadClientId: meta.downloadClientId }, 'Registered Jack as qBittorrent download client')
         return
       }
-      if (kind === 'quality profile') {
-        logger.info({ destination: name, profileId: meta.profileId }, 'Registered Jack-only quality profile')
-        return
-      }
       logger.info({ destination: name, categories: meta.categories, downloadClientId: meta.downloadClientId }, 'Registered Jack as Torznab indexer')
     },
     onFailure: logRegistrationFailure,
