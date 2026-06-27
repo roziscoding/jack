@@ -115,12 +115,14 @@ export class CatalogController {
         throw new NotFoundError(`Peer "${peer.name}" has no release for tmdbId ${input.tmdbId}`)
 
       const movieId = await server.add({ tmdbId: input.tmdbId, rootFolderPath: input.rootFolderPath })
-      await this.downloads.startDirectDownload({
+      const result = await this.downloads.startDirectDownload({
         peerId: peer.id,
         itemId: best.id,
         destinationServerName: server.name,
         importTarget: { kind: 'movie', movieId },
       })
+      if (result === 'failed')
+        throw new BadRequestError(`Failed to start the download for tmdbId ${input.tmdbId} from peer "${peer.name}"`)
       return { ok: true, server: server.name, started: 1 }
     }
 
@@ -134,15 +136,20 @@ export class CatalogController {
       throw new NotFoundError(`Peer "${peer.name}" has no episodes for tvdbId ${input.tvdbId}`)
 
     const seriesId = await server.add({ tvdbId: input.tvdbId, rootFolderPath: input.rootFolderPath })
+    let started = 0
     for (const release of best) {
-      await this.downloads.startDirectDownload({
+      const result = await this.downloads.startDirectDownload({
         peerId: peer.id,
         itemId: release.id,
         destinationServerName: server.name,
         importTarget: { kind: 'series', seriesId },
       })
+      if (result !== 'failed')
+        started++
     }
-    return { ok: true, server: server.name, started: best.length }
+    if (started === 0)
+      throw new BadRequestError(`Failed to start any episode download for tvdbId ${input.tvdbId} from peer "${peer.name}"`)
+    return { ok: true, server: server.name, started }
   }
 
   async getTmdbStatus(): Promise<TmdbStatus> {
