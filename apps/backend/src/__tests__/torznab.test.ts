@@ -53,6 +53,16 @@ describe('Torznab XML helpers', () => {
     expect(attrValue(item, 'uploadvolumefactor')).toBe(1)
   })
 
+  test('buildSearchResultXml tags every item as an internal release', () => {
+    // *arr's TorznabRssParser maps `tag=internal` to the Internal indexer flag,
+    // so a custom format (IndexerFlagSpecification) can target Jack releases.
+    const result = buildSearchResultXml([releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
+    const tags = (result.rss.channel.item[0]['torznab:attr'] as Array<Record<string, any>>)
+      .filter(a => a['@name'] === 'tag')
+      .map(a => a['@value'])
+    expect(tags).toContain('internal')
+  })
+
   test('buildSearchResultXml emits tv attrs for episodes', () => {
     const result = buildSearchResultXml([releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
     const item = result.rss.channel.item[0]

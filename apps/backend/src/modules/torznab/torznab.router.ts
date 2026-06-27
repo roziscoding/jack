@@ -64,6 +64,10 @@ function itemToObject(item: TorznabItem): Record<string, any> {
     // Jack files are always freely available; tell *arr not to weight ratio.
     { '@name': 'downloadvolumefactor', '@value': 0 },
     { '@name': 'uploadvolumefactor', '@value': 1 },
+    // *arr's TorznabRssParser maps `tag=internal` to the Internal indexer flag,
+    // marking every Jack release as coming from your own peer network so a custom
+    // format (IndexerFlagSpecification) can score/prefer it.
+    { '@name': 'tag', '@value': 'internal' },
   ]
   if (item.imdbId)
     attrs.push({ '@name': 'imdbid', '@value': item.imdbId })
