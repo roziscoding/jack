@@ -1,12 +1,10 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
-import type { TmdbClient } from '../../lib/tmdb/client'
+import type { TmdbClient, TmdbMediaType, TmdbMetadata } from '../../lib/tmdb/client'
 import type { CatalogTitle } from './catalog.lib'
 import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-import { groupReleasesIntoTitles, mapLimit } from './catalog.lib'
-
-const TMDB_ENRICH_CONCURRENCY = 8
+import { groupReleasesIntoTitles } from './catalog.lib'
 
 export interface PeerCatalogResponse {
   peer: { id: string, name: string }
@@ -51,29 +49,20 @@ export class CatalogController {
   async getPeerCatalog(peerId: string): Promise<PeerCatalogResponse> {
     const peer = this.requirePeer(peerId)
     const releases = await peer.listReleases()
-    const titles = await this.enrichTitles(groupReleasesIntoTitles(releases))
+    // Return titles immediately, unenriched. TMDB lookups are driven per-title by
+    // the client (see getTitleMetadata) so the catalog renders without waiting on
+    // hundreds of upstream round-trips.
     return {
       peer: { id: peer.id, name: peer.name },
-      titles,
+      titles: groupReleasesIntoTitles(releases),
     }
   }
 
-  private async enrichTitles(titles: CatalogTitle[]): Promise<CatalogTitle[]> {
+  /** TMDB metadata for a single title; null when TMDB is unconfigured or the id is unknown. */
+  async getTitleMetadata(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbMetadata | null> {
     if (!this.tmdb)
-      return titles
-    const tmdb = this.tmdb
-    return mapLimit(titles, TMDB_ENRICH_CONCURRENCY, async (title) => {
-      if (!title.tmdbId)
-        return title
-      try {
-        const metadata = await tmdb.getMetadata(title.mediaType, title.tmdbId)
-        return { ...title, metadata }
-      }
-      catch {
-        // Enrichment is best-effort: a failed lookup must not blank the catalog.
-        return title
-      }
-    })
+      return null
+    return this.tmdb.getMetadata(mediaType, tmdbId)
   }
 
   async getRequestOptions(): Promise<RequestServerOption[]> {

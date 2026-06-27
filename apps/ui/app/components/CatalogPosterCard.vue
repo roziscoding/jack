@@ -4,10 +4,19 @@ import type { CatalogTitle } from '~/types/management'
 const props = defineProps<{ title: CatalogTitle }>()
 defineEmits<{ select: [] }>()
 
-const name = computed(() => props.title.metadata?.title ?? props.title.displayTitle)
-const poster = computed(() => props.title.metadata?.posterUrl ?? null)
-const year = computed(() => props.title.metadata?.year ?? null)
-const rating = computed(() => props.title.metadata?.rating ?? null)
+const { load, entryFor } = useCatalogMetadata()
+const entry = computed(() => entryFor(props.title))
+const metadata = computed(() => entry.value?.data ?? props.title.metadata ?? null)
+// Loading until the lookup settles; titles with no tmdbId never load, so they're
+// not "loading" — they just stay on the placeholder.
+const loading = computed(() => props.title.tmdbId != null && (entry.value === null || entry.value.status === 'loading'))
+
+const name = computed(() => metadata.value?.title ?? props.title.displayTitle)
+const poster = computed(() => metadata.value?.posterUrl ?? null)
+const year = computed(() => metadata.value?.year ?? null)
+const rating = computed(() => metadata.value?.rating ?? null)
+
+onMounted(() => load(props.title))
 </script>
 
 <template>
@@ -24,7 +33,7 @@ const rating = computed(() => props.title.metadata?.rating ?? null)
         loading="lazy"
         class="size-full object-cover"
       >
-      <div v-else class="flex size-full items-center justify-center">
+      <div v-else class="flex size-full items-center justify-center" :class="{ 'animate-pulse': loading }">
         <UIcon :name="title.mediaType === 'tv' ? 'i-ph-television' : 'i-ph-film-strip'" class="size-8 text-dimmed" />
       </div>
       <UBadge

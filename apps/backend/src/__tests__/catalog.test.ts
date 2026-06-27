@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { BadRequestError } from '../lib/errors/BadRequestError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
 import { CatalogController } from '../modules/catalog/catalog.controller'
-import { groupReleasesIntoTitles, mapLimit } from '../modules/catalog/catalog.lib'
+import { groupReleasesIntoTitles } from '../modules/catalog/catalog.lib'
 
 function movie(overrides: Partial<Release> = {}): Release {
   return {
@@ -122,121 +122,66 @@ describe('catalogController', () => {
   })
 })
 
-describe('mapLimit', () => {
-  test('preserves input order regardless of completion order', async () => {
-    const result = await mapLimit([3, 1, 2], 2, async (n) => {
-      await new Promise(resolve => setTimeout(resolve, n))
-      return n * 10
-    })
-
-    expect(result).toEqual([30, 10, 20])
-  })
-
-  test('runs exactly `limit` tasks in flight, never more', async () => {
-    let inFlight = 0
-    let peak = 0
-
-    await mapLimit([1, 2, 3, 4, 5, 6], 2, async () => {
-      inFlight += 1
-      peak = Math.max(peak, inFlight)
-      await new Promise(resolve => setTimeout(resolve, 5))
-      inFlight -= 1
-      return null
-    })
-
-    // Saturates the cap (catches a collapse-to-one-worker regression) without exceeding it.
-    expect(peak).toBe(2)
-  })
-
-  test('returns an empty array for empty input', async () => {
-    expect(await mapLimit([], 4, async () => 1)).toEqual([])
-  })
-})
-
-describe('catalogController enrichment', () => {
+describe('catalogController.getPeerCatalog metadata', () => {
   function makeConnectors(peers: any[]) {
     return { servers: [], peers }
   }
 
-  const breakingBad = {
-    tmdbId: 1396,
-    title: 'Breaking Bad',
-    overview: 'A chemistry teacher cooks meth.',
-    year: 2008,
-    rating: 8.9,
-    posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w780/backdrop.jpg',
-    genres: ['Drama'],
-  }
-
-  test('attaches metadata to titles with a tmdbId and leaves id-less titles untouched', async () => {
-    const calls: Array<[string, number]> = []
-    const tmdb = {
-      getMetadata: async (mediaType: string, tmdbId: number) => {
-        calls.push([mediaType, tmdbId])
-        return tmdbId === 603 ? { ...breakingBad, tmdbId: 603, title: 'The Matrix' } : null
-      },
-    }
-    const peer = {
-      id: 'peer-1',
-      name: 'Friend Jack',
-      listReleases: async () => [
-        movie({ tmdbId: 603, title: 'The.Matrix.1999' }),
-        movie({ title: 'No.Id.2024' }),
-      ],
-    }
-    const controller = new CatalogController(makeConnectors([peer]) as any, tmdb as any)
-
-    const result = await controller.getPeerCatalog('peer-1')
-
-    const enriched = result.titles.find(t => t.tmdbId === 603)
-    expect(enriched!.metadata).toMatchObject({ title: 'The Matrix' })
-
-    const idless = result.titles.find(t => t.tmdbId == null)
-    expect(idless!.metadata).toBeUndefined()
-
-    // No lookup is attempted for the id-less title.
-    expect(calls).toEqual([['movie', 603]])
-  })
-
-  test('keeps the catalog intact when a getMetadata lookup rejects', async () => {
-    const tmdb = {
-      getMetadata: async (_mediaType: string, tmdbId: number) => {
-        if (tmdbId === 603)
-          throw new Error('TMDB exploded')
-        return { ...breakingBad }
-      },
-    }
-    const peer = {
-      id: 'peer-1',
-      name: 'Friend Jack',
-      listReleases: async () => [
-        movie({ tmdbId: 603, title: 'The.Matrix.1999' }),
-        episode({ tvdbId: 1, tmdbId: 1396, seriesTitle: 'Breaking Bad' }),
-      ],
-    }
-    const controller = new CatalogController(makeConnectors([peer]) as any, tmdb as any)
-
-    const result = await controller.getPeerCatalog('peer-1')
-
-    const failed = result.titles.find(t => t.tmdbId === 603)
-    expect(failed!.metadata).toBeUndefined()
-
-    const ok = result.titles.find(t => t.mediaType === 'tv')
-    expect(ok!.metadata).toMatchObject({ title: 'Breaking Bad' })
-  })
-
-  test('makes no TMDB calls and attaches no metadata when no client is configured', async () => {
+  test('returns titles unenriched and makes no TMDB calls', async () => {
+    const getMetadata = mock(async () => ({ title: 'Should not be called' }))
     const peer = {
       id: 'peer-1',
       name: 'Friend Jack',
       listReleases: async () => [movie({ tmdbId: 603 })],
     }
-    const controller = new CatalogController(makeConnectors([peer]) as any)
+    const controller = new CatalogController(makeConnectors([peer]) as any, { getMetadata } as any)
 
     const result = await controller.getPeerCatalog('peer-1')
 
     expect(result.titles[0]!.metadata).toBeUndefined()
+    expect(getMetadata).not.toHaveBeenCalled()
+  })
+})
+
+describe('catalogController.getTitleMetadata', () => {
+  function makeConnectors() {
+    return { servers: [], peers: [] }
+  }
+
+  const matrix = {
+    tmdbId: 603,
+    title: 'The Matrix',
+    overview: 'A hacker learns the truth.',
+    year: 1999,
+    rating: 8.2,
+    posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w780/backdrop.jpg',
+    genres: ['Action'],
+  }
+
+  test('delegates to the tmdb client and returns its metadata', async () => {
+    const getMetadata = mock(async () => matrix)
+    const controller = new CatalogController(makeConnectors() as any, { getMetadata } as any)
+
+    const result = await controller.getTitleMetadata('movie', 603)
+
+    expect(result).toMatchObject({ title: 'The Matrix' })
+    expect(getMetadata).toHaveBeenCalledWith('movie', 603)
+  })
+
+  test('returns null when no tmdb client is configured', async () => {
+    const controller = new CatalogController(makeConnectors() as any)
+
+    expect(await controller.getTitleMetadata('movie', 603)).toBeNull()
+  })
+
+  test('propagates a lookup rejection to the caller', () => {
+    const getMetadata = mock(async () => {
+      throw new Error('TMDB exploded')
+    })
+    const controller = new CatalogController(makeConnectors() as any, { getMetadata } as any)
+
+    expect(controller.getTitleMetadata('movie', 603)).rejects.toThrow('TMDB exploded')
   })
 })
 

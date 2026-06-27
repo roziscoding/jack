@@ -4,6 +4,7 @@ import type { CatalogRequestPayload, CatalogTitle, PeerCatalogResponse } from '~
 const route = useRoute()
 const peerId = computed(() => String(route.params.peerId))
 const { request, extractError } = useManagement()
+const { entryFor } = useCatalogMetadata()
 const toast = useToast()
 
 const { data, pending, error } = await useAsyncData(
@@ -18,6 +19,20 @@ const titles = computed(() => {
   const all = data.value?.titles ?? []
   return typeFilter.value === 'all' ? all : all.filter(t => t.mediaType === typeFilter.value)
 })
+
+// Paginate so only the current page's cards mount — that bounds how many TMDB
+// lookups fire at once (each card fetches its own metadata on mount).
+const PAGE_SIZE = 48
+const page = ref(1)
+const pagedTitles = computed(() => titles.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
+// Jump back to the first page whenever the filter narrows the list.
+watch(typeFilter, () => {
+  page.value = 1
+})
+
+function titleName(title: CatalogTitle): string {
+  return entryFor(title)?.data?.title ?? title.metadata?.title ?? title.displayTitle
+}
 
 const selected = ref<CatalogTitle | null>(null)
 
@@ -52,7 +67,7 @@ async function onConfirm(payload: CatalogRequestPayload) {
     selected.value = null
     toast.add({
       title: 'Added to your library',
-      description: `"${title.metadata?.title ?? title.displayTitle}" is being searched by your *arr.`,
+      description: `"${titleName(title)}" is being searched by your *arr.`,
       color: 'success',
       icon: 'i-ph-check-circle',
     })
@@ -103,20 +118,26 @@ async function onConfirm(payload: CatalogRequestPayload) {
         </div>
       </UCard>
 
-      <div v-else class="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-        <CatalogPosterCard
-          v-for="title in titles"
-          :key="title.key"
-          :title="title"
-          @select="selected = title"
-        />
-      </div>
+      <template v-else>
+        <div class="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+          <CatalogPosterCard
+            v-for="title in pagedTitles"
+            :key="title.key"
+            :title="title"
+            @select="selected = title"
+          />
+        </div>
+
+        <div v-if="titles.length > PAGE_SIZE" class="mt-6 flex justify-center">
+          <UPagination v-model:page="page" :total="titles.length" :items-per-page="PAGE_SIZE" />
+        </div>
+      </template>
     </template>
   </UDashboardPanel>
 
   <USlideover
     :open="selected !== null"
-    :title="selected?.metadata?.title ?? selected?.displayTitle ?? 'Title'"
+    :title="selected ? titleName(selected) : 'Title'"
     @update:open="(open) => { if (!open) selected = null }"
   >
     <template #body>

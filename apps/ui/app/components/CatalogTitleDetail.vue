@@ -4,8 +4,12 @@ import type { CatalogTitle } from '~/types/management'
 const props = defineProps<{ title: CatalogTitle }>()
 const emit = defineEmits<{ download: [] }>()
 
-const name = computed(() => props.title.metadata?.title ?? props.title.displayTitle)
-const meta = computed(() => props.title.metadata ?? null)
+const { load, entryFor } = useCatalogMetadata()
+// Reuse the cache the grid populated; load() is a no-op if the card already fetched it.
+const meta = computed(() => entryFor(props.title)?.data ?? props.title.metadata ?? null)
+const name = computed(() => meta.value?.title ?? props.title.displayTitle)
+
+onMounted(() => load(props.title))
 const canRequest = computed(() => props.title.mediaType === 'tv'
   ? props.title.tvdbId != null
   : props.title.tmdbId != null)
