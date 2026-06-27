@@ -69,10 +69,6 @@ function onConfirm() {
           />
         </UFormField>
 
-        <p class="text-sm text-muted">
-          Jack downloads use a dedicated profile so *arr only grabs this release from Jack.
-        </p>
-
         <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
       </div>
     </template>

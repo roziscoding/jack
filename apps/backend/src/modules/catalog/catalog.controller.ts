@@ -1,10 +1,11 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { TmdbClient, TmdbMediaType, TmdbMetadata } from '../../lib/tmdb/client'
+import type { DownloadsService } from '../downloads/downloads.service'
 import type { CatalogTitle } from './catalog.lib'
 import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-import { groupReleasesIntoTitles } from './catalog.lib'
+import { groupReleasesIntoTitles, pickBestRelease } from './catalog.lib'
 
 export interface PeerCatalogResponse {
   peer: { id: string, name: string }
@@ -26,6 +27,7 @@ export interface RequestServerOption {
 }
 
 export interface CatalogRequestInput {
+  peerId: string
   serverId: string
   mediaType: 'movie' | 'tv'
   tmdbId?: number
@@ -37,6 +39,7 @@ export class CatalogController {
   constructor(
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
     private readonly tmdb?: TmdbClient,
+    private readonly downloads?: DownloadsService,
   ) {}
 
   private requirePeer(peerId: string): PeerConnector {
@@ -87,7 +90,10 @@ export class CatalogController {
     return options.filter((o): o is RequestServerOption => o !== null)
   }
 
-  async requestDownload(input: CatalogRequestInput): Promise<{ ok: true, server: string }> {
+  async requestDownload(input: CatalogRequestInput): Promise<{ ok: true, server: string, started: number }> {
+    if (!this.downloads)
+      throw new BadRequestError('Downloads are not configured on this Jack instance')
+
     const server = this.connectors.servers.find(s => s.id === input.serverId)
     if (!server)
       throw new NotFoundError(`No server found with id "${input.serverId}"`)
@@ -98,16 +104,26 @@ export class CatalogController {
     if (server.type !== expectedType)
       throw new BadRequestError(`Server "${server.name}" cannot handle ${input.mediaType} requests`)
 
-    // Force Jack's dedicated profile so *arr only grabs this release from the Jack
-    // indexer (the profile rejects releases without the Internal flag).
-    const qualityProfileId = await server.ensureJackQualityProfile()
-    await server.addAndSearch({
-      tmdbId: input.tmdbId,
-      tvdbId: input.tvdbId,
-      qualityProfileId,
-      rootFolderPath: input.rootFolderPath,
+    const peer = this.requirePeer(input.peerId)
+
+    if (input.mediaType !== 'movie')
+      throw new BadRequestError('TV requests are not supported yet') // implemented in Phase 2
+
+    if (input.tmdbId == null)
+      throw new BadRequestError('A tmdbId is required for a movie request')
+    const releases = await peer.searchByTmdbId(String(input.tmdbId))
+    const best = pickBestRelease(releases)
+    if (!best)
+      throw new NotFoundError(`Peer "${peer.name}" has no release for tmdbId ${input.tmdbId}`)
+
+    const movieId = await server.add({ tmdbId: input.tmdbId, rootFolderPath: input.rootFolderPath })
+    await this.downloads.startDirectDownload({
+      peerId: peer.id,
+      itemId: best.id,
+      destinationServerName: server.name,
+      importTarget: { kind: 'movie', movieId },
     })
-    return { ok: true, server: server.name }
+    return { ok: true, server: server.name, started: 1 }
   }
 
   async getTmdbStatus(): Promise<TmdbStatus> {

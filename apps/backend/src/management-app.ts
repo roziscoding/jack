@@ -2,6 +2,7 @@ import type { ConnectorManager } from './lib/servers'
 import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
 import type { ConfigService } from './modules/config/config.service'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
+import type { DownloadsService } from './modules/downloads/downloads.service'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { TmdbClient } from './lib/tmdb/client'
@@ -23,6 +24,7 @@ export function getManagementApp(params: {
   connectors: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }
   configService?: ConfigService
   downloadsRepository?: DownloadsRepository
+  downloadsService?: DownloadsService
   apiKeysRepository?: ApiKeysRepository
   tmdbApiKey?: string
 }) {
@@ -43,7 +45,7 @@ export function getManagementApp(params: {
   app.route('/', getStatusRouter(statusController))
 
   const tmdbClient = params.tmdbApiKey ? new TmdbClient(params.tmdbApiKey) : undefined
-  const catalogController = new CatalogController(params.connectors, tmdbClient)
+  const catalogController = new CatalogController(params.connectors, tmdbClient, params.downloadsService)
   app.route('/catalog', getCatalogRouter(catalogController))
 
   if (params.apiKeysRepository) {

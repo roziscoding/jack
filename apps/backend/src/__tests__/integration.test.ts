@@ -9,7 +9,6 @@ import { getApp } from '../app'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
 import { AppConfig, MIGRATIONS } from '../lib/config'
-import { BadRequestError } from '../lib/errors/BadRequestError'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { SonarrServerConnector } from '../lib/servers/arr/sonarr'
 import { PeerConnector } from '../lib/servers/peer'
@@ -556,100 +555,6 @@ describe('Auto-registration', () => {
     expect(id).toBe(5)
     expect(putBody.priority).toBe(50)
     expect(putBody.tags).toEqual([])
-  })
-})
-
-describe('addAndSearch', () => {
-  const lookedUpMovie = { tmdbId: 603, title: 'The Matrix', year: 1999, titleSlug: 'the-matrix-603', images: [] }
-  const lookedUpSeries = { tvdbId: 81189, title: 'Breaking Bad', year: 2008, titleSlug: 'breaking-bad-81189', images: [] }
-
-  test('Radarr: looks up the movie and POSTs it monitored with searchForMovie', async () => {
-    let lookupTerm: any = null
-    let postBody: any = null
-    server.use(
-      http.get(`${RADARR_URL}/api/v3/movie/lookup`, ({ request }) => {
-        lookupTerm = new URL(request.url).searchParams.get('term')
-        return HttpResponse.json([lookedUpMovie])
-      }),
-      http.post(`${RADARR_URL}/api/v3/movie`, async ({ request }) => {
-        postBody = await request.json()
-        return HttpResponse.json({ id: 1, ...lookedUpMovie })
-      }),
-    )
-
-    const radarr = markInitialized(makeRadarr())
-    await radarr.addAndSearch({ tmdbId: 603, qualityProfileId: 4, rootFolderPath: '/movies' })
-
-    expect(lookupTerm).toBe('tmdb:603')
-    expect(postBody).toMatchObject({
-      tmdbId: 603,
-      title: 'The Matrix',
-      qualityProfileId: 4,
-      rootFolderPath: '/movies',
-      monitored: true,
-    })
-    expect(postBody.addOptions).toMatchObject({ searchForMovie: true })
-  })
-
-  test('Radarr: throws BadRequestError when no tmdbId is given', async () => {
-    const radarr = markInitialized(makeRadarr())
-    await expect(radarr.addAndSearch({ qualityProfileId: 4, rootFolderPath: '/movies' })).rejects.toThrow(BadRequestError)
-  })
-
-  test('Radarr: throws BadRequestError naming the server and id when lookup is empty', async () => {
-    server.use(
-      http.get(`${RADARR_URL}/api/v3/movie/lookup`, () => HttpResponse.json([])),
-    )
-    const radarr = markInitialized(makeRadarr())
-    const promise = radarr.addAndSearch({ tmdbId: 603, qualityProfileId: 4, rootFolderPath: '/movies' })
-    await expect(promise).rejects.toThrow(BadRequestError)
-    await expect(promise).rejects.toThrow(/My Radarr/)
-    await expect(promise).rejects.toThrow(/603/)
-  })
-
-  test('Sonarr: looks up the series and POSTs it monitored with searchForMissingEpisodes', async () => {
-    let lookupTerm: any = null
-    let postBody: any = null
-    server.use(
-      http.get(`${SONARR_URL}/api/v3/series/lookup`, ({ request }) => {
-        lookupTerm = new URL(request.url).searchParams.get('term')
-        return HttpResponse.json([lookedUpSeries])
-      }),
-      http.post(`${SONARR_URL}/api/v3/series`, async ({ request }) => {
-        postBody = await request.json()
-        return HttpResponse.json({ id: 1, ...lookedUpSeries })
-      }),
-    )
-
-    const sonarr = markInitialized(makeSonarr())
-    await sonarr.addAndSearch({ tvdbId: 81189, qualityProfileId: 7, rootFolderPath: '/tv' })
-
-    expect(lookupTerm).toBe('tvdb:81189')
-    expect(postBody).toMatchObject({
-      tvdbId: 81189,
-      title: 'Breaking Bad',
-      qualityProfileId: 7,
-      rootFolderPath: '/tv',
-      monitored: true,
-      seasonFolder: true,
-    })
-    expect(postBody.addOptions).toMatchObject({ searchForMissingEpisodes: true })
-  })
-
-  test('Sonarr: throws BadRequestError when no tvdbId is given', async () => {
-    const sonarr = markInitialized(makeSonarr())
-    await expect(sonarr.addAndSearch({ qualityProfileId: 7, rootFolderPath: '/tv' })).rejects.toThrow(BadRequestError)
-  })
-
-  test('Sonarr: throws BadRequestError naming the server and id when lookup is empty', async () => {
-    server.use(
-      http.get(`${SONARR_URL}/api/v3/series/lookup`, () => HttpResponse.json([])),
-    )
-    const sonarr = markInitialized(makeSonarr())
-    const promise = sonarr.addAndSearch({ tvdbId: 81189, qualityProfileId: 7, rootFolderPath: '/tv' })
-    await expect(promise).rejects.toThrow(BadRequestError)
-    await expect(promise).rejects.toThrow(/My Sonarr/)
-    await expect(promise).rejects.toThrow(/81189/)
   })
 })
 

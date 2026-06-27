@@ -11,6 +11,7 @@ const tmdbParam = z.object({
 })
 
 const requestBody = z.object({
+  peerId: z.string().min(1),
   serverId: z.string().min(1),
   mediaType: z.enum(['movie', 'tv']),
   tmdbId: z.number().int().optional(),

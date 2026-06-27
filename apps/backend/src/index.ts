@@ -82,6 +82,7 @@ function startManagementServer() {
     connectors: connectorManager,
     configService,
     downloadsRepository,
+    downloadsService,
     apiKeysRepository,
     tmdbApiKey: config.jack.tmdbApiKey,
   })

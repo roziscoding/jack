@@ -1,12 +1,22 @@
 import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import type { AddAndSearchParams } from './base'
+import type { AddParams, ManualImportParams } from './base'
+import { z } from 'zod'
 import { BadRequestError } from '../../errors/BadRequestError'
 import { normalizeImdbId, ReleaseCategory } from '../../release'
 import { setSpanAttribute, setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
 import { ArrServerConnector, basename, stripExtension } from './base'
+
+const CreatedId = z.object({ id: z.number().int() })
+
+interface ManualImportCandidate {
+  path?: string
+  quality?: unknown
+  languages?: unknown[]
+  releaseGroup?: string
+}
 
 export class RadarrServerConnector extends ArrServerConnector {
   constructor(config: { url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig }) {
@@ -153,9 +163,16 @@ export class RadarrServerConnector extends ArrServerConnector {
     return (movie?.movieFile as MovieFileResource | undefined)?.path ?? null
   }
 
-  protected override async doAddAndSearch(params: AddAndSearchParams): Promise<void> {
+  protected override async doAdd(params: AddParams): Promise<number> {
     if (params.tmdbId == null)
       throw new BadRequestError('A tmdbId is required to add a movie to Radarr')
+
+    // Idempotent: reuse the movie if it's already in the library.
+    const existing = await this.arrGet<MovieResource[]>('/api/v3/movie', { tmdbId: String(params.tmdbId) })
+    const found = Array.isArray(existing) ? existing.find(m => m.id != null) : undefined
+    if (found?.id != null)
+      return found.id
+
     const lookup = await this.arrGet<MovieResource[]>('/api/v3/movie/lookup', { term: `tmdb:${params.tmdbId}` })
     const movie = Array.isArray(lookup) ? lookup[0] : undefined
     if (!movie)
@@ -163,16 +180,49 @@ export class RadarrServerConnector extends ArrServerConnector {
 
     const body = {
       ...movie,
-      qualityProfileId: params.qualityProfileId,
+      qualityProfileId: await this.resolveQualityProfileId(),
       rootFolderPath: params.rootFolderPath,
       monitored: true,
       minimumAvailability: 'released',
-      addOptions: { searchForMovie: true },
+      addOptions: { searchForMovie: false },
     }
-    await this.fetch('/api/v3/movie', {
+    const created = await this.fetch('/api/v3/movie', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    } as any)
+      schema: CreatedId,
+    })
+    return created.id
+  }
+
+  protected override async doManualImport(params: ManualImportParams): Promise<void> {
+    if (params.target.kind !== 'movie')
+      throw new BadRequestError(`Radarr cannot import a "${params.target.kind}" target`)
+    const { movieId } = params.target
+
+    const candidates = await this.arrGet<ManualImportCandidate[]>('/api/v3/manualimport', {
+      folder: params.folder,
+      movieId: String(movieId),
+      filterExistingFiles: 'false',
+    })
+    const wanted = new Set(params.paths)
+    const files = (Array.isArray(candidates) ? candidates : [])
+      .filter((c): c is ManualImportCandidate & { path: string } => typeof c.path === 'string' && wanted.has(c.path))
+      .map(c => ({
+        path: c.path,
+        movieId,
+        quality: c.quality,
+        languages: c.languages ?? [],
+        releaseGroup: c.releaseGroup ?? '',
+        downloadId: params.downloadId,
+      }))
+    if (files.length === 0)
+      throw new BadRequestError(`Radarr found no importable file for movie ${movieId} in ${params.folder}`)
+
+    await this.fetch('/api/v3/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ManualImport', importMode: 'move', files }),
+    })
   }
 }

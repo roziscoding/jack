@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { BadRequestError } from '../lib/errors/BadRequestError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
 import { CatalogController } from '../modules/catalog/catalog.controller'
-import { groupReleasesIntoTitles } from '../modules/catalog/catalog.lib'
+import { groupReleasesIntoTitles, pickBestPerEpisode, pickBestRelease } from '../modules/catalog/catalog.lib'
 
 function movie(overrides: Partial<Release> = {}): Release {
   return {
@@ -92,6 +92,44 @@ describe('groupReleasesIntoTitles', () => {
     const titles = groupReleasesIntoTitles(releases)
 
     expect(titles.map(t => t.displayTitle)).toEqual(['Apple', 'Zebra'])
+  })
+})
+
+describe('pickBestRelease', () => {
+  test('returns undefined for an empty list', () => {
+    expect(pickBestRelease([])).toBeUndefined()
+  })
+
+  test('prefers the higher resolution even when a lower one has a larger file', () => {
+    const sd = movie({ id: 'a', quality: { resolution: 720 }, size: 999 })
+    const hd = movie({ id: 'b', quality: { resolution: 1080 }, size: 1 })
+    expect(pickBestRelease([sd, hd])).toBe(hd)
+  })
+
+  test('breaks a resolution tie by the larger file', () => {
+    const small = movie({ id: 'a', quality: { resolution: 1080 }, size: 10 })
+    const big = movie({ id: 'b', quality: { resolution: 1080 }, size: 20 })
+    expect(pickBestRelease([small, big])).toBe(big)
+  })
+
+  test('breaks a full tie deterministically by the lowest release id, regardless of input order', () => {
+    const z = movie({ id: 'zzz', quality: { resolution: 1080 }, size: 10 })
+    const a = movie({ id: 'aaa', quality: { resolution: 1080 }, size: 10 })
+    expect(pickBestRelease([z, a])).toBe(a)
+    expect(pickBestRelease([a, z])).toBe(a)
+  })
+})
+
+describe('pickBestPerEpisode', () => {
+  test('keeps the best release per season/episode key', () => {
+    const s1e1Sd = episode({ id: 'a', season: 1, episode: 1, quality: { resolution: 720 } })
+    const s1e1Hd = episode({ id: 'b', season: 1, episode: 1, quality: { resolution: 1080 } })
+    const s1e2 = episode({ id: 'c', season: 1, episode: 2, quality: { resolution: 720 } })
+    const best = pickBestPerEpisode([s1e1Sd, s1e1Hd, s1e2])
+    expect(best).toHaveLength(2)
+    expect(best).toContain(s1e1Hd)
+    expect(best).toContain(s1e2)
+    expect(best).not.toContain(s1e1Sd)
   })
 })
 
@@ -271,28 +309,54 @@ describe('catalogController.requestDownload', () => {
     name: string
     type: 'radarr' | 'sonarr'
     canDestination: boolean
-    ensureJackQualityProfile: () => Promise<number>
-    addAndSearch: (params: any) => Promise<void>
+    add: (params: any) => Promise<number>
   }> = {}) {
     return {
       id: 'radarr-1',
       name: 'My Radarr',
       type: 'radarr',
       canDestination: true,
-      ensureJackQualityProfile: mock(async () => 77),
-      addAndSearch: mock(async () => {}),
+      add: mock(async () => 123),
       ...overrides,
     }
   }
 
-  function makeConnectors(servers: any[]) {
-    return { servers, peers: [] }
+  function fakePeer(overrides: Partial<{ searchByTmdbId: (tmdbId: string) => Promise<Release[]> }> = {}) {
+    return {
+      id: 'peer-1',
+      name: 'Friend Jack',
+      searchByTmdbId: overrides.searchByTmdbId ?? mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]),
+    }
   }
 
-  test('throws NotFoundError for an unknown serverId', () => {
-    const controller = new CatalogController(makeConnectors([]) as any)
+  function fakeDownloads(overrides: Partial<{ startDirectDownload: (input: any) => Promise<string> }> = {}) {
+    return {
+      startDirectDownload: overrides.startDirectDownload ?? mock(async () => 'started'),
+    }
+  }
+
+  function makeConnectors(servers: any[], peers: any[] = []) {
+    return { servers, peers }
+  }
+
+  test('throws BadRequestError when downloads are not configured', () => {
+    const radarr = fakeServer()
+    const controller = new CatalogController(makeConnectors([radarr], [fakePeer()]) as any)
 
     expect(controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'radarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      rootFolderPath: '/movies',
+    })).rejects.toBeInstanceOf(BadRequestError)
+  })
+
+  test('throws NotFoundError for an unknown serverId', () => {
+    const controller = new CatalogController(makeConnectors([], [fakePeer()]) as any, undefined, fakeDownloads() as any)
+
+    expect(controller.requestDownload({
+      peerId: 'peer-1',
       serverId: 'missing',
       mediaType: 'movie',
       tmdbId: 603,
@@ -302,9 +366,10 @@ describe('catalogController.requestDownload', () => {
 
   test('throws BadRequestError when the server is not a destination', () => {
     const radarr = fakeServer({ canDestination: false })
-    const controller = new CatalogController(makeConnectors([radarr]) as any)
+    const controller = new CatalogController(makeConnectors([radarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
 
     expect(controller.requestDownload({
+      peerId: 'peer-1',
       serverId: 'radarr-1',
       mediaType: 'movie',
       tmdbId: 603,
@@ -314,9 +379,10 @@ describe('catalogController.requestDownload', () => {
 
   test('throws BadRequestError when a movie request targets a Sonarr server', () => {
     const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
-    const controller = new CatalogController(makeConnectors([sonarr]) as any)
+    const controller = new CatalogController(makeConnectors([sonarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
 
     expect(controller.requestDownload({
+      peerId: 'peer-1',
       serverId: 'sonarr-1',
       mediaType: 'movie',
       tmdbId: 603,
@@ -324,58 +390,57 @@ describe('catalogController.requestDownload', () => {
     })).rejects.toBeInstanceOf(BadRequestError)
   })
 
-  test('throws BadRequestError when a tv request targets a Radarr server', () => {
-    const radarr = fakeServer()
-    const controller = new CatalogController(makeConnectors([radarr]) as any)
-
-    expect(controller.requestDownload({
-      serverId: 'radarr-1',
-      mediaType: 'tv',
-      tvdbId: 81189,
-      rootFolderPath: '/tv',
-    })).rejects.toBeInstanceOf(BadRequestError)
-  })
-
-  test('calls addAndSearch and returns ok for a valid matching request', async () => {
-    const radarr = fakeServer()
-    const controller = new CatalogController(makeConnectors([radarr]) as any)
-
-    const result = await controller.requestDownload({
-      serverId: 'radarr-1',
-      mediaType: 'movie',
-      tmdbId: 603,
-      rootFolderPath: '/movies',
-    })
-
-    expect(result).toEqual({ ok: true, server: 'My Radarr' })
-    expect(radarr.ensureJackQualityProfile).toHaveBeenCalledTimes(1)
-    expect(radarr.addAndSearch).toHaveBeenCalledTimes(1)
-    // The Jack profile (77) is forced regardless of any client input.
-    expect(radarr.addAndSearch).toHaveBeenCalledWith({
-      tmdbId: 603,
-      tvdbId: undefined,
-      qualityProfileId: 77,
-      rootFolderPath: '/movies',
-    })
-  })
-
-  test('routes a tv request to the matching Sonarr destination', async () => {
+  test('throws BadRequestError for a tv request (not supported until Phase 2)', () => {
     const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
-    const controller = new CatalogController(makeConnectors([sonarr]) as any)
+    const controller = new CatalogController(makeConnectors([sonarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
 
-    const result = await controller.requestDownload({
+    expect(controller.requestDownload({
+      peerId: 'peer-1',
       serverId: 'sonarr-1',
       mediaType: 'tv',
       tvdbId: 81189,
       rootFolderPath: '/tv',
+    })).rejects.toBeInstanceOf(BadRequestError)
+  })
+
+  test('throws NotFoundError when the peer has no release for the tmdbId, and does not add', async () => {
+    const radarr = fakeServer()
+    const peer = fakePeer({ searchByTmdbId: mock(async () => []) })
+    const controller = new CatalogController(makeConnectors([radarr], [peer]) as any, undefined, fakeDownloads() as any)
+
+    await expect(controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'radarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      rootFolderPath: '/movies',
+    })).rejects.toBeInstanceOf(NotFoundError)
+    expect(radarr.add).not.toHaveBeenCalled()
+  })
+
+  test('adds the movie without search and starts a direct download for the best release', async () => {
+    const radarr = fakeServer({ add: mock(async () => 123) })
+    const best = movie({ id: 'rel:best', tmdbId: 603, quality: { resolution: 1080 }, size: 100 })
+    const worse = movie({ id: 'rel:worse', tmdbId: 603, quality: { resolution: 720 }, size: 999 })
+    const peer = fakePeer({ searchByTmdbId: mock(async () => [worse, best]) })
+    const downloads = fakeDownloads()
+    const controller = new CatalogController(makeConnectors([radarr], [peer]) as any, undefined, downloads as any)
+
+    const result = await controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'radarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      rootFolderPath: '/movies',
     })
 
-    expect(result).toEqual({ ok: true, server: 'My Sonarr' })
-    expect(sonarr.addAndSearch).toHaveBeenCalledWith({
-      tmdbId: undefined,
-      tvdbId: 81189,
-      qualityProfileId: 77,
-      rootFolderPath: '/tv',
+    expect(result).toEqual({ ok: true, server: 'My Radarr', started: 1 })
+    expect(radarr.add).toHaveBeenCalledWith({ tmdbId: 603, rootFolderPath: '/movies' })
+    expect(downloads.startDirectDownload).toHaveBeenCalledWith({
+      peerId: 'peer-1',
+      itemId: 'rel:best',
+      destinationServerName: 'My Radarr',
+      importTarget: { kind: 'movie', movieId: 123 },
     })
   })
 })

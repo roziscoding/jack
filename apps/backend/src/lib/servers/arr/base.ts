@@ -4,6 +4,7 @@ import z from 'zod'
 import { logger } from '../../../logger'
 import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
 import { requiresInitialization } from '../../decorators/requires-initialization'
+import { BadRequestError } from '../../errors/BadRequestError'
 import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
@@ -46,11 +47,24 @@ const JACK_DOWNLOAD_CLIENT_PRIORITY = 50
 
 export type ReleaseKind = 'movie' | 'episode'
 
-export interface AddAndSearchParams {
+export interface AddParams {
   tmdbId?: number
   tvdbId?: number
-  qualityProfileId: number
   rootFolderPath: string
+}
+
+export type ManualImportTarget
+  = | { kind: 'movie', movieId: number }
+    | { kind: 'series', seriesId: number }
+
+export interface ManualImportParams {
+  /** Directory *arr scans for importable files (the downloads completedPath). */
+  folder: string
+  /** Absolute paths of the file(s) we downloaded; only these are imported. */
+  paths: string[]
+  target: ManualImportTarget
+  /** Stub infohash = deriveHash(title,size); recorded in *arr history so the watcher matches it. */
+  downloadId: string
 }
 
 export function basename(path: string): string {
@@ -291,14 +305,32 @@ export abstract class ArrServerConnector extends ServerConnector {
       .map(f => ({ path: f.path, freeSpace: f.freeSpace }))
   }
 
-  /** Add a title to this *arr (monitored) and kick off an automatic search. */
+  /** Add a title to this *arr (monitored) WITHOUT a search; returns the created or existing entity id. */
   @requiresDestination
   @requiresInitialization
-  async addAndSearch(params: AddAndSearchParams): Promise<void> {
-    return this.doAddAndSearch(params)
+  async add(params: AddParams): Promise<number> {
+    return this.doAdd(params)
   }
 
-  protected abstract doAddAndSearch(params: AddAndSearchParams): Promise<void>
+  protected abstract doAdd(params: AddParams): Promise<number>
+
+  /** Import already-downloaded file(s) into this *arr, mapped to `target`. */
+  @requiresDestination
+  @requiresInitialization
+  async manualImport(params: ManualImportParams): Promise<void> {
+    return this.doManualImport(params)
+  }
+
+  protected abstract doManualImport(params: ManualImportParams): Promise<void>
+
+  /** First quality profile id — required to add a title (manual import detects real quality from the file). */
+  protected async resolveQualityProfileId(): Promise<number> {
+    const profiles = await this.arrGet<Array<{ id: number }>>('/api/v3/qualityprofile')
+    const first = Array.isArray(profiles) ? profiles[0] : undefined
+    if (!first)
+      throw new BadRequestError(`No quality profile found on ${this.name}; cannot add a title`)
+    return first.id
+  }
 
   /**
    * Lowercased torrent infohashes (`downloadId`s) that this *arr has finished

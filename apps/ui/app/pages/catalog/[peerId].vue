@@ -58,6 +58,7 @@ async function onConfirm(payload: CatalogRequestPayload) {
       method: 'POST',
       body: {
         ...payload,
+        peerId: peerId.value,
         mediaType: title.mediaType,
         tmdbId: title.tmdbId,
         tvdbId: title.tvdbId,
@@ -67,7 +68,7 @@ async function onConfirm(payload: CatalogRequestPayload) {
     selected.value = null
     toast.add({
       title: 'Added to your library',
-      description: `"${titleName(title)}" is being searched by your *arr.`,
+      description: `"${titleName(title)}" is downloading from ${peerName.value}.`,
       color: 'success',
       icon: 'i-ph-check-circle',
     })

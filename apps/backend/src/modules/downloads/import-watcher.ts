@@ -1,5 +1,6 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { DownloadsRepository } from './downloads.repository'
+import { dirname } from 'node:path'
 import { logger } from '../../logger'
 import { deriveHash } from '../qbittorrent/qbittorrent.mapper'
 
@@ -13,6 +14,13 @@ import { deriveHash } from '../qbittorrent/qbittorrent.mapper'
  */
 export class ImportWatcher {
   private timer?: ReturnType<typeof setInterval>
+  // Rows we've already pushed a ManualImport for this process (avoids re-POSTing
+  // every tick). Only added on a SUCCESSFUL push (inside the try, after the await),
+  // so a failed trigger is retried next tick. A restart clears the set; re-triggering
+  // is safe — *arr ignores a ManualImport whose file no longer exists at `path`
+  // (already moved/imported), and the row only leaves `import_queued` once the
+  // history hash confirms the import.
+  private readonly manualImportTriggered = new Set<number>()
 
   constructor(
     private readonly repository: DownloadsRepository,
@@ -75,11 +83,28 @@ export class ImportWatcher {
 
       for (const row of rows) {
         const hash = deriveHash(row.release.title, row.releaseSize).toLowerCase()
-        if (!importedIds.has(hash))
+        if (importedIds.has(hash)) {
+          this.repository.markImported(row.id)
+          importedCount++
+          logger.info({ id: row.id, filename: row.filename, server: serverName }, 'Download imported by *arr')
           continue
-        this.repository.markImported(row.id)
-        importedCount++
-        logger.info({ id: row.id, filename: row.filename, server: serverName }, 'Download imported by *arr')
+        }
+        if (row.importMode === 'jack_manual' && row.importTarget && !this.manualImportTriggered.has(row.id)) {
+          try {
+            await connector.manualImport({
+              folder: dirname(row.destPath),
+              paths: [row.destPath],
+              target: row.importTarget,
+              downloadId: deriveHash(row.release.title, row.releaseSize),
+            })
+            this.manualImportTriggered.add(row.id)
+            logger.info({ id: row.id, filename: row.filename, server: serverName }, 'Triggered *arr manual import')
+          }
+          catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            logger.warn({ id: row.id, server: serverName, error: message }, 'Manual import trigger failed; will retry next tick')
+          }
+        }
       }
     }
     return importedCount

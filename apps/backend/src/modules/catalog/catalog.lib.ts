@@ -80,3 +80,33 @@ export function groupReleasesIntoTitles(releases: Release[]): CatalogTitle[] {
 
   return [...byKey.values()].sort((a, b) => a.displayTitle.localeCompare(b.displayTitle))
 }
+
+/**
+ * Higher resolution wins; ties break to the larger file; full ties break to the
+ * lexicographically lowest release id so the pick is deterministic regardless of
+ * the order the peer returns its catalog in.
+ */
+function isBetterRelease(candidate: Release, current: Release): boolean {
+  const c = candidate.quality?.resolution ?? 0
+  const r = current.quality?.resolution ?? 0
+  if (c !== r)
+    return c > r
+  if (candidate.size !== current.size)
+    return candidate.size > current.size
+  return candidate.id.localeCompare(current.id) < 0
+}
+
+export function pickBestRelease(releases: Release[]): Release | undefined {
+  return releases.reduce<Release | undefined>((best, r) => (!best || isBetterRelease(r, best)) ? r : best, undefined)
+}
+
+export function pickBestPerEpisode(releases: Release[]): Release[] {
+  const byEpisode = new Map<string, Release>()
+  for (const r of releases) {
+    const key = `${r.season ?? 0}:${r.episode ?? 0}`
+    const current = byEpisode.get(key)
+    if (!current || isBetterRelease(r, current))
+      byEpisode.set(key, r)
+  }
+  return [...byEpisode.values()]
+}

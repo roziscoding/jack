@@ -1,6 +1,7 @@
 import type { AppDatabase } from '../../database/connection'
 import type { DownloadRow, DownloadStatus, ExpectedBytesSource, NewDownloadRow } from '../../database/schema'
 import type { Release } from '../../lib/release'
+import type { ManualImportTarget } from '../../lib/servers/arr/base'
 import { desc, eq, sql } from 'drizzle-orm'
 import { downloads } from '../../database/schema'
 
@@ -27,6 +28,8 @@ export interface DownloadRecord {
   error: string | null
   qbCategory: string | null
   qbSourceServer: string | null
+  importMode: 'jack_manual' | null
+  importTarget: ManualImportTarget | null
 }
 
 export interface CreateDownloadInput {
@@ -41,6 +44,8 @@ export interface CreateDownloadInput {
   release: Release
   qbCategory?: string | null
   qbSourceServer?: string | null
+  importMode?: 'jack_manual' | null
+  importTarget?: ManualImportTarget | null
 }
 
 function nowIso() {
@@ -71,6 +76,8 @@ function toRecord(row: DownloadRow): DownloadRecord {
     error: row.error,
     qbCategory: row.qbCategory ?? null,
     qbSourceServer: row.qbSourceServer ?? null,
+    importMode: row.importMode ?? null,
+    importTarget: row.importTarget ? (JSON.parse(row.importTarget) as ManualImportTarget) : null,
   }
 }
 
@@ -91,6 +98,8 @@ export class DownloadsRepository {
       releaseJson: JSON.stringify(input.release),
       qbCategory: input.qbCategory ?? null,
       qbSourceServer: input.qbSourceServer ?? null,
+      importMode: input.importMode ?? null,
+      importTarget: input.importTarget ? JSON.stringify(input.importTarget) : null,
       downloadedBytes: 0,
       status: 'downloading',
       startedAt: timestamp,

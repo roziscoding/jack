@@ -318,4 +318,28 @@ describe('DownloadsService download progress persistence', () => {
     expect(repository.list()).toHaveLength(0)
     handle.close()
   })
+
+  test('startDirectDownload creates a jack_manual row carrying the importTarget and ends import_queued', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const service = new DownloadsService(downloadsConfig(), { peers: [fakePeer() as any] }, repository)
+
+    const result = await service.startDirectDownload({
+      peerId: 'peer-1',
+      itemId: 'movie:1',
+      destinationServerName: 'My Radarr',
+      importTarget: { kind: 'movie', movieId: 42 },
+    })
+
+    expect(result).toBe('started')
+    await waitForStatus(repository, 'import_queued')
+
+    const rows = repository.list()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.status).toBe('import_queued')
+    expect(rows[0]?.qbSourceServer).toBe('My Radarr')
+    expect(rows[0]?.importMode).toBe('jack_manual')
+    expect(rows[0]?.importTarget).toEqual({ kind: 'movie', movieId: 42 })
+    handle.close()
+  })
 })
