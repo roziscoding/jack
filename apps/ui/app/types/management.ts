@@ -88,11 +88,6 @@ export interface CatalogTitle {
   peers: CatalogTitlePeer[]
 }
 
-export interface PeerCatalogResponse {
-  peer: { id: string, name: string }
-  titles: CatalogTitle[]
-}
-
 export interface CatalogResponse {
   peers: Array<{ id: string, name: string }>
   titles: CatalogTitle[]
