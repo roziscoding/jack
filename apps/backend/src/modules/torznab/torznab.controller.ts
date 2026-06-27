@@ -54,7 +54,7 @@ export class TorznabController {
     private readonly jackConfig: NonNullable<AppConfig['jack']>,
   ) {}
 
-  private async fanOut(label: string, search: (peer: PeerConnector) => Promise<Release[]>): Promise<TorznabItem[]> {
+  private async fanOut(label: string, search: (peer: PeerConnector) => Promise<Release[]>, apiKey: string): Promise<TorznabItem[]> {
     // We fan out to ALL peers — no isInitialized pre-filter. A peer that failed
     // to connect at boot gets re-initialized lazily by @requireInitialization on
     // the call below, so a peer that came back online rejoins searches without a
@@ -80,7 +80,10 @@ export class TorznabController {
             }, async (peerSpan) => {
               const releases = await search(peer)
               setSpanAttribute(peerSpan, 'release.count', releases.length)
-              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.internalUrl, this.jackConfig.apiKey ?? ''))
+              // Embed the SAME key the requester authenticated with (passed down
+              // from the request), so the grab of this release's .torrent passes
+              // auth — the deprecated main key (jackConfig.apiKey) is often unset.
+              return releases.map(release => releaseToTorznab(release, peer.id, peer.name, this.jackConfig.internalUrl, apiKey))
             })
           }
           catch (err) {
@@ -96,23 +99,23 @@ export class TorznabController {
     })
   }
 
-  async searchMovie(ids: { tmdbId?: string, imdbId?: string }): Promise<TorznabItem[]> {
+  async searchMovie(ids: { tmdbId?: string, imdbId?: string }, apiKey: string): Promise<TorznabItem[]> {
     const { tmdbId, imdbId } = ids
     // Prefer tmdbid: Radarr filters by it server-side (a targeted lookup), and it
     // doesn't depend on the tt-prefix quirk. imdbid is the fallback.
     if (tmdbId)
-      return this.fanOut(`tmdb:${tmdbId}`, peer => peer.searchByTmdbId(tmdbId))
+      return this.fanOut(`tmdb:${tmdbId}`, peer => peer.searchByTmdbId(tmdbId), apiKey)
     if (imdbId)
-      return this.fanOut(`imdb:${imdbId}`, peer => peer.searchByImdbId(imdbId))
+      return this.fanOut(`imdb:${imdbId}`, peer => peer.searchByImdbId(imdbId), apiKey)
     return []
   }
 
-  async searchTv(tvdbId: string, season?: number, episode?: number): Promise<TorznabItem[]> {
-    return this.fanOut(`tvdb:${tvdbId} s:${season ?? '-'} e:${episode ?? '-'}`, peer => peer.searchByTvdbId(tvdbId, season, episode))
+  async searchTv(tvdbId: string, season: number | undefined, episode: number | undefined, apiKey: string): Promise<TorznabItem[]> {
+    return this.fanOut(`tvdb:${tvdbId} s:${season ?? '-'} e:${episode ?? '-'}`, peer => peer.searchByTvdbId(tvdbId, season, episode), apiKey)
   }
 
   /** Full catalog of every peer's releases — backs the torznab RSS/test query. */
-  async catalog(): Promise<TorznabItem[]> {
-    return this.fanOut('catalog', peer => peer.listReleases())
+  async catalog(apiKey: string): Promise<TorznabItem[]> {
+    return this.fanOut('catalog', peer => peer.listReleases(), apiKey)
   }
 }

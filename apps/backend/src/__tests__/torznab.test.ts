@@ -1,6 +1,7 @@
 import type { Release } from '../lib/release'
+import type { PeerConnector } from '../lib/servers/peer'
 import { describe, expect, test } from 'bun:test'
-import { releaseToTorznab } from '../modules/torznab/torznab.controller'
+import { releaseToTorznab, TorznabController } from '../modules/torznab/torznab.controller'
 import { buildErrorXml, buildSearchResultXml } from '../modules/torznab/torznab.router'
 
 const movieRelease: Release = {
@@ -94,6 +95,43 @@ describe('Torznab XML helpers', () => {
 
     const result = buildSearchResultXml([releaseToTorznab(release, 'peer1', undefined, 'http://localhost', JACK_API_KEY)])
     expect(result.rss.channel.item[0].title).toBe('Movie <with> "special" & \'chars\'')
+  })
+})
+
+describe('TorznabController embeds the requester key in download URLs', () => {
+  // The main key is deprecated/often unset; the requester (Radarr) authenticates
+  // the indexer with a managed key. Each download URL must carry THAT key so the
+  // grab passes auth — not the main key, which would 401 when unset.
+  const jackConfig = { internalUrl: 'http://localhost:3000', apiKey: 'main-key' } as any
+
+  function fakePeer(releases: Release[]): PeerConnector {
+    return {
+      id: 'peer1',
+      name: 'Friend',
+      searchByTmdbId: async () => releases,
+      searchByImdbId: async () => releases,
+      searchByTvdbId: async () => releases,
+      listReleases: async () => releases,
+    } as unknown as PeerConnector
+  }
+
+  test('searchMovie embeds the passed request key, not the main key', async () => {
+    const controller = new TorznabController(() => [fakePeer([movieRelease])], jackConfig)
+    const items = await controller.searchMovie({ tmdbId: '12345' }, 'jack_managed_abc')
+    expect(items).toHaveLength(1)
+    expect(new URL(items[0]!.downloadUrl).searchParams.get('apikey')).toBe('jack_managed_abc')
+  })
+
+  test('searchTv embeds the passed request key', async () => {
+    const controller = new TorznabController(() => [fakePeer([episodeRelease])], jackConfig)
+    const items = await controller.searchTv('654321', 1, 2, 'jack_managed_tv')
+    expect(new URL(items[0]!.downloadUrl).searchParams.get('apikey')).toBe('jack_managed_tv')
+  })
+
+  test('catalog embeds the passed request key', async () => {
+    const controller = new TorznabController(() => [fakePeer([movieRelease])], jackConfig)
+    const items = await controller.catalog('jack_managed_xyz')
+    expect(new URL(items[0]!.downloadUrl).searchParams.get('apikey')).toBe('jack_managed_xyz')
   })
 })
 

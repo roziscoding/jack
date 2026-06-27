@@ -14,6 +14,8 @@ import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { SonarrServerConnector } from '../lib/servers/arr/sonarr'
 import { PeerConnector } from '../lib/servers/peer'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
+import { ManagedKeysRepository } from '../modules/managed-keys/managed-keys.repository'
+import { ManagedApiKeys } from '../modules/managed-keys/managed-keys.service'
 
 const RADARR_URL = 'http://radarr.test:7878'
 const SONARR_URL = 'http://sonarr.test:8989'
@@ -306,6 +308,34 @@ describe('Torrent download', () => {
 
     const res = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent`)
     expect(res.status).toBe(401)
+  })
+
+  // Production scenario: the main key is unset and Radarr authenticates the indexer
+  // with a managed key. The feed must embed THAT managed key in each download URL,
+  // and grabbing the .torrent with it must succeed (regression for the 401-on-grab).
+  test('feed embeds the requester managed key, and the grab round-trips', async () => {
+    const database = new Database(':memory:')
+    testDatabases.push(database)
+    database.exec('pragma foreign_keys = ON')
+    const db = drizzle({ client: database, schema })
+    runMigrations(db)
+    const downloadsRepository = new DownloadsRepository(db)
+    const managedKeysRepository = new ManagedKeysRepository(db)
+
+    const radarr = markInitialized(makeRadarr())
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const { key: managedKey } = new ManagedApiKeys(managedKeysRepository).provision(radarr.id)
+
+    const app = getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository, managedKeysRepository })
+
+    const feed = await (await app.request(`/torznab/api?t=movie&tmdbid=603&apikey=${managedKey}`)).text()
+    expect(feed).toContain(peerRelease.title)
+    expect(feed).toContain(`apikey=${managedKey}`)
+    expect(feed).not.toContain('apikey=test-api-key')
+
+    const guid = `${peer.id}:${peerRelease.id}`
+    const grab = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent?apikey=${managedKey}`)
+    expect(grab.status).toBe(200)
   })
 })
 
