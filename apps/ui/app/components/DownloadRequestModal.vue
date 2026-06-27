@@ -17,10 +17,18 @@ const candidates = computed(() =>
 
 // USelect's v-model does not accept null; undefined behaves identically under the
 // `!= null` / `== null` loose checks below, so we use undefined for "unset".
+const peers = computed(() => props.title?.peers ?? [])
+const peerId = ref<string | undefined>(undefined)
 const serverId = ref<string | undefined>(undefined)
 const rootFolderPath = ref<string | undefined>(undefined)
 
 const server = computed(() => candidates.value.find(s => s.id === serverId.value) ?? null)
+
+// Reset to the first peer whenever the title changes, so a multi-peer title always
+// opens on its first peer regardless of a prior selection (matches the AC).
+watch(() => props.title?.key, () => {
+  peerId.value = peers.value[0]?.id
+}, { immediate: true })
 
 watch(candidates, (list) => {
   if (list.length && !list.some(s => s.id === serverId.value))
@@ -31,12 +39,12 @@ watch(server, (s) => {
   rootFolderPath.value = s?.rootFolders[0]?.path ?? undefined
 }, { immediate: true })
 
-const canSubmit = computed(() => Boolean(serverId.value && rootFolderPath.value))
+const canSubmit = computed(() => Boolean(peerId.value && serverId.value && rootFolderPath.value))
 
 function onConfirm() {
-  if (!canSubmit.value || !serverId.value || !rootFolderPath.value)
+  if (!canSubmit.value || !peerId.value || !serverId.value || !rootFolderPath.value)
     return
-  emit('confirm', { serverId: serverId.value, rootFolderPath: rootFolderPath.value })
+  emit('confirm', { peerId: peerId.value, serverId: serverId.value, rootFolderPath: rootFolderPath.value })
 }
 </script>
 
@@ -53,6 +61,14 @@ function onConfirm() {
       </p>
 
       <div v-else class="space-y-4">
+        <UFormField v-if="peers.length > 1" label="Peer">
+          <USelect
+            v-model="peerId"
+            :items="peers.map(p => ({ label: p.name, value: p.id }))"
+            class="w-full"
+          />
+        </UFormField>
+
         <UFormField label="Send to">
           <USelect
             v-model="serverId"

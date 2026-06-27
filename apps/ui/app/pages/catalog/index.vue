@@ -1,0 +1,135 @@
+<script setup lang="ts">
+import type { CatalogRequestPayload, CatalogResponse, CatalogTitle } from '~/types/management'
+
+const { request, extractError } = useManagement()
+const { entryFor } = useCatalogMetadata()
+const toast = useToast()
+
+const { data, pending, error } = await useAsyncData(
+  'peer-catalog',
+  () => request<CatalogResponse>('catalog'),
+)
+
+const typeFilter = ref<'all' | 'movie' | 'tv'>('all')
+const titles = computed(() => {
+  const all = data.value?.titles ?? []
+  return typeFilter.value === 'all' ? all : all.filter(t => t.mediaType === typeFilter.value)
+})
+
+function titleName(title: CatalogTitle): string {
+  return entryFor(title)?.data?.title ?? title.metadata?.title ?? title.displayTitle
+}
+
+const selected = ref<CatalogTitle | null>(null)
+
+const requestOpen = ref(false)
+const requestTitle = ref<CatalogTitle | null>(null)
+const requestSubmitting = ref(false)
+const requestError = ref<string | null>(null)
+
+function openRequest() {
+  requestTitle.value = selected.value
+  requestError.value = null
+  requestOpen.value = true
+}
+
+async function onConfirm(payload: CatalogRequestPayload) {
+  const title = requestTitle.value
+  if (!title)
+    return
+  requestSubmitting.value = true
+  requestError.value = null
+  try {
+    await request('catalog/request', {
+      method: 'POST',
+      body: {
+        ...payload,
+        mediaType: title.mediaType,
+        tmdbId: title.tmdbId,
+        tvdbId: title.tvdbId,
+      },
+    })
+    requestOpen.value = false
+    selected.value = null
+    const peerName = title.peers.find(p => p.id === payload.peerId)?.name ?? 'a peer'
+    toast.add({
+      title: 'Added to your library',
+      description: `"${titleName(title)}" is downloading from ${peerName}.`,
+      color: 'success',
+      icon: 'i-ph-check-circle',
+    })
+  }
+  catch (err) {
+    requestError.value = extractError(err, 'Could not request this title.')
+  }
+  finally {
+    requestSubmitting.value = false
+  }
+}
+</script>
+
+<template>
+  <UDashboardPanel id="catalog">
+    <template #header>
+      <UDashboardNavbar title="Peer Catalog" />
+      <UDashboardToolbar>
+        <template #right>
+          <UTabs
+            v-model="typeFilter"
+            size="sm"
+            :items="[{ label: 'All', value: 'all' }, { label: 'Movies', value: 'movie' }, { label: 'TV', value: 'tv' }]"
+            :content="false"
+          />
+        </template>
+      </UDashboardToolbar>
+    </template>
+
+    <template #body>
+      <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the peer catalog." />
+
+      <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+        <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+        Loading...
+      </p>
+
+      <UCard v-else-if="titles.length === 0" variant="subtle">
+        <div class="flex flex-col items-center gap-3 py-6 text-center">
+          <UIcon name="i-ph-film-slate" class="size-8 text-dimmed" />
+          <p class="text-sm text-muted">
+            Nothing to show here.
+          </p>
+        </div>
+      </UCard>
+
+      <div
+        v-else
+        class="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]"
+      >
+        <CatalogPosterCard
+          v-for="title in titles"
+          :key="title.key"
+          :title="title"
+          @select="selected = title"
+        />
+      </div>
+    </template>
+  </UDashboardPanel>
+
+  <USlideover
+    :open="selected !== null"
+    :title="selected ? titleName(selected) : 'Title'"
+    @update:open="(open) => { if (!open) selected = null }"
+  >
+    <template #body>
+      <CatalogTitleDetail v-if="selected" :title="selected" @download="openRequest" />
+    </template>
+  </USlideover>
+
+  <DownloadRequestModal
+    v-model:open="requestOpen"
+    :title="requestTitle"
+    :submitting="requestSubmitting"
+    :error="requestError"
+    @confirm="onConfirm"
+  />
+</template>

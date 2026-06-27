@@ -56,6 +56,24 @@ export interface TmdbMetadata {
   genres: string[]
 }
 
+export interface CatalogRelease {
+  id: string
+  title: string
+  filename: string
+  size: number
+  quality?: { name?: string, source?: string, resolution?: number }
+  season?: number
+  episode?: number
+}
+
+export interface CatalogTitlePeer {
+  id: string
+  name: string
+  releaseCount: number
+  totalSize: number
+  releases: CatalogRelease[]
+}
+
 export interface CatalogTitle {
   key: string
   mediaType: 'movie' | 'tv'
@@ -63,13 +81,20 @@ export interface CatalogTitle {
   imdbId?: string
   tvdbId?: number
   displayTitle: string
+  // Totals across every peer that carries this title.
   releaseCount: number
   totalSize: number
   metadata?: TmdbMetadata | null
+  peers: CatalogTitlePeer[]
 }
 
 export interface PeerCatalogResponse {
   peer: { id: string, name: string }
+  titles: CatalogTitle[]
+}
+
+export interface CatalogResponse {
+  peers: Array<{ id: string, name: string }>
   titles: CatalogTitle[]
 }
 
@@ -82,6 +107,7 @@ export interface RequestServerOption {
 }
 
 export interface CatalogRequestPayload {
+  peerId: string
   serverId: string
   rootFolderPath: string
 }

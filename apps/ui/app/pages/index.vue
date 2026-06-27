@@ -132,13 +132,13 @@ function serverRole(server: { source: boolean, destination: boolean }) {
                 No peers yet.
               </p>
               <div v-else class="divide-y divide-default">
-                <NuxtLink v-for="peer in overview.peers.items" :key="peer.id" :to="`/catalog/${peer.id}`" class="flex items-center gap-3 px-4 py-2.5 hover:bg-muted">
+                <div v-for="peer in overview.peers.items" :key="peer.id" class="flex items-center gap-3 px-4 py-2.5">
                   <ConnDot :initialized="peer.initialized" :error="peer.initializationError" />
                   <span class="flex-1 truncate text-sm text-default" :title="peer.name">{{ peer.name }}</span>
                   <span class="text-xs tabular-nums" :class="peer.initialized ? 'text-muted' : 'text-error'">
                     {{ peer.initialized ? (peer.version ?? '—') : 'unreachable' }}
                   </span>
-                </NuxtLink>
+                </div>
               </div>
             </UCard>
 
