@@ -113,15 +113,17 @@ for (const dest of registrable) {
     internalUrl: jackConfig.internalUrl,
     downloads: Boolean(downloads),
     category: qbCategoryForServer(dest.id),
-    onSuccess: (kind, name, meta) =>
-      logger.info(
-        kind === 'download client'
-          ? { destination: name, downloadClientId: meta.downloadClientId }
-          : { destination: name, categories: meta.categories, downloadClientId: meta.downloadClientId },
-        kind === 'download client'
-          ? 'Registered Jack as qBittorrent download client'
-          : 'Registered Jack as Torznab indexer',
-      ),
+    onSuccess: (kind, name, meta) => {
+      if (kind === 'download client') {
+        logger.info({ destination: name, downloadClientId: meta.downloadClientId }, 'Registered Jack as qBittorrent download client')
+        return
+      }
+      if (kind === 'quality profile') {
+        logger.info({ destination: name, profileId: meta.profileId }, 'Registered Jack-only quality profile')
+        return
+      }
+      logger.info({ destination: name, categories: meta.categories, downloadClientId: meta.downloadClientId }, 'Registered Jack as Torznab indexer')
+    },
     onFailure: logRegistrationFailure,
   })
 }

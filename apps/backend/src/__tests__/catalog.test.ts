@@ -247,7 +247,6 @@ describe('catalogController.getRequestOptions', () => {
     type: 'radarr' | 'sonarr'
     canDestination: boolean
     isInitialized: boolean
-    getQualityProfiles: () => Promise<Array<{ id: number, name: string }>>
     getRootFolders: () => Promise<Array<{ path: string, freeSpace?: number }>>
   }> = {}) {
     return {
@@ -256,7 +255,6 @@ describe('catalogController.getRequestOptions', () => {
       type: 'radarr',
       canDestination: true,
       isInitialized: true,
-      getQualityProfiles: async () => [{ id: 1, name: 'HD-1080p' }],
       getRootFolders: async () => [{ path: '/movies', freeSpace: 1000 }],
       ...overrides,
     }
@@ -278,7 +276,7 @@ describe('catalogController.getRequestOptions', () => {
     expect(options[0]!.name).toBe('My Radarr')
     expect(options[0]!.type).toBe('radarr')
     expect(options[0]!.mediaType).toBe('movie')
-    expect(options[0]!.qualityProfiles).toEqual([{ id: 1, name: 'HD-1080p' }])
+    expect(options[0]!).not.toHaveProperty('qualityProfiles')
     expect(options[0]!.rootFolders).toEqual([{ path: '/movies', freeSpace: 1000 }])
   })
 
@@ -304,11 +302,11 @@ describe('catalogController.getRequestOptions', () => {
     expect(await controller.getRequestOptions()).toEqual([])
   })
 
-  test('skips a destination whose getQualityProfiles rejects but keeps others', async () => {
+  test('skips a destination whose getRootFolders rejects but keeps others', async () => {
     const broken = fakeServer({
       id: 'radarr-broken',
       name: 'Broken Radarr',
-      getQualityProfiles: async () => {
+      getRootFolders: async () => {
         throw new Error('unreachable')
       },
     })
@@ -328,6 +326,7 @@ describe('catalogController.requestDownload', () => {
     name: string
     type: 'radarr' | 'sonarr'
     canDestination: boolean
+    ensureJackQualityProfile: () => Promise<number>
     addAndSearch: (params: any) => Promise<void>
   }> = {}) {
     return {
@@ -335,6 +334,7 @@ describe('catalogController.requestDownload', () => {
       name: 'My Radarr',
       type: 'radarr',
       canDestination: true,
+      ensureJackQualityProfile: mock(async () => 77),
       addAndSearch: mock(async () => {}),
       ...overrides,
     }
@@ -351,7 +351,6 @@ describe('catalogController.requestDownload', () => {
       serverId: 'missing',
       mediaType: 'movie',
       tmdbId: 603,
-      qualityProfileId: 1,
       rootFolderPath: '/movies',
     })).rejects.toBeInstanceOf(NotFoundError)
   })
@@ -364,7 +363,6 @@ describe('catalogController.requestDownload', () => {
       serverId: 'radarr-1',
       mediaType: 'movie',
       tmdbId: 603,
-      qualityProfileId: 1,
       rootFolderPath: '/movies',
     })).rejects.toBeInstanceOf(BadRequestError)
   })
@@ -377,7 +375,6 @@ describe('catalogController.requestDownload', () => {
       serverId: 'sonarr-1',
       mediaType: 'movie',
       tmdbId: 603,
-      qualityProfileId: 1,
       rootFolderPath: '/movies',
     })).rejects.toBeInstanceOf(BadRequestError)
   })
@@ -390,7 +387,6 @@ describe('catalogController.requestDownload', () => {
       serverId: 'radarr-1',
       mediaType: 'tv',
       tvdbId: 81189,
-      qualityProfileId: 1,
       rootFolderPath: '/tv',
     })).rejects.toBeInstanceOf(BadRequestError)
   })
@@ -403,16 +399,17 @@ describe('catalogController.requestDownload', () => {
       serverId: 'radarr-1',
       mediaType: 'movie',
       tmdbId: 603,
-      qualityProfileId: 4,
       rootFolderPath: '/movies',
     })
 
     expect(result).toEqual({ ok: true, server: 'My Radarr' })
+    expect(radarr.ensureJackQualityProfile).toHaveBeenCalledTimes(1)
     expect(radarr.addAndSearch).toHaveBeenCalledTimes(1)
+    // The Jack profile (77) is forced regardless of any client input.
     expect(radarr.addAndSearch).toHaveBeenCalledWith({
       tmdbId: 603,
       tvdbId: undefined,
-      qualityProfileId: 4,
+      qualityProfileId: 77,
       rootFolderPath: '/movies',
     })
   })
@@ -425,7 +422,6 @@ describe('catalogController.requestDownload', () => {
       serverId: 'sonarr-1',
       mediaType: 'tv',
       tvdbId: 81189,
-      qualityProfileId: 7,
       rootFolderPath: '/tv',
     })
 
@@ -433,7 +429,7 @@ describe('catalogController.requestDownload', () => {
     expect(sonarr.addAndSearch).toHaveBeenCalledWith({
       tmdbId: undefined,
       tvdbId: 81189,
-      qualityProfileId: 7,
+      qualityProfileId: 77,
       rootFolderPath: '/tv',
     })
   })

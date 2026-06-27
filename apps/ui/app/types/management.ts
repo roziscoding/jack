@@ -78,13 +78,11 @@ export interface RequestServerOption {
   name: string
   type: 'radarr' | 'sonarr'
   mediaType: 'movie' | 'tv'
-  qualityProfiles: Array<{ id: number, name: string }>
   rootFolders: Array<{ path: string, freeSpace?: number }>
 }
 
 export interface CatalogRequestPayload {
   serverId: string
-  qualityProfileId: number
   rootFolderPath: string
 }
 

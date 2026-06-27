@@ -623,6 +623,149 @@ describe('addAndSearch', () => {
   })
 })
 
+describe('ensureJackCustomFormat', () => {
+  test('Radarr: POSTs a "Jack" custom format matching the Internal flag (value 32)', async () => {
+    let postBody: any = null
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/customformat`, () => HttpResponse.json([])),
+      http.post(`${RADARR_URL}/api/v3/customformat`, async ({ request }) => {
+        postBody = await request.json()
+        return HttpResponse.json({ id: 11, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    const id = await radarr.ensureJackCustomFormat()
+
+    expect(id).toBe(11)
+    expect(postBody).toMatchObject({ name: 'Jack', includeCustomFormatWhenRenaming: false })
+    expect(postBody.specifications).toHaveLength(1)
+    expect(postBody.specifications[0]).toMatchObject({
+      name: 'Internal',
+      implementation: 'IndexerFlagSpecification',
+      negate: false,
+      required: true,
+    })
+    expect(postBody.specifications[0].fields).toEqual([{ name: 'value', value: 32 }])
+  })
+
+  test('Sonarr: uses the Internal flag value 8', async () => {
+    let postBody: any = null
+    server.use(
+      http.get(`${SONARR_URL}/api/v3/customformat`, () => HttpResponse.json([])),
+      http.post(`${SONARR_URL}/api/v3/customformat`, async ({ request }) => {
+        postBody = await request.json()
+        return HttpResponse.json({ id: 5, name: 'Jack' })
+      }),
+    )
+
+    const sonarr = markInitialized(makeSonarr())
+    const id = await sonarr.ensureJackCustomFormat()
+
+    expect(id).toBe(5)
+    expect(postBody.specifications[0].fields).toEqual([{ name: 'value', value: 8 }])
+  })
+
+  test('upserts an existing "Jack" custom format with a PUT to /{id}', async () => {
+    let putBody: any = null
+    let posted = false
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/customformat`, () => HttpResponse.json([{ id: 9, name: 'Jack' }])),
+      http.post(`${RADARR_URL}/api/v3/customformat`, () => {
+        posted = true
+        return HttpResponse.json({ id: 9, name: 'Jack' })
+      }),
+      http.put(`${RADARR_URL}/api/v3/customformat/9`, async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json({ id: 9, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    const id = await radarr.ensureJackCustomFormat()
+
+    expect(id).toBe(9)
+    expect(posted).toBe(false)
+    expect(putBody).toMatchObject({ id: 9, name: 'Jack' })
+  })
+})
+
+describe('ensureJackQualityProfile', () => {
+  const schemaTemplate = {
+    name: '',
+    upgradeAllowed: false,
+    cutoff: 1,
+    minFormatScore: 0,
+    cutoffFormatScore: 0,
+    items: [
+      { quality: { id: 1, name: 'SDTV' }, allowed: false },
+      { name: 'HD', allowed: false, items: [{ quality: { id: 2, name: 'WEBDL-1080p' }, allowed: false }] },
+    ],
+    formatItems: [
+      { format: 11, name: 'Jack', score: 0 },
+      { format: 12, name: 'Other', score: 0 },
+    ],
+  }
+
+  test('Radarr: ensures the CF then POSTs a "Jack" profile that only scores the Jack flag', async () => {
+    let postBody: any = null
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/customformat`, () => HttpResponse.json([])),
+      http.post(`${RADARR_URL}/api/v3/customformat`, () => HttpResponse.json({ id: 11, name: 'Jack' })),
+      http.get(`${RADARR_URL}/api/v3/qualityprofile/schema`, () => HttpResponse.json(schemaTemplate)),
+      http.get(`${RADARR_URL}/api/v3/qualityprofile`, () => HttpResponse.json([])),
+      http.post(`${RADARR_URL}/api/v3/qualityprofile`, async ({ request }) => {
+        postBody = await request.json()
+        return HttpResponse.json({ id: 77, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    const id = await radarr.ensureJackQualityProfile()
+
+    expect(id).toBe(77)
+    expect(postBody).toMatchObject({
+      name: 'Jack',
+      upgradeAllowed: false,
+      minFormatScore: 1,
+      cutoffFormatScore: 1,
+    })
+    // All qualities allowed — recursively, including the nested group.
+    expect(postBody.items[0].allowed).toBe(true)
+    expect(postBody.items[1].allowed).toBe(true)
+    expect(postBody.items[1].items[0].allowed).toBe(true)
+    // Only the Jack format is scored 1; others stay at 0.
+    expect(postBody.formatItems.find((f: any) => f.name === 'Jack').score).toBe(1)
+    expect(postBody.formatItems.find((f: any) => f.name === 'Other').score).toBe(0)
+  })
+
+  test('upserts an existing "Jack" profile with a PUT to /{id}', async () => {
+    let putBody: any = null
+    let posted = false
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/customformat`, () => HttpResponse.json([{ id: 11, name: 'Jack' }])),
+      http.put(`${RADARR_URL}/api/v3/customformat/11`, () => HttpResponse.json({ id: 11, name: 'Jack' })),
+      http.get(`${RADARR_URL}/api/v3/qualityprofile/schema`, () => HttpResponse.json(schemaTemplate)),
+      http.get(`${RADARR_URL}/api/v3/qualityprofile`, () => HttpResponse.json([{ id: 42, name: 'Jack' }])),
+      http.post(`${RADARR_URL}/api/v3/qualityprofile`, () => {
+        posted = true
+        return HttpResponse.json({ id: 42, name: 'Jack' })
+      }),
+      http.put(`${RADARR_URL}/api/v3/qualityprofile/42`, async ({ request }) => {
+        putBody = await request.json()
+        return HttpResponse.json({ id: 42, name: 'Jack' })
+      }),
+    )
+
+    const radarr = markInitialized(makeRadarr())
+    const id = await radarr.ensureJackQualityProfile()
+
+    expect(id).toBe(42)
+    expect(posted).toBe(false)
+    expect(putBody).toMatchObject({ id: 42, name: 'Jack', minFormatScore: 1 })
+  })
+})
+
 describe('Routes mount without peers or sources', () => {
   function createBareApp() {
     return getApp(envs, config, { servers: [], peers: [] })

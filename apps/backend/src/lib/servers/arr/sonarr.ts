@@ -28,6 +28,10 @@ export class SonarrServerConnector extends ArrServerConnector {
     return 'tvCategory'
   }
 
+  protected override get internalIndexerFlagValue(): number {
+    return 8
+  }
+
   private buildRelease(episode: EpisodeResource, series: SeriesResource | undefined, file: EpisodeFileResource | undefined): Release | null {
     if (!episode.id || !episode.hasFile || !file)
       return null

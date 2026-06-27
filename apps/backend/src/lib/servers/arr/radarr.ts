@@ -26,6 +26,10 @@ export class RadarrServerConnector extends ArrServerConnector {
     return 'movieCategory'
   }
 
+  protected override get internalIndexerFlagValue(): number {
+    return 32
+  }
+
   private toRelease(movie: MovieResource): Release | null {
     const file = movie.movieFile
     if (!movie.id || !movie.hasFile || !file)

@@ -10,7 +10,6 @@ const requestBody = z.object({
   mediaType: z.enum(['movie', 'tv']),
   tmdbId: z.number().int().optional(),
   tvdbId: z.number().int().optional(),
-  qualityProfileId: z.number().int(),
   rootFolderPath: z.string().min(1),
 })
 

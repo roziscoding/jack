@@ -18,7 +18,6 @@ const candidates = computed(() =>
 // USelect's v-model does not accept null; undefined behaves identically under the
 // `!= null` / `== null` loose checks below, so we use undefined for "unset".
 const serverId = ref<string | undefined>(undefined)
-const qualityProfileId = ref<number | undefined>(undefined)
 const rootFolderPath = ref<string | undefined>(undefined)
 
 const server = computed(() => candidates.value.find(s => s.id === serverId.value) ?? null)
@@ -29,16 +28,15 @@ watch(candidates, (list) => {
 }, { immediate: true })
 
 watch(server, (s) => {
-  qualityProfileId.value = s?.qualityProfiles[0]?.id ?? undefined
   rootFolderPath.value = s?.rootFolders[0]?.path ?? undefined
 }, { immediate: true })
 
-const canSubmit = computed(() => Boolean(serverId.value && qualityProfileId.value != null && rootFolderPath.value))
+const canSubmit = computed(() => Boolean(serverId.value && rootFolderPath.value))
 
 function onConfirm() {
-  if (!canSubmit.value || !serverId.value || qualityProfileId.value == null || !rootFolderPath.value)
+  if (!canSubmit.value || !serverId.value || !rootFolderPath.value)
     return
-  emit('confirm', { serverId: serverId.value, qualityProfileId: Number(qualityProfileId.value), rootFolderPath: rootFolderPath.value })
+  emit('confirm', { serverId: serverId.value, rootFolderPath: rootFolderPath.value })
 }
 </script>
 
@@ -63,14 +61,6 @@ function onConfirm() {
           />
         </UFormField>
 
-        <UFormField label="Quality profile">
-          <USelect
-            v-model="qualityProfileId"
-            :items="(server?.qualityProfiles ?? []).map(p => ({ label: p.name, value: p.id }))"
-            class="w-full"
-          />
-        </UFormField>
-
         <UFormField label="Root folder">
           <USelect
             v-model="rootFolderPath"
@@ -78,6 +68,10 @@ function onConfirm() {
             class="w-full"
           />
         </UFormField>
+
+        <p class="text-sm text-muted">
+          Jack downloads use a dedicated profile so *arr only grabs this release from Jack.
+        </p>
 
         <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
       </div>
