@@ -334,3 +334,38 @@ describe('SonarrServerConnector.manualImport', () => {
     })).rejects.toThrow(BadRequestError)
   })
 })
+
+describe('manualImportCommandStatus', () => {
+  test('reports completed/failed/pending from the command status', async () => {
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/command/1`, () => HttpResponse.json({ id: 1, status: 'completed' })),
+      http.get(`${RADARR_URL}/api/v3/command/2`, () => HttpResponse.json({ id: 2, status: 'failed', message: 'boom' })),
+      http.get(`${RADARR_URL}/api/v3/command/3`, () => HttpResponse.json({ id: 3, status: 'started' })),
+    )
+    const radarr = makeRadarr()
+    expect(await radarr.manualImportCommandStatus(1)).toEqual({ state: 'completed' })
+    expect(await radarr.manualImportCommandStatus(2)).toEqual({ state: 'failed', error: 'boom' })
+    expect(await radarr.manualImportCommandStatus(3)).toEqual({ state: 'pending' })
+  })
+
+  // A pruned command record (404) is terminal, not transient: returning `failed`
+  // lets the watcher fail the row instead of polling a vanished id forever.
+  test('returns failed when the command record was pruned (404)', async () => {
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/command/9`, () => new HttpResponse(null, { status: 404 })),
+    )
+    const radarr = makeRadarr()
+    const status = await radarr.manualImportCommandStatus(9)
+    expect(status.state).toBe('failed')
+    expect(status).toMatchObject({ error: expect.stringContaining('no longer exists') })
+  })
+
+  // A transient failure (5xx, timeout) must keep throwing so the watcher retries.
+  test('rethrows non-404 errors so the watcher retries next tick', async () => {
+    server.use(
+      http.get(`${RADARR_URL}/api/v3/command/8`, () => new HttpResponse(null, { status: 503 })),
+    )
+    const radarr = makeRadarr()
+    await expect(radarr.manualImportCommandStatus(8)).rejects.toThrow()
+  })
+})

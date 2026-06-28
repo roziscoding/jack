@@ -5,6 +5,7 @@ import { logger } from '../../../logger'
 import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
 import { requiresInitialization } from '../../decorators/requires-initialization'
 import { BadRequestError } from '../../errors/BadRequestError'
+import { FetchError } from '../../errors/FetchError'
 import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
@@ -245,7 +246,20 @@ export abstract class ArrServerConnector extends ServerConnector {
   @requiresDestination
   @requiresInitialization
   async manualImportCommandStatus(commandId: number): Promise<ManualImportCommandState> {
-    const command = await this.fetch(`/api/v3/command/${commandId}`, { method: 'GET', schema: CommandResource })
+    let command: z.infer<typeof CommandResource>
+    try {
+      command = await this.fetch(`/api/v3/command/${commandId}`, { method: 'GET', schema: CommandResource })
+    }
+    catch (err) {
+      // *arr prunes command records after a while, so a 404 means this command is
+      // gone for good. Treat it as terminal (rather than re-throwing every tick) so
+      // the watcher fails the row instead of polling a vanished command id forever.
+      // A real success is already caught earlier by the import-history match, so we
+      // only reach here when the file never imported.
+      if (err instanceof FetchError && err.response.status === 404)
+        return { state: 'failed', error: `Manual import command ${commandId} no longer exists on ${this.name}` }
+      throw err
+    }
     const status = command.status?.toLowerCase()
     if (status === 'completed')
       return { state: 'completed' }
