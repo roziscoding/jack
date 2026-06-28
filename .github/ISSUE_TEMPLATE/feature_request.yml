@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest an idea or improvement for jack
-labels: ["enhancement"]
+labels: [enhancement]
 body:
   - type: textarea
     id: problem

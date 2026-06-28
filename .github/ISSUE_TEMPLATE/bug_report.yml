@@ -1,6 +1,6 @@
 name: Bug report
 description: Something in jack isn't working as expected
-labels: ["bug"]
+labels: [bug]
 body:
   - type: markdown
     attributes:
