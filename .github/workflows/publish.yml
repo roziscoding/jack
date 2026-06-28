@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    # Version tags (e.g. v1.2.3) cut release images: :1.2.3, :1.2, :1 (and :latest).
+    tags:
+      - 'v*'
   pull_request:
     # `closed` is needed so we can clean up the PR image once it's merged.
     types: [opened, synchronize, reopened, closed]
@@ -39,10 +42,13 @@ jobs:
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
           images: ghcr.io/${{ github.repository }}
-          # main pushes -> :main ; pull requests -> :pr-<number>
+          # main pushes -> :main ; PRs -> :pr-<number> ; v* tags -> :1.2.3, :1.2, :1, :latest
           tags: |
             type=ref,event=branch
             type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Build and push backend
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
@@ -65,6 +71,9 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Build and push UI
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
