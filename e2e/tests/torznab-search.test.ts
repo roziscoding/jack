@@ -41,7 +41,10 @@ describe('Torznab Search (e2e)', () => {
     expect(res.status).toBe(200)
     const xml = await res.text()
     expect(xml).toContain('<error code="100"')
-    expect(xml).toContain('Unauthorized: invalid API key')
+    // The peer-facing app returns opaque errors — a generic reason, never the
+    // detailed "invalid API key" (which would leak auth detail to clients).
+    expect(xml).toContain('Unauthorized')
+    expect(xml).not.toContain('invalid API key')
   })
 
   test('Torznab rejects unknown function', async () => {

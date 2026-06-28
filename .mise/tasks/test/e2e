@@ -51,11 +51,11 @@ echo "🚀 Starting Jack instances..."
 docker compose -f "$E2E_DIR/docker-compose.yml" up -d --build jack-alpha jack-beta
 
 echo "⏳ Waiting for Jack Alpha..."
-timeout 60 bash -c 'until curl -sf -H "X-Api-Key: '"$JACK_ALPHA_API_KEY"'" http://localhost:13000/servers > /dev/null 2>&1; do sleep 2; done'
+timeout 60 bash -c 'until curl -sf -H "X-Api-Key: '"$JACK_ALPHA_API_KEY"'" http://localhost:13000/handshake > /dev/null 2>&1; do sleep 2; done'
 echo "✅ Jack Alpha ready"
 
 echo "⏳ Waiting for Jack Beta..."
-timeout 60 bash -c 'until curl -sf -H "X-Api-Key: '"$JACK_BETA_API_KEY"'" http://localhost:13001/servers > /dev/null 2>&1; do sleep 2; done'
+timeout 60 bash -c 'until curl -sf -H "X-Api-Key: '"$JACK_BETA_API_KEY"'" http://localhost:13001/handshake > /dev/null 2>&1; do sleep 2; done'
 echo "✅ Jack Beta ready"
 
 echo ""
