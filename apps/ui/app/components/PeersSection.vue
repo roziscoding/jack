@@ -3,9 +3,7 @@ import type { BadgeProps } from '@nuxt/ui'
 import type { PeerInput, PeerItem } from '~/types/management'
 
 const { request, extractError } = useManagement()
-
-const { data, pending, error, refresh } = await useAsyncData('peers', () =>
-  request<{ peers: PeerItem[] }>('config/peers'))
+const { settings, pending, error, reload } = useSettings()
 
 const showForm = ref(false)
 const editTarget = ref<PeerItem | null>(null)
@@ -32,7 +30,8 @@ function sortKey(peer: PeerItem) {
     return 1
   return 2
 }
-const peers = computed(() => [...(data.value?.peers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const peers = computed(() => [...(settings.value?.peers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const peerTextClass = (id: string) => settings.value?.peerColors.get(id)?.text ?? peerColorTextClass(id)
 const connected = computed(() => peers.value.filter(p => p.initialized).length)
 const unreachable = computed(() => peers.value.filter(p => !p.initialized && p.initializationError).length)
 
@@ -72,7 +71,7 @@ async function submit(input: PeerInput, force = false) {
     else
       await request('config/peers', { method: 'POST', body: input, query })
     showForm.value = false
-    await refresh()
+    await reload()
   }
   catch (err) {
     formError.value = extractError(err, 'Could not save the peer.')
@@ -90,7 +89,7 @@ async function confirmDelete() {
   try {
     await request(`config/peers/${confirmTarget.value.id}`, { method: 'DELETE' })
     confirmTarget.value = null
-    await refresh()
+    await reload()
   }
   catch (err) {
     deleteError.value = extractError(err, 'Could not remove the peer.')
@@ -107,14 +106,14 @@ async function confirmDelete() {
       <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
     </template>
 
-    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
+    <UAlert v-if="error && !settings" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
 
-    <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+    <p v-else-if="pending && !settings" class="flex items-center gap-2 text-sm text-muted">
       <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
       Loading…
     </p>
 
-    <UCard v-else-if="data && data.peers.length === 0" variant="subtle">
+    <UCard v-else-if="settings && settings.peers.length === 0" variant="subtle">
       <div class="flex flex-col items-center gap-3 py-6 text-center">
         <UIcon name="i-ph-users-three" class="size-8 text-dimmed" />
         <p class="text-sm text-muted">
@@ -124,7 +123,7 @@ async function confirmDelete() {
       </div>
     </UCard>
 
-    <div v-else-if="data" class="space-y-3">
+    <div v-else-if="settings" class="space-y-3">
       <p class="text-xs tabular-nums text-muted">
         {{ connected }} of {{ peers.length }} connected<template v-if="unreachable">
           · <span class="text-error">{{ unreachable }} unreachable</span>
@@ -136,6 +135,7 @@ async function confirmDelete() {
           v-for="peer in peers"
           :key="peer.id"
           :name="peer.name"
+          :accent-class="peerTextClass(peer.id)"
           :url="peer.url"
           :initialized="peer.initialized"
           :error="peer.initializationError"

@@ -8,6 +8,10 @@ const { data: overview, pending, error, refresh } = await useAsyncData('overview
 
 const { REFRESH_OPTIONS, intervalMs, paused, secondsLeft, togglePaused } = useAutoRefresh(refresh)
 
+// Peer colors from the shared settings store (single source, consistent across views).
+const { settings } = useSettings()
+const peerTextClass = (id: string) => settings.value?.peerColors.get(id)?.text ?? peerColorTextClass(id)
+
 // Server connection role, shown in the connections grid (e.g. "source · destination").
 function serverRole(server: { source: boolean, destination: boolean }) {
   const roles = []
@@ -133,7 +137,7 @@ function serverRole(server: { source: boolean, destination: boolean }) {
               </p>
               <div v-else class="divide-y divide-default">
                 <div v-for="peer in overview.peers.items" :key="peer.id" class="flex items-center gap-3 px-4 py-2.5">
-                  <ConnDot :initialized="peer.initialized" :error="peer.initializationError" />
+                  <ConnDot :initialized="peer.initialized" :error="peer.initializationError" :accent-class="peerTextClass(peer.id)" />
                   <span class="flex-1 truncate text-sm text-default" :title="peer.name">{{ peer.name }}</span>
                   <span class="text-xs tabular-nums" :class="peer.initialized ? 'text-muted' : 'text-error'">
                     {{ peer.initialized ? (peer.version ?? '—') : 'unreachable' }}

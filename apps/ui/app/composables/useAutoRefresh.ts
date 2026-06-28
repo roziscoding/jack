@@ -40,19 +40,17 @@ export function useAutoRefresh(refresh: () => unknown | Promise<unknown>, defaul
   // means "show me fresher data now", mirroring resume-from-pause.
   watch(intervalMs, () => void refreshNow())
 
-  let ticker: ReturnType<typeof setInterval> | undefined
-  onMounted(() => {
-    ticker = setInterval(() => {
-      if (paused.value)
-        return
-      secondsLeft.value -= 1
-      if (secondsLeft.value <= 0) {
-        resetCountdown()
-        void refresh()
-      }
-    }, 1000)
-  })
-  onUnmounted(() => clearInterval(ticker))
+  // A single 1s ticker drives the countdown and fires the refresh at zero. whenVisible
+  // is off so the countdown keeps running in a background tab, as it always has.
+  usePolling(() => {
+    if (paused.value)
+      return
+    secondsLeft.value -= 1
+    if (secondsLeft.value <= 0) {
+      resetCountdown()
+      void refresh()
+    }
+  }, { intervalMs: 1000, whenVisible: false })
 
   return { REFRESH_OPTIONS, intervalMs, paused, secondsLeft, refreshNow, togglePaused }
 }
