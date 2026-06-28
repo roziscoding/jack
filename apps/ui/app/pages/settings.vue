@@ -3,6 +3,7 @@ import type { BadgeProps } from '@nuxt/ui'
 import type { ApiKey, ApiKeyInput, CreatedApiKey, JackConfig } from '~/types/management'
 
 const { request, extractError } = useManagement()
+const version = useRuntimeConfig().public.appVersion
 
 const { data, pending, error, refresh } = await useAsyncData('api-keys', () =>
   request<ApiKey[]>('api-keys'))
@@ -271,6 +272,41 @@ async function confirmRevoke() {
               </div>
             </UCard>
           </div>
+        </SettingsSection>
+
+        <USeparator />
+
+        <!-- About / Credits — also the home for required third-party attribution. -->
+        <SettingsSection
+          title="About"
+          description="What this is, and the data it relies on."
+        >
+          <UCard variant="subtle" :ui="{ body: 'space-y-4' }">
+            <!-- jack's own mark: stated first, in brand color, at full size. -->
+            <div class="flex items-center gap-3">
+              <UIcon name="i-ph-plugs-connected" class="size-7 shrink-0 text-primary" />
+              <div class="min-w-0">
+                <div class="flex items-baseline gap-2">
+                  <span class="text-base font-semibold tracking-tight text-highlighted">jack</span>
+                  <span class="font-mono text-xs text-dimmed">v{{ version }}</span>
+                </div>
+                <p class="text-xs text-muted">
+                  Self-hosted *arr peer bridge
+                </p>
+              </div>
+            </div>
+
+            <USeparator />
+
+            <!-- TMDB attribution — deliberately quieter than the jack mark above:
+                 a smaller logo and muted notice keep it subordinate, per TMDB's terms. -->
+            <div class="flex items-start gap-3">
+              <img src="/tmdb.svg" alt="The Movie Database (TMDB)" class="mt-0.5 h-4 w-auto shrink-0">
+              <p class="text-xs leading-relaxed text-muted">
+                This product uses the TMDB API but is not endorsed or certified by TMDB.
+              </p>
+            </div>
+          </UCard>
         </SettingsSection>
       </div>
     </template>
