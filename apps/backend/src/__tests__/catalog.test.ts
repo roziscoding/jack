@@ -439,6 +439,23 @@ describe('catalogController.requestDownload', () => {
     })
   })
 
+  test('reports zero starts when a duplicate movie direct download is already active', async () => {
+    const radarr = fakeServer({ add: mock(async () => 123) })
+    const peer = fakePeer({ searchByTmdbId: mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]) })
+    const downloads = fakeDownloads({ startDirectDownload: mock(async () => 'duplicate') })
+    const controller = new CatalogController(makeConnectors([radarr], [peer]), undefined, downloads)
+
+    const result = await controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'radarr-1',
+      mediaType: 'movie',
+      tmdbId: 603,
+      rootFolderPath: '/movies',
+    })
+
+    expect(result).toEqual({ ok: true, server: 'My Radarr', started: 0 })
+  })
+
   test('throws NotFoundError when the peer has no episodes for the tvdbId, and does not add', async () => {
     const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
     const peer = fakePeer({ searchByTvdbId: mock(async () => []) })
@@ -539,6 +556,47 @@ describe('catalogController.requestDownload', () => {
     })
 
     expect(result).toEqual({ ok: true, server: 'My Sonarr', started: 1 })
+  })
+
+  test('counts only newly started episode downloads when duplicates and failures are mixed', async () => {
+    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
+    const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
+    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
+    const ep3 = episode({ id: 'ep:3', tvdbId: 81189, season: 1, episode: 3, quality: { resolution: 720 }, size: 30 })
+    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2, ep3]) })
+    const outcomes = ['started', 'duplicate', 'failed'] as const
+    let call = 0
+    const downloads = fakeDownloads({ startDirectDownload: mock(async () => outcomes[call++] ?? 'failed') })
+    const controller = new CatalogController(makeConnectors([sonarr], [peer]), undefined, downloads)
+
+    const result = await controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'sonarr-1',
+      mediaType: 'tv',
+      tvdbId: 81189,
+      rootFolderPath: '/tv',
+    })
+
+    expect(result).toEqual({ ok: true, server: 'My Sonarr', started: 1 })
+  })
+
+  test('reports zero starts when every episode direct download is duplicate', async () => {
+    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
+    const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
+    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
+    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2]) })
+    const downloads = fakeDownloads({ startDirectDownload: mock(async () => 'duplicate') })
+    const controller = new CatalogController(makeConnectors([sonarr], [peer]), undefined, downloads)
+
+    const result = await controller.requestDownload({
+      peerId: 'peer-1',
+      serverId: 'sonarr-1',
+      mediaType: 'tv',
+      tvdbId: 81189,
+      rootFolderPath: '/tv',
+    })
+
+    expect(result).toEqual({ ok: true, server: 'My Sonarr', started: 0 })
   })
 })
 

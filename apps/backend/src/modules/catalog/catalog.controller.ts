@@ -132,6 +132,8 @@ export class CatalogController {
       })
       if (result === 'failed')
         throw new BadRequestError(`Failed to start the download for tmdbId ${input.tmdbId} from peer "${peer.name}"`)
+      if (result === 'duplicate')
+        return { ok: true, server: server.name, started: 0 }
       return { ok: true, server: server.name, started: 1 }
     }
 
@@ -146,6 +148,7 @@ export class CatalogController {
 
     const seriesId = await server.add({ tvdbId: input.tvdbId, rootFolderPath: input.rootFolderPath })
     let started = 0
+    let accepted = 0
     for (const release of best) {
       const result = await this.downloads.startDirectDownload({
         peerId: peer.id,
@@ -153,10 +156,13 @@ export class CatalogController {
         destinationServerName: server.name,
         importTarget: { kind: 'series', seriesId },
       })
-      if (result !== 'failed')
+      if (result === 'failed')
+        continue
+      accepted++
+      if (result === 'started')
         started++
     }
-    if (started === 0)
+    if (accepted === 0)
       throw new BadRequestError(`Failed to start any episode download for tvdbId ${input.tvdbId} from peer "${peer.name}"`)
     return { ok: true, server: server.name, started }
   }
