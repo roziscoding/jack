@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CatalogRequestPayload, CatalogTitle, RequestServerOption } from '~/types/management'
 
-const props = defineProps<{ open: boolean, title: CatalogTitle | null, submitting?: boolean, error?: string | null }>()
+const props = defineProps<{ open: boolean, title: CatalogTitle | null, submitting?: boolean, error?: string | null, lockedPeerId?: string }>()
 const emit = defineEmits<{ 'update:open': [boolean], 'confirm': [CatalogRequestPayload] }>()
 
 // Codebase convention (see settings.vue) is a computed get/set bridge for v-model,
@@ -24,10 +24,11 @@ const rootFolderPath = ref<string | undefined>(undefined)
 
 const server = computed(() => candidates.value.find(s => s.id === serverId.value) ?? null)
 
-// Reset to the first peer whenever the title changes, so a multi-peer title always
+// Honor a peer picked from the detail view's per-peer cards (lockedPeerId); otherwise
+// reset to the first peer whenever the title changes, so a multi-peer title always
 // opens on its first peer regardless of a prior selection (matches the AC).
-watch(() => props.title?.key, () => {
-  peerId.value = peers.value[0]?.id
+watch([() => props.title?.key, () => props.lockedPeerId], () => {
+  peerId.value = props.lockedPeerId ?? peers.value[0]?.id
 }, { immediate: true })
 
 watch(candidates, (list) => {
@@ -61,7 +62,7 @@ function onConfirm() {
       </p>
 
       <div v-else class="space-y-4">
-        <UFormField v-if="peers.length > 1" label="Peer">
+        <UFormField v-if="peers.length > 1 && !lockedPeerId" label="Peer">
           <USelect
             v-model="peerId"
             :items="peers.map(p => ({ label: p.name, value: p.id }))"

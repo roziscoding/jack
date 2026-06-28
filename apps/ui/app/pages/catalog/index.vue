@@ -5,10 +5,17 @@ const { request, extractError } = useManagement()
 const { entryFor } = useCatalogMetadata()
 const toast = useToast()
 
-const { data, pending, error } = await useAsyncData(
+// Lazy (no top-level await) so navigation into the page is instant; the grid shows
+// skeletons until the catalog request resolves.
+const { data, pending, error } = useLazyAsyncData(
   'peer-catalog',
   () => request<CatalogResponse>('catalog'),
 )
+
+// Distinct, view-consistent peer colors from the shared settings store. Provided so
+// the poster badges and detail cards resolve the same color for a given peer.
+const { settings } = useSettings()
+providePeerColors(computed(() => settings.value?.peerColors ?? new Map()))
 
 const typeFilter = ref<'all' | 'movie' | 'tv'>('all')
 const titles = computed(() => {
@@ -24,11 +31,13 @@ const selected = ref<CatalogTitle | null>(null)
 
 const requestOpen = ref(false)
 const requestTitle = ref<CatalogTitle | null>(null)
+const requestPeerId = ref<string | undefined>(undefined)
 const requestSubmitting = ref(false)
 const requestError = ref<string | null>(null)
 
-function openRequest() {
+function openRequest(peerId: string) {
   requestTitle.value = selected.value
+  requestPeerId.value = peerId
   requestError.value = null
   requestOpen.value = true
 }
@@ -71,8 +80,7 @@ async function onConfirm(payload: CatalogRequestPayload) {
 <template>
   <UDashboardPanel id="catalog">
     <template #header>
-      <UDashboardNavbar title="Peer Catalog" />
-      <UDashboardToolbar>
+      <UDashboardNavbar title="Peer Catalog">
         <template #right>
           <UTabs
             v-model="typeFilter"
@@ -81,18 +89,13 @@ async function onConfirm(payload: CatalogRequestPayload) {
             :content="false"
           />
         </template>
-      </UDashboardToolbar>
+      </UDashboardNavbar>
     </template>
 
     <template #body>
       <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the peer catalog." />
 
-      <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
-        <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
-        Loading...
-      </p>
-
-      <UCard v-else-if="titles.length === 0" variant="subtle">
+      <UCard v-else-if="!pending && titles.length === 0" variant="subtle">
         <div class="flex flex-col items-center gap-3 py-6 text-center">
           <UIcon name="i-ph-film-slate" class="size-8 text-dimmed" />
           <p class="text-sm text-muted">
@@ -105,8 +108,12 @@ async function onConfirm(payload: CatalogRequestPayload) {
         v-else
         class="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(200px,1fr))]"
       >
+        <template v-if="pending">
+          <CatalogPosterCardSkeleton v-for="n in 18" :key="n" />
+        </template>
         <CatalogPosterCard
           v-for="title in titles"
+          v-else
           :key="title.key"
           :title="title"
           @select="selected = title"
@@ -128,6 +135,7 @@ async function onConfirm(payload: CatalogRequestPayload) {
   <DownloadRequestModal
     v-model:open="requestOpen"
     :title="requestTitle"
+    :locked-peer-id="requestPeerId"
     :submitting="requestSubmitting"
     :error="requestError"
     @confirm="onConfirm"
