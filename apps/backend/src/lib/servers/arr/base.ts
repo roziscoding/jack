@@ -10,6 +10,7 @@ import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
 const TRAILING_SLASH_REGEX = /\/$/
+const NUMERIC_ENTITY_ID_REGEX = /^\d+$/
 
 export const DestinationServerHealthIssue = z.array(
   z.object({
@@ -151,7 +152,14 @@ export abstract class ArrServerConnector extends ServerConnector {
     if (connectorId !== this.id || (kind !== 'movie' && kind !== 'episode') || rest.length === 0) {
       return null
     }
-    return { kind, entityId: rest.join(':') }
+    const entityId = rest.join(':')
+    // entityId is always a numeric *arr id and gets concatenated straight into the
+    // upstream API path; reject anything non-numeric so a peer-supplied id can't
+    // inject "/" or ".." and pivot to other *arr endpoints with our *arr key.
+    if (!NUMERIC_ENTITY_ID_REGEX.test(entityId)) {
+      return null
+    }
+    return { kind, entityId }
   }
 
   // ---- Source role ----

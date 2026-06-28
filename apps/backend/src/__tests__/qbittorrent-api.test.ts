@@ -7,9 +7,9 @@ import * as schema from '../database/schema'
 import { AppConfig, MIGRATIONS } from '../lib/config'
 import { generateManagedKey, hashKey } from '../lib/crypto'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
-import { ManagedKeysRepository } from '../modules/managed-keys/managed-keys.repository'
 import { deriveHash, qbCategoryForServer } from '../modules/qbittorrent/qbittorrent.mapper'
 import { createTorrentStub } from '../modules/torznab/torrent'
+import { makeAuthRepos } from './helpers/auth-repos'
 
 const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
 
@@ -27,7 +27,7 @@ function buildApp() {
     servers: [],
     peers: [],
   })
-  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository })
+  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, ...makeAuthRepos(db) })
   return { app, repository }
 }
 
@@ -50,7 +50,7 @@ function buildAppWithService(startResult: 'started' | 'duplicate' | 'failed' = '
       return startResult
     },
   } as any
-  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, downloadsService })
+  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, downloadsService, ...makeAuthRepos(db) })
   return { app, repository, calls }
 }
 
@@ -112,7 +112,7 @@ describe('qBittorrent auth + app surface', () => {
     const db = drizzle({ client: sqlite, schema })
     runMigrations(db)
     const downloadsRepository = new DownloadsRepository(db)
-    const managedKeysRepository = new ManagedKeysRepository(db)
+    const { apiKeysRepository, managedKeysRepository } = makeAuthRepos(db)
     const config = AppConfig.parse({
       version: MIGRATIONS.length,
       jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
@@ -120,7 +120,7 @@ describe('qBittorrent auth + app surface', () => {
       servers: [],
       peers: [],
     })
-    const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository, managedKeysRepository })
+    const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository, apiKeysRepository, managedKeysRepository })
 
     const key = generateManagedKey()
     managedKeysRepository.create({ keyHash: hashKey(key), serverId: 'abc12345' }) // fakeServer.id

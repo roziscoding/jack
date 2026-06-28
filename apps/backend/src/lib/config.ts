@@ -233,7 +233,6 @@ const DEFAULT_APP_CONFIG: z.input<typeof AppConfig> = {
   version: MIGRATIONS.length,
   jack: {
     internalUrl: 'http://jack:5225',
-    apiKey: { env: 'JACK_API_KEY' },
   },
   servers: [],
   peers: [],

@@ -14,7 +14,7 @@ Built with [Bun](https://bun.com) and [Hono](https://hono.dev).
 - [Quick start (Docker Compose)](#quick-start-docker-compose)
 - [Management UI](#management-ui)
 - [How it works](#how-it-works)
-- [The API key](#the-api-key)
+- [API keys](#api-keys)
 - [Configuration](#configuration)
 - [Environment variables](#environment-variables)
 - [Health check](#health-check)
@@ -88,10 +88,10 @@ The compose file mounts three host paths — adjust them for your setup:
 | `${MEDIA_PATH:-./data/media}` → `/data/media` | Your media, so jack can stream it to peers | must match the paths Radarr/Sonarr report |
 | `${TORRENTS_PATH:-./data/torrents}` → `/data/torrents` | Completed downloads dir | `downloads.completedPath` |
 
-> **Networking:** Radarr/Sonarr reach jack's qBittorrent API at `jack.baseUrl`,
+> **Networking:** Radarr/Sonarr reach jack's qBittorrent API at `jack.internalUrl`,
 > so it must be resolvable from *their* side. If they run in their own Docker
 > network, uncomment the `networks:` block in the compose file so jack joins it,
-> and set `jack.baseUrl` to something they can resolve (e.g. `http://jack:5225`).
+> and set `jack.internalUrl` to something they can resolve (e.g. `http://jack:5225`).
 > Otherwise use the host IP.
 
 > ⚠️ **Mount the completed folder into Radarr/Sonarr too.** jack writes finished
@@ -177,12 +177,12 @@ sequenceDiagram
 ```
 
 1. On startup jack **registers itself as a Torznab indexer** in each `destination`
-   server (Radarr/Sonarr), using `jack.baseUrl` + `jack.apiKey`, and
+   server (Radarr/Sonarr), using `jack.internalUrl` + an auto-issued **managed key**, and
    **registers a qBittorrent download client** pointing back at jack's own
-   qBittorrent API (`jack.baseUrl`, only if `downloads` is configured). (Auto,
+   qBittorrent API (`jack.internalUrl`, only if `downloads` is configured). (Auto,
    unless you set that server's `autoregister.enable: false`.)
 2. When you search or monitor something, Radarr/Sonarr query jack's `/torznab`
-   endpoint with that API key.
+   endpoint with that managed key.
 3. jack **fans the query out to every `peer`** you've configured, calling their
    `/peer/search` (authenticated with that peer's API key).
 4. Each peer searches **its own Radarr/Sonarr** library (movies/episodes that
@@ -225,8 +225,8 @@ sequenceDiagram
 
 ### 3. Serving (being a peer to others)
 
-When a friend lists *you* as a peer, their jack calls your `/peer/*` endpoints
-(all guarded by your `jack.apiKey`):
+When a friend lists *you* as a peer, their jack calls your `/peer/*` endpoints,
+authenticated with the peer API key you issued them:
 
 - `/peer/search` — search your Radarr/Sonarr library.
 - `/peer/items/:id` — release metadata.
@@ -236,42 +236,39 @@ jack streams files straight from disk using the paths your Radarr/Sonarr report,
 so **the jack process must be able to read your media files at those same paths**
 (mount your media into the container the same way your *arr apps see it).
 
-## The API key
+## API keys
 
-`jack.apiKey` is a **single shared secret** that protects every HTTP endpoint
-except `/ping` when the `jack` block is configured, including `/torznab` and
-`/peer`. It is used in two directions:
+jack authenticates each external surface by **key type**, so a credential only
+works where it's meant to (`/ping` is the only unauthenticated route):
 
-- Your **Radarr/Sonarr** send it as the Torznab `apikey` when they search you
-  (jack fills this in automatically when it registers itself).
-- Your **peers** send it as the `X-Api-Key` header when they search/download
-  from you.
+- **Peer API keys.** Issued per peer from the management UI's *API keys* section
+  (or the management API) — named, revocable, and optionally expiring. Scoped to
+  the **peer API** (`/handshake`, `/peer/*`): a peer key **cannot** query your
+  Torznab indexer or act as your download client.
+- **Managed keys.** jack mints these automatically and registers them in your
+  Radarr/Sonarr when it auto-registers as their indexer + download client. Scoped
+  to the ***arr surface** (`/torznab`, the qBittorrent API); you never see or
+  handle them.
 
-### Generating one
+So keys flow in two directions:
 
-It can be any non-empty string, but use something long and random:
-
-```bash
-openssl rand -hex 32
-```
-
-Put the result in `jack.apiKey` in your `config.jsonc`. If you don't set one,
-jack does not expose the Torznab or peer APIs. The default config jack writes on
-first boot reads this from `JACK_API_KEY`; set that environment variable or
-replace it with a plain string/secret-file reference before peering.
+- Your **Radarr/Sonarr** authenticate with the managed key jack registered for
+  them (as the Torznab `apikey` and the download-client password).
+- Your **peers** send the peer API key you issued them as the `X-Api-Key` header
+  when they search or download from you.
 
 ### Sharing with friends (peering)
 
 Peering is symmetric — you each run jack and exchange two things: your
-**`baseUrl`** and your **`apiKey`**.
+**`internalUrl`** and a **peer API key**.
 
-- **You give a friend** your `jack.baseUrl` + `jack.apiKey`. They add you under
-  `peers` in *their* config:
+- **You give a friend** your `jack.internalUrl` plus a peer API key you issue them
+  (management UI → *API keys*). They add you under `peers` in *their* config:
 
   ```jsonc
   {
     "peers": [
-      { "name": "you", "url": "https://your-jack.example.com", "apiKey": "<your jack.apiKey>" }
+      { "name": "you", "url": "https://your-jack.example.com", "apiKey": "<the key you issued them>" }
     ]
   }
   ```
@@ -280,19 +277,20 @@ Peering is symmetric — you each run jack and exchange two things: your
 
 After that, each side's Radarr/Sonarr can find and pull media the other has.
 
-> ⚠️ **It's one shared secret.** The same key authenticates peers *and* the
-> Torznab endpoint, so anyone you hand it to can also query your indexer. There
-> are no per-peer keys yet — only share it with people you trust. (Per-peer,
-> revocable keys are a planned improvement.)
+> 💡 Issue a **separate key per peer**. Each is scoped to the peer API — it can't
+> reach your indexer or download client — and can be revoked individually without
+> disrupting your other peers.
+
+> 🔒 Use **`https://`** for peer URLs. The key travels in the `X-Api-Key` request
+> header, so a plain `http://` peer exposes it in transit to anything on the path.
+> jack logs a warning at startup for any peer configured over `http://`.
 
 ## Configuration
 
 jack reads a [JSONC](https://github.com/microsoft/node-jsonc-parser) file
 (comments allowed) from `APP_CONFIG_PATH` (default `/config/config.jsonc`). If
-the file doesn't exist, jack writes a default one on first boot. If that default
-references `JACK_API_KEY` and the variable is not set yet, jack starts with an
-empty config until you provide it. Copy [`examples/config.jsonc`](examples/config.jsonc)
-as a starting point.
+the file doesn't exist, jack writes a default one on first boot. Copy
+[`examples/config.jsonc`](examples/config.jsonc) as a starting point.
 
 Every top-level block is optional — configure only what you need for what
 you're doing.
@@ -302,8 +300,7 @@ you're doing.
   // This instance's identity. Needed to expose a Torznab indexer and to be
   // reachable by peers.
   "jack": {
-    "baseUrl": "http://jack:5225", // URL your *arr apps / peers reach you at
-    "apiKey": "a-long-random-string" // openssl rand -hex 32 — see "The API key"
+    "internalUrl": "http://jack:5225" // URL your *arr apps / peers reach you at
   },
 
   // Downloads. Needed to *consume* (download) from peers — jack registers
@@ -351,12 +348,11 @@ you're doing.
 
 Field notes:
 
-- **`jack.baseUrl`** must be reachable by your *arr apps (and by peers, if you're
+- **`jack.internalUrl`** must be reachable by your *arr apps (and by peers, if you're
   sharing). On a shared Docker network use the container name; otherwise the host
   IP/domain.
-- **`jack.apiKey`** — see [The API key](#the-api-key).
-- **`peers[].apiKey`** is *that peer's* `jack.apiKey` (what they gave you), not
-  your own.
+- **`peers[].apiKey`** is the peer API key that peer issued *you* (see
+  [API keys](#api-keys)), not your own.
 - **`servers[].name` / `peers[].name`** are required display names used in logs,
   health output, and search results.
 - **`servers[].apiKey`** is the Radarr/Sonarr API key — **exactly 32 hex
@@ -389,31 +385,28 @@ config file:
 
 ```jsonc
 {
-  "jack": {
-    "baseUrl": "http://jack:5225",
-    "apiKey": { "env": "JACK_API_KEY" } // resolved from $JACK_API_KEY at startup
-  }
+  "servers": [
+    // resolved from $RADARR_API_KEY at startup
+    { "name": "Main Radarr", "type": "radarr", "url": "http://radarr:7878", "apiKey": { "env": "RADARR_API_KEY" } }
+  ]
 }
 ```
 
 ```jsonc
 {
-  "jack": {
-    "baseUrl": "http://jack:5225",
-    "apiKey": { "file": "/run/secrets/jack_api_key" } // path must be absolute
-  }
+  "servers": [
+    // path must be absolute
+    { "name": "Main Radarr", "type": "radarr", "url": "http://radarr:7878", "apiKey": { "file": "/run/secrets/radarr_api_key" } }
+  ]
 }
 ```
 
-All three forms are interchangeable everywhere an `apiKey` appears (`jack`,
-`servers`, `peers`) and for `servers[].headers` / `peers[].headers` values. The
-plain-string form keeps working unchanged. File paths must be absolute; trailing
-line endings are ignored. If a referenced variable is unset/empty, or a secret
-file cannot be read or resolves to an empty value at startup, jack reports the
-problem and refuses to load that config. The default config jack writes on first
-boot uses the env form for `jack.apiKey` (reading `JACK_API_KEY`); on that first
-boot only, a missing `JACK_API_KEY` leaves jack running with an empty config so
-you can fill in the file.
+All three forms are interchangeable everywhere an `apiKey` appears (`servers`,
+`peers`) and for `servers[].headers` / `peers[].headers` values. The plain-string
+form keeps working unchanged. File paths must be absolute; trailing line endings
+are ignored. If a referenced variable is unset/empty, or a secret file cannot be
+read or resolves to an empty value at startup, jack reports the problem and
+refuses to load that config.
 
 ## Environment variables
 
@@ -461,7 +454,7 @@ The repo includes a small Bun CLI for talking to a running jack:
 ```bash
 JACK_URL=http://localhost:5225 \
 JACK_API_KEY=your-key \
-bun scripts/cli.ts api GET /servers
+bun scripts/cli.ts api GET /handshake
 ```
 
 Supported commands:
@@ -472,11 +465,15 @@ Supported commands:
 - `bun scripts/cli.ts peer search [--imdbId id] [--tmdbId id] [--tvdbId id] [--season n] [--episode n]` — call your local `/peer/search`.
 - `bun scripts/cli.ts torznab search [--imdbId id] [--tmdbId id] [--tvdbId id] [--season n] [--episode n] [--cat id]` — call `/torznab/api` and print XML.
 
-Operational endpoints:
+Operational endpoints (peer-facing app):
 
-- `GET /servers` — list configured Radarr/Sonarr connectors and peers, including initialization state.
-- `GET /servers/health` — return health issues from destination Sonarr connectors.
-- `GET /items?searchTerm=...` — search local source Radarr/Sonarr libraries directly.
+- `GET /ping` — unauthenticated health check.
+- `GET /handshake` — identity + protocol version (authenticated).
+
+Connector, status and download views are **not** on the peer-facing app — they would
+leak peer/server names and URLs to peers. They live on the management API (separate
+port, authenticated with the management key): `GET /config/servers`, `GET /config/peers`,
+`GET /status/overview`, and `GET /status/downloads`.
 
 ## Running without Docker
 
@@ -504,10 +501,10 @@ Registration runs on every startup and logs the *arr response body, so check
 
 The qBittorrent client *arr registers (or the "Test" button in
 Settings → Download Clients) connects to jack's qBittorrent API at the host/port
-jack derives from `jack.baseUrl`. A failing test almost always means*arr can't
+jack derives from `jack.internalUrl`. A failing test almost always means*arr can't
 reach that address.
 
-**Fix:** make sure `jack.baseUrl` is resolvable **from the Radarr/Sonarr side**.
+**Fix:** make sure `jack.internalUrl` is resolvable **from the Radarr/Sonarr side**.
 On a shared Docker network use the container name (`http://jack:5225`); otherwise
 the host IP/domain. If *arr and jack are on different networks, attach jack to
 *arr's network (the `networks:` block in the example compose).

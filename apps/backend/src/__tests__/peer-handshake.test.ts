@@ -1,12 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
-import { getApp } from '../app'
-import { AppConfig, MIGRATIONS } from '../lib/config'
 import { PeerConnector } from '../lib/servers/peer'
-import { ServersController } from '../modules/servers/servers.controllers'
-
-const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
+import { getManagementApp } from '../management-app'
 
 const server = setupServer()
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
@@ -99,24 +95,8 @@ describe('PeerConnector handshake compatibility', () => {
   })
 })
 
-describe('ServersController surfaces peer version', () => {
-  test('listServers includes each peer reported version', () => {
-    const fakePeer = {
-      name: 'Friend Jack',
-      url: 'http://peer.test',
-      type: 'jack',
-      isInitialized: true,
-      initializationError: null,
-      peerVersion: '0.1.0',
-    } as any
-    const controller = new ServersController({ servers: [], peers: [fakePeer] })
-
-    const { peers } = controller.listServers()
-    expect(peers).toHaveLength(1)
-    expect(peers[0]).toMatchObject({ name: 'Friend Jack', version: '0.1.0' })
-  })
-
-  test('GET /servers exposes the peer version through the real route', async () => {
+describe('peer version is surfaced on the management API', () => {
+  test('GET /config/peers exposes each peer reported version', async () => {
     server.use(
       http.get('http://peer.test/handshake', () => HttpResponse.json({ name: 'jack', version: '0.1.0' })),
     )
@@ -124,15 +104,11 @@ describe('ServersController surfaces peer version', () => {
     peer.init()
     await peer.initialization
 
-    const config = AppConfig.parse({
-      version: MIGRATIONS.length,
-      jack: { internalUrl: 'http://jack:5225', apiKey: 'test-api-key' },
-      servers: [],
-      peers: [],
-    })
-    const app = getApp(envs, config, { servers: [], peers: [peer] })
+    // Connector listing lives only on the management API (it exposes peer
+    // names/urls, which the peer-facing app must not).
+    const app = getManagementApp({ environment: 'test', managementKey: 'mgmt-secret', connectors: { servers: [], peers: [peer] } })
 
-    const res = await app.request('/servers?apikey=test-api-key')
+    const res = await app.request('/config/peers', { headers: { 'X-Management-Key': 'mgmt-secret' } })
     expect(res.status).toBe(200)
     const body = await res.json() as { peers: Array<{ name: string, version: string | null }> }
     expect(body.peers).toHaveLength(1)

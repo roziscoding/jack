@@ -33,7 +33,7 @@ describe('API Keys Router', () => {
 
     app = new Hono()
     app.route('/api-keys', getApiKeysRouter(controller))
-    app.onError(handleError('test'))
+    app.onError(handleError('test', { exposeDetails: true }))
   })
 
   describe('POST /api-keys', () => {

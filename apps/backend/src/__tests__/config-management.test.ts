@@ -19,6 +19,7 @@ import { PROTOCOL_VERSION } from '../lib/version'
 import { getManagementApp } from '../management-app'
 import { ConfigService } from '../modules/config/config.service'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
+import { makeAuthRepos } from './helpers/auth-repos'
 
 const config = AppConfig.parse({
   version: MIGRATIONS.length,
@@ -78,7 +79,7 @@ describe('Management API auth', () => {
   })
 
   test('the public app never exposes /config', async () => {
-    const app = getApp(makeEnvs(undefined), config, { servers: [], peers: [makePeer()] } as any)
+    const app = getApp(makeEnvs(undefined), config, { servers: [], peers: [makePeer()] } as any, { ...makeAuthRepos() })
     // Carry a valid peer API key so we get past requireApiKey and reach routing:
     // a true 404 proves the route is unregistered, not merely auth-blocked.
     const res = await app.request('/config', { headers: { 'x-api-key': 'test-api-key' } })
@@ -137,7 +138,7 @@ async function makeMutableApp(managementKey = 'mgmt-secret') {
   const downloadsRepository = new DownloadsRepository(db)
   const configService = await ConfigService.fromFile({ path, connectorManager, downloadsRepository })
   const app = getManagementApp({ environment: 'test', managementKey, connectors: connectorManager, configService })
-  const mainApp = getApp(makeEnvs(managementKey), config, connectorManager, { downloadsRepository })
+  const mainApp = getApp(makeEnvs(managementKey), config, connectorManager, { downloadsRepository, ...makeAuthRepos(db) })
   return { app, mainApp, path, connectorManager, downloadsRepository, database }
 }
 
@@ -462,19 +463,18 @@ describe('Management API live visibility', () => {
     expect(removed).not.toContain('Bob.Movie.1080p')
   })
 
-  test('a live-added peer appears in GET /servers without restart', async () => {
-    // Covers the lazy-getter-OBJECT wiring (ServersController). Together with the
-    // /torznab test above (the () => Connector[] PROVIDER wiring), both Phase-7
-    // wiring styles are exercised — ItemsController/QbittorrentController reuse the
-    // same object-getter pattern as ServersController.
-    const { app, mainApp } = await makeMutableApp()
+  test('a live-added peer appears in GET /config/peers without restart', async () => {
+    // Connector listing lives only on the management API now. This covers the
+    // lazy-getter-OBJECT wiring (ConfigController); the /torznab test above covers
+    // the () => Connector[] PROVIDER wiring on the public app.
+    const { app } = await makeMutableApp()
 
-    const before = await (await mainApp.request('/servers', { headers: { 'X-Api-Key': 'test-api-key' } })).json() as { peers: Array<{ name: string }> }
+    const before = await (await app.request('/config/peers', { headers: KEY })).json() as { peers: Array<{ name: string }> }
     expect(before.peers.some(p => p.name === 'Bob')).toBe(false)
 
     await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }) })
 
-    const after = await (await mainApp.request('/servers', { headers: { 'X-Api-Key': 'test-api-key' } })).json() as { peers: Array<{ name: string }> }
+    const after = await (await app.request('/config/peers', { headers: KEY })).json() as { peers: Array<{ name: string }> }
     expect(after.peers.some(p => p.name === 'Bob')).toBe(true)
   })
 })

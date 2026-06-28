@@ -20,175 +20,149 @@ interface ErrorResponse {
   error: { message: string }
 }
 
+const masterKey = 'master-secret-key'
+
 describe('requireApiKey', () => {
-  let repo: ApiKeysRepository
+  let apiRepo: ApiKeysRepository
   let managedRepo: ManagedKeysRepository
-  const masterKey = 'master-secret-key'
 
   beforeEach(() => {
     const sqlite = new Database(':memory:')
     const db = drizzle({ client: sqlite, schema })
     runMigrations(db)
-    repo = new ApiKeysRepository(db)
+    apiRepo = new ApiKeysRepository(db)
     managedRepo = new ManagedKeysRepository(db)
   })
 
-  function createApp(apiKey: string, repository?: ApiKeysRepository, managedRepository?: ManagedKeysRepository) {
+  // The middleware renders rejection reasons in detail only with exposeDetails (the
+  // management/log view); the peer API renders them opaquely — see handle-error.test.ts.
+  function apiKeyApp(master: string, repository = apiRepo) {
     const app = new Hono<{ Variables: AuthVariables }>()
-    app.use('*', requireApiKey(apiKey, repository, managedRepository))
+    app.use('*', requireApiKey(master, { type: 'api_key', repository }))
     app.get('/test', c => c.json({ keyName: c.get('apiKeyName') ?? null }))
-    app.onError(handleError('test'))
+    app.onError(handleError('test', { exposeDetails: true }))
     return app
   }
 
-  test('missing key returns 401', async () => {
-    const app = createApp(masterKey, repo)
+  function managedKeyApp(master: string, repository = managedRepo) {
+    const app = new Hono<{ Variables: AuthVariables }>()
+    app.use('*', requireApiKey(master, { type: 'managed_key', repository }))
+    app.get('/test', c => c.json({ keyName: c.get('apiKeyName') ?? null }))
+    app.onError(handleError('test', { exposeDetails: true }))
+    return app
+  }
 
-    const res = await app.request('/test')
-
-    expect(res.status).toBe(401)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as ErrorResponse).error.message).toContain('missing API key')
-  })
-
-  test('master key passes without DB lookup', async () => {
-    const app = createApp(masterKey, repo)
-
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': masterKey },
+  describe('shared behaviour', () => {
+    test('missing key returns 401', async () => {
+      const res = await apiKeyApp(masterKey).request('/test')
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('missing API key')
     })
 
-    expect(res.status).toBe(200)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as SuccessResponse).keyName).toBeNull()
-  })
-
-  test('empty main key: a missing key is rejected (auth not disabled)', async () => {
-    const app = createApp('', repo)
-
-    const res = await app.request('/test')
-
-    expect(res.status).toBe(401)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as ErrorResponse).error.message).toContain('missing API key')
-  })
-
-  test('empty main key: a valid generated key still passes via the DB', async () => {
-    const key = generateApiKey()
-    repo.create({ keyHash: hashKey(key), name: 'Gen Key' })
-    const app = createApp('', repo)
-
-    const res = await app.request('/test', { headers: { 'X-Api-Key': key } })
-
-    expect(res.status).toBe(200)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as SuccessResponse).keyName).toBe('Gen Key')
-  })
-
-  test('valid jack_ key from DB passes and sets name', async () => {
-    const key = generateApiKey()
-    repo.create({ keyHash: hashKey(key), name: 'Test Key' })
-    const app = createApp(masterKey, repo)
-
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': key },
+    test('master key passes without a DB lookup', async () => {
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': masterKey } })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as SuccessResponse).keyName).toBeNull()
     })
 
-    expect(res.status).toBe(200)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as SuccessResponse).keyName).toBe('Test Key')
-  })
-
-  test('valid jack_ key without name sets "unnamed"', async () => {
-    const key = generateApiKey()
-    repo.create({ keyHash: hashKey(key) })
-    const app = createApp(masterKey, repo)
-
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': key },
+    test('master key passes on the managed scope too', async () => {
+      const res = await managedKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': masterKey } })
+      expect(res.status).toBe(200)
     })
 
-    expect(res.status).toBe(200)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as SuccessResponse).keyName).toBe('unnamed')
-  })
-
-  test('expired jack_ key returns 401', async () => {
-    const key = generateApiKey()
-    const pastDate = new Date(Date.now() - 86400000).toISOString()
-    repo.create({ keyHash: hashKey(key), expiresAt: pastDate })
-    const app = createApp(masterKey, repo)
-
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': key },
+    test('empty master key: a missing key is still rejected (auth not disabled)', async () => {
+      const res = await apiKeyApp('').request('/test')
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('missing API key')
     })
 
-    expect(res.status).toBe(401)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as ErrorResponse).error.message).toContain('API key expired')
+    test('key via query param works', async () => {
+      const res = await apiKeyApp(masterKey).request(`/test?apikey=${masterKey}`)
+      expect(res.status).toBe(200)
+    })
   })
 
-  test('non-existent jack_ key returns 401', async () => {
-    const key = generateApiKey()
-    const app = createApp(masterKey, repo)
+  describe('api_key scope (peers)', () => {
+    test('empty master key: a valid generated key still passes via the DB', async () => {
+      const key = generateApiKey()
+      apiRepo.create({ keyHash: hashKey(key), name: 'Gen Key' })
 
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': key },
+      const res = await apiKeyApp('').request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as SuccessResponse).keyName).toBe('Gen Key')
     })
 
-    expect(res.status).toBe(401)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as ErrorResponse).error.message).toContain('invalid API key')
-  })
+    test('a valid jack_ key passes and sets its name', async () => {
+      const key = generateApiKey()
+      apiRepo.create({ keyHash: hashKey(key), name: 'Test Key' })
 
-  test('non-jack_ key that does not match master returns 401 (no DB lookup)', async () => {
-    const app = createApp(masterKey, repo)
-
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': 'wrong-key' },
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as SuccessResponse).keyName).toBe('Test Key')
     })
 
-    expect(res.status).toBe(401)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as ErrorResponse).error.message).toContain('invalid API key')
-  })
+    test('a valid jack_ key without a name sets "unnamed"', async () => {
+      const key = generateApiKey()
+      apiRepo.create({ keyHash: hashKey(key) })
 
-  test('jack_ key without repository returns 401', async () => {
-    const key = generateApiKey()
-    const app = createApp(masterKey)
-
-    const res = await app.request('/test', {
-      headers: { 'X-Api-Key': key },
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as SuccessResponse).keyName).toBe('unnamed')
     })
 
-    expect(res.status).toBe(401)
+    test('an expired jack_ key returns 401', async () => {
+      const key = generateApiKey()
+      apiRepo.create({ keyHash: hashKey(key), expiresAt: new Date(Date.now() - 86400000).toISOString() })
+
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('API key expired')
+    })
+
+    test('a non-existent jack_ key returns 401', async () => {
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': generateApiKey() } })
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('invalid API key')
+    })
+
+    test('a non-jack_ key that is not the master returns 401 (no DB lookup)', async () => {
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': 'wrong-key' } })
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('invalid API key')
+    })
+
+    test('a managed key is rejected on the peer scope (wrong prefix, fails fast)', async () => {
+      const key = generateManagedKey()
+      managedRepo.create({ keyHash: hashKey(key), serverId: 'srv-a' })
+
+      const res = await apiKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('invalid API key')
+    })
   })
 
-  test('valid managed key passes via the managed table', async () => {
-    const key = generateManagedKey()
-    managedRepo.create({ keyHash: hashKey(key), serverId: 'srv-a' })
-    const app = createApp(masterKey, repo, managedRepo)
+  describe('managed_key scope (*arr)', () => {
+    test('a valid managed key passes via the managed table', async () => {
+      const key = generateManagedKey()
+      managedRepo.create({ keyHash: hashKey(key), serverId: 'srv-a' })
 
-    const res = await app.request('/test', { headers: { 'X-Api-Key': key } })
+      const res = await managedKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as SuccessResponse).keyName).toBe('managed')
+    })
 
-    expect(res.status).toBe(200)
-    const body = await res.json() as SuccessResponse | ErrorResponse
-    expect((body as SuccessResponse).keyName).toBe('managed')
-  })
+    test('an unknown managed key returns 401', async () => {
+      const res = await managedKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': generateManagedKey() } })
+      expect(res.status).toBe(401)
+    })
 
-  test('unknown managed key returns 401', async () => {
-    const app = createApp(masterKey, repo, managedRepo)
+    test('a peer api_key is rejected on the *arr scope (wrong prefix, fails fast)', async () => {
+      const key = generateApiKey()
+      apiRepo.create({ keyHash: hashKey(key), name: 'Peer Key' })
 
-    const res = await app.request('/test', { headers: { 'X-Api-Key': generateManagedKey() } })
-
-    expect(res.status).toBe(401)
-  })
-
-  test('key via query param works', async () => {
-    const app = createApp(masterKey, repo)
-
-    const res = await app.request(`/test?apikey=${masterKey}`)
-
-    expect(res.status).toBe(200)
+      const res = await managedKeyApp(masterKey).request('/test', { headers: { 'X-Api-Key': key } })
+      expect(res.status).toBe(401)
+      expect(((await res.json()) as ErrorResponse).error.message).toContain('invalid API key')
+    })
   })
 })

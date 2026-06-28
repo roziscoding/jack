@@ -74,6 +74,15 @@ export class PeerConnector extends ServerConnector {
       pingMethod: 'GET',
       authHeader: 'X-Api-Key',
     }, { ...config, type: 'jack' })
+
+    // The peer API key rides in the X-Api-Key header; over plain HTTP it's exposed
+    // in transit to anything on the path. Warn so the operator can switch to https.
+    if (config.url.startsWith('http://')) {
+      logger.warn(
+        { peer: { name: config.name, url: config.url } },
+        `Peer "${config.name}" is configured over plain HTTP — its API key is sent in cleartext. Use an https:// URL where possible.`,
+      )
+    }
   }
 
   override get authHeaderValue() {

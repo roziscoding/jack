@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getApp } from '../app'
 import { AppConfig, MIGRATIONS } from '../lib/config'
 import { PROTOCOL_VERSION } from '../lib/version'
+import { makeAuthRepos } from './helpers/auth-repos'
 
 const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
 
@@ -12,7 +13,7 @@ function buildApp() {
     servers: [],
     peers: [],
   })
-  return getApp(envs, config, { servers: [], peers: [] })
+  return getApp(envs, config, { servers: [], peers: [] }, { ...makeAuthRepos() })
 }
 
 describe('GET /handshake', () => {

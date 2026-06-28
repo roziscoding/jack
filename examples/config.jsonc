@@ -8,17 +8,12 @@
   // File paths must be absolute. All forms resolve to the same string.
 
   // Identity of THIS jack instance. Required for the Torznab indexer and
-  // for peers to reach you. `baseUrl` must be reachable from your *arr apps.
+  // for peers to reach you. `internalUrl` must be reachable from your *arr apps.
   "jack": {
-    "baseUrl": "http://jack:5225",
-    // Shared secret that protects your /torznab and /peer endpoints.
-    // Generate one with:  openssl rand -hex 32
-    // You hand this SAME value to your peers so they can reach you, and your
-    // Radarr/Sonarr use it to query your Torznab indexer (see README).
-    // Here it is read from the JACK_API_KEY environment variable.
-    // You can also use a secret file, for example:
-    //   "apiKey": { "file": "/run/secrets/jack_api_key" }
-    "apiKey": { "env": "JACK_API_KEY" }
+    "internalUrl": "http://jack:5225"
+    // Peers authenticate with per-peer API keys (managed in the UI's "API keys"
+    // section); your Radarr/Sonarr authenticate with the managed key jack
+    // registers for them automatically. See README → "API keys".
   },
 
   // Downloads: jack registers itself in your *arr as a qBittorrent download
@@ -61,6 +56,8 @@
   ],
 
   // Other jack instances you search (peer-to-peer). Sources only.
+  // Prefer https:// — the API key travels in the X-Api-Key header, so a plain
+  // http:// peer exposes it in transit (jack warns at startup for http:// peers).
   "peers": [
     // {
     //   "name": "friend",

@@ -3,6 +3,14 @@ import { Hono } from 'hono'
 import { validator as zValidator } from 'hono-openapi'
 import z from 'zod'
 
+// Strip characters that could break out of the quoted filename or inject extra
+// response headers (CR/LF/quote). The name comes from a trusted *arr basename, so
+// this is defense-in-depth.
+const UNSAFE_FILENAME_CHARS = /["\r\n]/g
+function safeFilename(name: string): string {
+  return name.replace(UNSAFE_FILENAME_CHARS, '')
+}
+
 export function getPeerRouter(controller: PeerController) {
   const app = new Hono()
 
@@ -57,7 +65,7 @@ export function getPeerRouter(controller: PeerController) {
           'Content-Length': String(result.size),
           'Content-Range': `bytes ${result.start}-${result.end}/${result.totalSize}`,
           'Accept-Ranges': 'bytes',
-          'Content-Disposition': `attachment; filename="${result.filename}"`,
+          'Content-Disposition': `attachment; filename="${safeFilename(result.filename)}"`,
         },
       })
     }

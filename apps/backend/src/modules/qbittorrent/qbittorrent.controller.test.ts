@@ -33,7 +33,6 @@ describe('QbittorrentController.login', () => {
       completedPath: '/tmp',
       servers: [RADARR, SONARR],
       repository: downloads,
-      apiKeysRepository: api,
       managedKeysRepository: managed,
     })
   }
@@ -58,16 +57,9 @@ describe('QbittorrentController.login', () => {
     expect(controller('').login('Sonarr', key)).toBeNull()
   })
 
-  test('a valid user key passes', () => {
+  test('a peer api_key is rejected — the download client is *arr-only (managed keys)', () => {
     const key = generateApiKey()
     api.create({ keyHash: hashKey(key) })
-    expect(controller('').login('Radarr', key)).not.toBeNull()
-  })
-
-  test('an expired user key is rejected', () => {
-    const key = generateApiKey()
-    const past = new Date(Date.now() - 86_400_000).toISOString()
-    api.create({ keyHash: hashKey(key), expiresAt: past })
     expect(controller('').login('Radarr', key)).toBeNull()
   })
 

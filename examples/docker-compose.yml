@@ -44,7 +44,7 @@ services:
     #   radarr: {condition: service_healthy}
     #   sonarr: {condition: service_healthy}
     # If Radarr / Sonarr run in their own compose network, attach this service
-    # to it so `jack.baseUrl` / server URLs resolve by container name.
+    # to it so `jack.internalUrl` / server URLs resolve by container name.
     # Otherwise reach them via host IP.
     # networks:
     #   - media

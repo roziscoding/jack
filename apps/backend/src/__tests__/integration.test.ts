@@ -9,12 +9,13 @@ import { getApp } from '../app'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
 import { AppConfig, MIGRATIONS } from '../lib/config'
+import { generateApiKey, generateManagedKey, hashKey } from '../lib/crypto'
 import { RadarrServerConnector } from '../lib/servers/arr/radarr'
 import { SonarrServerConnector } from '../lib/servers/arr/sonarr'
 import { PeerConnector } from '../lib/servers/peer'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
-import { ManagedKeysRepository } from '../modules/managed-keys/managed-keys.repository'
 import { ManagedApiKeys } from '../modules/managed-keys/managed-keys.service'
+import { makeAuthRepos } from './helpers/auth-repos'
 
 const RADARR_URL = 'http://radarr.test:7878'
 const SONARR_URL = 'http://sonarr.test:8989'
@@ -173,7 +174,7 @@ function createTestApp() {
   const db = drizzle({ client: database, schema })
   runMigrations(db)
   const downloadsRepository = new DownloadsRepository(db)
-  return { app: getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository }), radarr, peer, database, downloadsRepository }
+  return { app: getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository, ...makeAuthRepos(db) }), radarr, peer, database, downloadsRepository }
 }
 
 describe('Peer API', () => {
@@ -207,6 +208,17 @@ describe('Peer API', () => {
     const body = await res.json() as Release
     expect(body.imdbId).toBe('tt0133093')
     expect(body.filename).toContain('.mkv')
+  })
+
+  test('GET /peer/items/:id rejects a path-injection id (no pivot onto the *arr API)', async () => {
+    const { app, radarr } = createTestApp()
+    // A peer-supplied id that tries to escape /api/v3/movie/<id> into another
+    // endpoint. parseId must reject the non-numeric entityId → 404, no upstream call.
+    const malicious = `${radarr.id}:movie:1/../../system/status`
+    const res = await app.request(`/peer/items/${encodeURIComponent(malicious)}`, {
+      headers: { 'X-Api-Key': 'test-api-key' },
+    })
+    expect(res.status).toBe(404)
   })
 })
 
@@ -319,13 +331,13 @@ describe('Torrent download', () => {
     const db = drizzle({ client: database, schema })
     runMigrations(db)
     const downloadsRepository = new DownloadsRepository(db)
-    const managedKeysRepository = new ManagedKeysRepository(db)
+    const { apiKeysRepository, managedKeysRepository } = makeAuthRepos(db)
 
     const radarr = markInitialized(makeRadarr())
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const { key: managedKey } = new ManagedApiKeys(managedKeysRepository).provision(radarr.id)
 
-    const app = getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository, managedKeysRepository })
+    const app = getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository, apiKeysRepository, managedKeysRepository })
 
     const feed = await (await app.request(`/torznab/api?t=movie&tmdbid=603&apikey=${managedKey}`)).text()
     expect(feed).toContain(peerRelease.title)
@@ -335,28 +347,6 @@ describe('Torrent download', () => {
     const guid = `${peer.id}:${peerRelease.id}`
     const grab = await app.request(`/torznab/download/${encodeURIComponent(guid)}.torrent?apikey=${managedKey}`)
     expect(grab.status).toBe(200)
-  })
-})
-
-describe('Downloads API', () => {
-  test('GET /downloads returns persisted download state', async () => {
-    const { app, downloadsRepository } = createTestApp()
-    downloadsRepository.create({
-      torrentFilename: 'movie.torrent',
-      peerId: 'peer-1',
-      peerName: 'Friend Jack',
-      itemId: 'movie:1',
-      filename: peerRelease.filename,
-      destPath: '/tmp/completed/Movie.mkv',
-      partPath: '/tmp/completed/Movie.mkv.part',
-      releaseSize: peerRelease.size,
-      release: peerRelease,
-    })
-
-    const res = await app.request('/downloads', { headers: { 'X-Api-Key': 'test-api-key' } })
-    expect(res.status).toBe(200)
-    const body = await res.json() as { downloads: Array<{ torrentFilename: string }> }
-    expect(body.downloads[0]?.torrentFilename).toBe('movie.torrent')
   })
 })
 
@@ -558,9 +548,42 @@ describe('Auto-registration', () => {
   })
 })
 
+describe('Scoped auth boundaries', () => {
+  // A peer (api_key) and the operator's *arr (managed key) authenticate against
+  // disjoint surfaces: peers can't reach the *arr indexer, *arr can't reach the
+  // peer API. The master key is the only credential valid on both.
+  function scopedApp() {
+    const { apiKeysRepository, managedKeysRepository } = makeAuthRepos()
+    const peerKey = generateApiKey()
+    apiKeysRepository.create({ keyHash: hashKey(peerKey), name: 'A Peer' })
+    const managedKey = generateManagedKey()
+    managedKeysRepository.create({ keyHash: hashKey(managedKey), serverId: 'srv' })
+    const app = getApp(envs, config, { servers: [], peers: [] }, { apiKeysRepository, managedKeysRepository })
+    return { app, peerKey, managedKey }
+  }
+
+  test('a peer api_key reaches /peer but is rejected on /torznab', async () => {
+    const { app, peerKey } = scopedApp()
+    expect((await app.request(`/peer/search?apikey=${peerKey}`)).status).toBe(200)
+    expect((await app.request(`/torznab/api?t=caps&apikey=${peerKey}`)).status).toBe(401)
+  })
+
+  test('a managed (*arr) key reaches /torznab but is rejected on /peer', async () => {
+    const { app, managedKey } = scopedApp()
+    expect((await app.request(`/torznab/api?t=caps&apikey=${managedKey}`)).status).toBe(200)
+    expect((await app.request(`/peer/search?apikey=${managedKey}`)).status).toBe(401)
+  })
+
+  test('the master key is accepted on both surfaces', async () => {
+    const { app } = scopedApp()
+    expect((await app.request('/peer/search?apikey=test-api-key')).status).toBe(200)
+    expect((await app.request('/torznab/api?t=caps&apikey=test-api-key')).status).toBe(200)
+  })
+})
+
 describe('Routes mount without peers or sources', () => {
   function createBareApp() {
-    return getApp(envs, config, { servers: [], peers: [] })
+    return getApp(envs, config, { servers: [], peers: [] }, { ...makeAuthRepos() })
   }
 
   test('Torznab caps works with no peers', async () => {

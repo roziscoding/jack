@@ -13,59 +13,36 @@ import { PROTOCOL_VERSION } from './lib/version'
 import { handleError } from './middleware/handle-error'
 import { logRequests } from './middleware/log-requests'
 import { requireApiKey } from './middleware/require-auth'
-import { DownloadsController } from './modules/downloads/downloads.controller'
-import { getDownloadsRouter } from './modules/downloads/downloads.router'
-import { ItemsController } from './modules/items/items.controller'
-import { getItemsRouter } from './modules/items/items.router'
 import { PeerController } from './modules/peer/peer.controller'
 import { getPeerRouter } from './modules/peer/peer.router'
 import { QbittorrentController } from './modules/qbittorrent/qbittorrent.controller'
 import { getQbittorrentRouter } from './modules/qbittorrent/qbittorrent.router'
-import { ServersController } from './modules/servers/servers.controllers'
-import { getServersRouter } from './modules/servers/servers.router'
 import { getDownloadRouter } from './modules/torznab/download.router'
 import { TorznabController } from './modules/torznab/torznab.controller'
 import { getTorznabRouter } from './modules/torznab/torznab.router'
 
 interface AppServices {
+  // Both auth repositories are required: this app mounts the peer scope (api_key)
+  // and the *arr scope (managed_key), and each scope must be able to validate its
+  // own key class (see require-auth.ts).
+  apiKeysRepository: ApiKeysRepository
+  managedKeysRepository: ManagedKeysRepository
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
-  apiKeysRepository?: ApiKeysRepository
-  managedKeysRepository?: ManagedKeysRepository
 }
 
+// This is the external surface, gated per audience rather than by one global key:
+//  - peers (other Jacks) reach /handshake + /peer/* with regular api_keys;
+//  - the operator's Radarr/Sonarr reach /torznab/* (managed key) and /api/v2/*
+//    (qBittorrent, own SID-cookie auth);
+//  - admin/connector/download views live ONLY on the management API.
 // Only the live `servers`/`peers` getters are used here, so accept the structural
 // shape a real `ConnectorManager` satisfies — this also lets tests pass a lightweight
 // `{ servers, peers }` object.
-export function getApp(envs: Envs, config: AppConfig, connManager: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }, services: AppServices = {}) {
+export function getApp(envs: Envs, config: AppConfig, connManager: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }, services: AppServices) {
   const app = new Hono()
-  const connectors = {
-    get servers() {
-      return connManager.servers
-    },
 
-    get peers() {
-      return connManager.peers
-    },
-  }
-
-  // Controllers
-  // ServersController takes { servers, peers } — the live wrapper satisfies it.
-  const serversController = new ServersController(connectors)
-  // ItemsController treats all servers as sources (unchanged semantics), read live.
-  const itemsController = new ItemsController({
-    get sources() {
-      return connManager.servers
-    },
-  })
   const peerController = new PeerController(() => connManager.servers)
-  const downloadsController = services.downloadsRepository ? new DownloadsController(services.downloadsRepository) : null
-
-  // Routers
-  const serversRouter = getServersRouter(serversController)
-  const itemsRouter = getItemsRouter(itemsController)
-  const peerRouter = getPeerRouter(peerController)
-  const downloadsRouter = downloadsController ? getDownloadsRouter(downloadsController) : null
 
   app.use('*', secureHeaders())
 
@@ -84,9 +61,10 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   // request-completed log without headers, query params, or bodies.
   app.use('*', logRequests)
 
-  // qBittorrent WebUI API -- Radarr/Sonarr poll us as a download client. Mounted
-  // BEFORE requireApiKey because qB uses its own SID-cookie auth
-  // (/api/v2/auth/login), not jack's apikey query/header.
+  // qBittorrent WebUI API -- Radarr/Sonarr poll us as a download client. It uses its
+  // own SID-cookie auth (/api/v2/auth/login), which is itself scoped to master +
+  // managed keys (see qbittorrent.controller), so it's mounted outside the api-key
+  // scopes below.
   if (config.downloads && services.downloadsRepository) {
     const qbController = new QbittorrentController({
       apiKey: config.jack.apiKey ?? '',
@@ -94,38 +72,36 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
       get servers() { return connManager.servers },
       repository: services.downloadsRepository,
       downloadsService: services.downloadsService,
-      apiKeysRepository: services.apiKeysRepository,
       managedKeysRepository: services.managedKeysRepository,
     })
     app.route('/api/v2', getQbittorrentRouter(qbController))
   }
 
-  app.use('*', requireApiKey(config.jack.apiKey ?? '', services.apiKeysRepository, services.managedKeysRepository))
-
-  app.route('/servers', serversRouter)
-  app.route('/items', itemsRouter)
-
-  if (downloadsRouter)
-    app.route('/downloads', downloadsRouter)
-
-  const torznabController = new TorznabController(() => connManager.peers, config.jack)
-  const torznabRouter = getTorznabRouter(torznabController)
-  const downloadRouter = getDownloadRouter(() => connManager.peers)
+  const masterKey = config.jack.apiKey ?? ''
+  // Peer scope: other Jacks present regular api_keys. *arr scope: the operator's
+  // Radarr/Sonarr present the managed key Jack registered with them.
+  const peerAuth = requireApiKey(masterKey, { type: 'api_key', repository: services.apiKeysRepository })
+  const arrAuth = requireApiKey(masterKey, { type: 'managed_key', repository: services.managedKeysRepository })
 
   // Peer handshake — other Jacks probe this at init to read our identity and
   // protocol version, then check it against their minimum compatible version.
-  // Authenticated (mounted after requireApiKey) so a bad API key still fails
-  // loudly at connect time, unlike the unauthenticated /ping health check.
-  app.get('/handshake', c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
+  // Authenticated so a bad API key still fails loudly at connect time, unlike the
+  // unauthenticated /ping health check.
+  app.get('/handshake', peerAuth, c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
 
-  // Peer API — other Jacks talk to us. Serves empty results
+  // Peer API — other Jacks talk to us to search and download. Serves empty results
   // when there's no local source to read from.
-  app.route('/peer', peerRouter)
+  app.use('/peer/*', peerAuth)
+  app.route('/peer', getPeerRouter(peerController))
 
-  // Torznab API — Radarr/Sonarr search through us. Returns empty results when there are no peers to fan out to.
-  app.route('/torznab', torznabRouter)
-  app.route('/torznab', downloadRouter)
+  // Torznab API — the operator's Radarr/Sonarr search through us and grab via the
+  // download router. Returns empty results when there are no peers to fan out to.
+  const torznabController = new TorznabController(() => connManager.peers, config.jack)
+  app.use('/torznab/*', arrAuth)
+  app.route('/torznab', getTorznabRouter(torznabController))
+  app.route('/torznab', getDownloadRouter(() => connManager.peers))
 
+  // Peer-facing app: error responses are opaque (see handle-error.ts).
   app.onError(handleError(envs.ENVIRONMENT))
 
   return app

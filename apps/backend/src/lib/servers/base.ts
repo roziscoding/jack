@@ -3,11 +3,24 @@ import z from 'zod'
 import { logger } from '../../logger'
 import { getAppEnvs } from '../envs'
 import { FetchError } from '../errors/FetchError'
+import { redactObject, redactRecord } from '../redact'
 import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
 
 const DEFAULT_FETCH_TIMEOUT_MS = getAppEnvs().HTTP_TIMEOUT_MS
 const MAX_ERROR_BODY_BYTES = 8 * 1024
+
+// Mask sensitive fields in a possibly-JSON upstream body before it becomes a span
+// attribute (spans, unlike logs, aren't otherwise scrubbed). Non-JSON bodies pass
+// through unchanged.
+function redactBody(body: string): string {
+  try {
+    return JSON.stringify(redactObject(JSON.parse(body)))
+  }
+  catch {
+    return body
+  }
+}
 
 export function generateId(url: string): string {
   const hash = new Bun.CryptoHasher('sha256').update(url).digest('hex')
@@ -116,7 +129,9 @@ export abstract class ServerConnector {
       'connector.type': this.type,
       'http.request.method': method,
       'http.request.timeout_ms': timeoutMs,
-      'http.request.headers': initWithAuth.headers,
+      // Mask credentials (X-Api-Key, Cloudflare Access secrets, …) before they're
+      // recorded on the span — the same scrub logs already get.
+      'http.request.headers': redactRecord(initWithAuth.headers as Record<string, string>),
       'server.address': url.hostname,
       'url.path': url.pathname,
       'url.query': url.search ? url.search.slice(1) : undefined,
@@ -140,7 +155,7 @@ export abstract class ServerConnector {
 
       if (!response.ok) {
         const body = await response.text().catch(() => 'Could not fetch body')
-        setSpanAttribute(span, 'http.response.body', body)
+        setSpanAttribute(span, 'http.response.body', redactBody(body))
         logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body: truncateBody(body) }, 'Request failed (non-2xx)')
         throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
       }

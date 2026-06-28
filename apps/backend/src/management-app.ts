@@ -53,7 +53,10 @@ export function getManagementApp(params: {
     app.route('/api-keys', getApiKeysRouter(apiKeysController))
   }
 
-  app.onError(handleError(params.environment))
+  // The management API is key-guarded and serves the admin UI, so it exposes
+  // full error detail. The peer-facing app (app.ts) leaves this off and returns
+  // opaque errors instead.
+  app.onError(handleError(params.environment, { exposeDetails: true }))
 
   return app
 }
