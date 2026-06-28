@@ -67,6 +67,7 @@ function seedDownload(repository: DownloadsRepository, category: string) {
     release: { id: 'conn:movie:42', title: 'Big Buck Bunny', filename: 'Big Buck Bunny (2008).mkv', category: 2000, size: 10 } as any,
     qbCategory: category,
     qbSourceServer: 'My Radarr',
+    sourceServerId: 'abc12345',
   })
 }
 
@@ -220,6 +221,7 @@ describe('qBittorrent add/delete/setCategory', () => {
     expect(calls[0].itemId).toBe('conn:movie:42')
     expect(calls[0].qbCategory).toBe('jack-abc12345')
     expect(calls[0].qbSourceServer).toBe('My Radarr')
+    expect(calls[0].sourceServerId).toBe('abc12345')
   })
 
   test('add returns 503 when startQbDownload fails so *arr retries promptly', async () => {

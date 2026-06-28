@@ -149,7 +149,7 @@ describe('RadarrServerConnector.manualImport', () => {
     )
 
     const radarr = makeRadarr()
-    await radarr.manualImport({
+    const commandId = await radarr.manualImport({
       folder: '/downloads',
       paths: ['/downloads/Movie.mkv'],
       target: { kind: 'movie', movieId: 7 },
@@ -157,6 +157,7 @@ describe('RadarrServerConnector.manualImport', () => {
     })
 
     const body = CommandBody.parse(commandBody)
+    expect(commandId).toBe(1)
     expect(body.name).toBe('ManualImport')
     expect(body.importMode).toBe('move')
     expect(body.files).toHaveLength(1)
@@ -266,7 +267,8 @@ describe('SonarrServerConnector.manualImport', () => {
     )
 
     const sonarr = makeSonarr()
-    await sonarr.manualImport({
+
+    const commandId = await sonarr.manualImport({
       folder: '/downloads',
       paths: ['/downloads/Ep.mkv'],
       target: { kind: 'series', seriesId: 3 },
@@ -274,6 +276,7 @@ describe('SonarrServerConnector.manualImport', () => {
     })
 
     const body = CommandBody.parse(commandBody)
+    expect(commandId).toBe(1)
     expect(body.name).toBe('ManualImport')
     expect(body.importMode).toBe('move')
     expect(body.files).toHaveLength(1)
@@ -284,6 +287,40 @@ describe('SonarrServerConnector.manualImport', () => {
       downloadId: 'dl-2',
       quality: { quality: { id: 4 } },
       languages: [{ id: 1, name: 'English' }],
+    })
+  })
+
+  test('falls back to release season and episode when Sonarr cannot parse episode ids', async () => {
+    let commandBody: unknown = null
+    server.use(
+      http.get(`${SONARR_URL}/api/v3/manualimport`, () => HttpResponse.json([
+        { path: '/downloads/Ep.mkv', quality: { quality: { id: 4 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP', episodes: [] },
+      ])),
+      http.get(`${SONARR_URL}/api/v3/episode`, () => HttpResponse.json([
+        { id: 22, seasonNumber: 1, episodeNumber: 2 },
+      ])),
+      http.post(`${SONARR_URL}/api/v3/command`, async ({ request }) => {
+        commandBody = await request.json()
+        return HttpResponse.json({ id: 2 })
+      }),
+    )
+
+    const sonarr = makeSonarr()
+    const commandId = await sonarr.manualImport({
+      folder: '/downloads',
+      paths: ['/downloads/Ep.mkv'],
+      target: { kind: 'series', seriesId: 3 },
+      downloadId: 'dl-2',
+      release: { season: 1, episode: 2 },
+    })
+
+    const body = CommandBody.parse(commandBody)
+    expect(commandId).toBe(2)
+    expect(body.files[0]).toMatchObject({
+      path: '/downloads/Ep.mkv',
+      seriesId: 3,
+      episodeIds: [22],
+      downloadId: 'dl-2',
     })
   })
 

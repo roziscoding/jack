@@ -128,6 +128,7 @@ export class CatalogController {
         peerId: peer.id,
         itemId: best.id,
         destinationServerName: server.name,
+        destinationServerId: server.id,
         importTarget: { kind: 'movie', movieId },
       })
       if (result === 'failed')
@@ -153,6 +154,7 @@ export class CatalogController {
       const result = await this.downloads.startDirectDownload({
         peerId: peer.id,
         itemId: release.id,
+        destinationServerId: server.id,
         destinationServerName: server.name,
         importTarget: { kind: 'series', seriesId },
       })

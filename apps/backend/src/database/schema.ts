@@ -33,11 +33,13 @@ export const downloads = sqliteTable('downloads', {
   // download (→ *arr-pull import, no jack push). Null for blackhole-added rows.
   qbCategory: text('qb_category'),
   qbSourceServer: text('qb_source_server'),
+  sourceServerId: text('source_server_id'),
   // Direct catalog downloads: 'jack_manual' means the import watcher must push an
   // explicit *arr ManualImport (vs. null = qB/blackhole, where *arr imports itself).
   importMode: text('import_mode').$type<'jack_manual' | null>(),
   // JSON ManualImportTarget: {"kind":"movie","movieId":N} | {"kind":"series","seriesId":N}.
   importTarget: text('import_target'),
+  manualImportCommandId: integer('manual_import_command_id'),
 }, t => [
   check('downloads_status_check', sql`${t.status} in ('downloading', 'import_queued', 'imported', 'failed')`),
   check('downloads_expected_bytes_source_check', sql`${t.expectedBytesSource} is null or ${t.expectedBytesSource} in ('content_length', 'content_range', 'release_size')`),

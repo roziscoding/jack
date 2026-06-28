@@ -1,4 +1,5 @@
 import type { Release } from '../lib/release'
+import type { DownloadsService, StartQbDownloadResult } from '../modules/downloads/downloads.service'
 import { describe, expect, mock, test } from 'bun:test'
 import { BadRequestError } from '../lib/errors/BadRequestError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
@@ -354,10 +355,11 @@ describe('catalogController.requestDownload', () => {
     }
   }
 
-  function fakeDownloads(overrides: Partial<{ startDirectDownload: (input: any) => Promise<string> }> = {}) {
-    return {
-      startDirectDownload: overrides.startDirectDownload ?? mock(async () => 'started'),
+  function fakeDownloads(overrides: Partial<{ startDirectDownload: (input: unknown) => Promise<StartQbDownloadResult> }> = {}): DownloadsService {
+    const testDouble = {
+      startDirectDownload: overrides.startDirectDownload ?? mock(async () => 'started' as const),
     }
+    return testDouble as unknown as DownloadsService
   }
 
   function makeConnectors(servers: any[], peers: any[] = []) {
@@ -464,6 +466,7 @@ describe('catalogController.requestDownload', () => {
       peerId: 'peer-1',
       itemId: 'rel:best',
       destinationServerName: 'My Radarr',
+      destinationServerId: 'radarr-1',
       importTarget: { kind: 'movie', movieId: 123 },
     })
   })
@@ -471,7 +474,7 @@ describe('catalogController.requestDownload', () => {
   test('reports zero starts when a duplicate movie direct download is already active', async () => {
     const radarr = fakeServer({ add: mock(async () => 123) })
     const peer = fakePeer({ searchByTmdbId: mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async () => 'duplicate') })
+    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'duplicate') })
     const controller = new CatalogController(makeConnectors([radarr], [peer]), undefined, downloads)
 
     const result = await controller.requestDownload({
@@ -525,12 +528,14 @@ describe('catalogController.requestDownload', () => {
       peerId: 'peer-1',
       itemId: 'ep:1b',
       destinationServerName: 'My Sonarr',
+      destinationServerId: 'sonarr-1',
       importTarget: { kind: 'series', seriesId: 55 },
     })
     expect(downloads.startDirectDownload).toHaveBeenCalledWith({
       peerId: 'peer-1',
       itemId: 'ep:2',
       destinationServerName: 'My Sonarr',
+      destinationServerId: 'sonarr-1',
       importTarget: { kind: 'series', seriesId: 55 },
     })
   })
@@ -538,7 +543,7 @@ describe('catalogController.requestDownload', () => {
   test('throws BadRequestError when the movie direct download fails to start', async () => {
     const radarr = fakeServer({ add: mock(async () => 123) })
     const peer = fakePeer({ searchByTmdbId: mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async () => 'failed') })
+    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'failed') })
     const controller = new CatalogController(makeConnectors([radarr], [peer]) as any, undefined, downloads as any)
 
     await expect(controller.requestDownload({
@@ -555,7 +560,7 @@ describe('catalogController.requestDownload', () => {
     const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
     const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
     const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async () => 'failed') })
+    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'failed') })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, downloads as any)
 
     await expect(controller.requestDownload({
@@ -614,7 +619,7 @@ describe('catalogController.requestDownload', () => {
     const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
     const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
     const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async () => 'duplicate') })
+    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'duplicate') })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]), undefined, downloads)
 
     const result = await controller.requestDownload({

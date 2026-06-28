@@ -1,3 +1,4 @@
+import type { ArrServerConnector, ManualImportParams } from '../lib/servers/arr/base'
 import type { DownloadsRepository } from '../modules/downloads/downloads.repository'
 import { dirname } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -5,6 +6,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
+import { PermanentManualImportError } from '../lib/servers/arr/base'
 import { DownloadsRepository as Repo } from '../modules/downloads/downloads.repository'
 import { ImportWatcher } from '../modules/downloads/import-watcher'
 import { deriveHash } from '../modules/qbittorrent/qbittorrent.mapper'
@@ -115,20 +117,22 @@ function manualRow(repo: DownloadsRepository, qbSourceServer: string) {
   return row
 }
 
-function manualServer(name: string, importedHashes: string[], manualImport: (params: unknown) => Promise<void>, opts: { initialized?: boolean } = {}) {
+function manualServer(name: string, importedHashes: string[], manualImport: (params: ManualImportParams) => Promise<number>, opts: { initialized?: boolean } = {}): ArrServerConnector {
   return {
+    id: name,
     name,
     isInitialized: opts.initialized ?? true,
     recentlyImportedDownloadIds: async () => new Set(importedHashes.map(h => h.toLowerCase())),
     manualImport,
-  } as any
+    manualImportCommandStatus: async () => ({ state: 'pending' as const }),
+  } as unknown as ArrServerConnector
 }
 
 describe('ImportWatcher jack_manual trigger', () => {
   test('pushes manualImport once across two ticks while the hash is absent from history', async () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
-    const manualImport = mock(async () => {})
+    const manualImport = mock(async () => 101)
     const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
 
     await watcher.tick()
@@ -140,6 +144,7 @@ describe('ImportWatcher jack_manual trigger', () => {
       paths: [row.destPath],
       target: { kind: 'movie', movieId: 42 },
       downloadId: HASH,
+      release,
     })
     expect(repo.get(row.id)?.status).toBe('import_queued')
   })
@@ -147,7 +152,7 @@ describe('ImportWatcher jack_manual trigger', () => {
   test('marks the row imported (and skips the push) once the hash appears in *arr history', async () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
-    const manualImport = mock(async () => {})
+    const manualImport = mock(async () => 102)
     const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [HASH], manualImport)] }, 1000)
 
     expect(await watcher.tick()).toBe(1)
@@ -155,17 +160,17 @@ describe('ImportWatcher jack_manual trigger', () => {
     expect(manualImport).not.toHaveBeenCalled()
   })
 
-  test('re-triggers after a restart (a fresh watcher with an empty triggered set)', async () => {
+  test('does not re-trigger after a restart once the manual import command id is persisted', async () => {
     const repo = makeRepo()
     manualRow(repo, 'My Radarr')
-    const manualImport = mock(async () => {})
+    const manualImport = mock(async () => 103)
     const first = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
     await first.tick()
     expect(manualImport).toHaveBeenCalledTimes(1)
 
     const second = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
     await second.tick()
-    expect(manualImport).toHaveBeenCalledTimes(2)
+    expect(manualImport).toHaveBeenCalledTimes(1)
   })
 
   test('retries on the next tick when the manual-import push throws', async () => {
@@ -176,11 +181,129 @@ describe('ImportWatcher jack_manual trigger', () => {
       calls++
       if (calls === 1)
         throw new Error('arr down')
+      return 104
     })
     const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
 
     await watcher.tick()
     await watcher.tick()
     expect(manualImport).toHaveBeenCalledTimes(2)
+  })
+})
+
+type TestManualImportCommandState
+  = | { state: 'pending' }
+    | { state: 'completed' }
+    | { state: 'failed', error: string }
+
+interface ImportWatcherServer {
+  id: string
+  name: string
+  isInitialized: boolean
+  recentlyImportedDownloadIds: () => Promise<Set<string>>
+  manualImport: (params: ManualImportParams) => Promise<number>
+  manualImportCommandStatus: (commandId: number) => Promise<TestManualImportCommandState>
+}
+
+function watcherWithServers(repo: DownloadsRepository, servers: ImportWatcherServer[]) {
+  // Test fakes implement only the ArrServerConnector surface that ImportWatcher calls.
+  return new ImportWatcher(repo, { servers: servers as unknown as ArrServerConnector[] }, 1000)
+}
+
+function manualImportRow(repo: DownloadsRepository, input: { qbSourceServer: string, sourceServerId: string }) {
+  const row = repo.create({
+    torrentFilename: 't.torrent',
+    peerId: 'peer-1',
+    peerName: 'Friend',
+    itemId: 'movie:1',
+    filename: release.filename,
+    destPath: '/tmp/movies/x.mkv',
+    partPath: '/tmp/movies/x.mkv.part',
+    releaseSize: release.size,
+    release,
+    qbSourceServer: input.qbSourceServer,
+    sourceServerId: input.sourceServerId,
+    importMode: 'jack_manual',
+    importTarget: { kind: 'movie', movieId: 42 },
+  })
+  repo.markImportQueued(row.id)
+  return row
+}
+
+describe('ImportWatcher tracked manual imports', () => {
+  test('resolves queued rows by stable server id after a destination rename', async () => {
+    const repo = makeRepo()
+    const row = manualImportRow(repo, { qbSourceServer: 'Old Radarr', sourceServerId: 'radarr-1' })
+    const server: ImportWatcherServer = {
+      id: 'radarr-1',
+      name: 'New Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(),
+      manualImport: async () => 41,
+      manualImportCommandStatus: async () => ({ state: 'pending' }),
+    }
+    const watcher = watcherWithServers(repo, [server])
+
+    await watcher.tick()
+
+    expect(repo.get(row.id)?.manualImportCommandId).toBe(41)
+  })
+
+  test('marks a manual import row imported when the tracked command completes', async () => {
+    const repo = makeRepo()
+    const row = manualImportRow(repo, { qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
+    const server: ImportWatcherServer = {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(),
+      manualImport: async () => 42,
+      manualImportCommandStatus: async () => ({ state: 'completed' }),
+    }
+    const watcher = watcherWithServers(repo, [server])
+
+    await watcher.tick()
+    await watcher.tick()
+
+    expect(repo.get(row.id)?.status).toBe('imported')
+  })
+
+  test('marks a manual import row failed when the tracked command fails', async () => {
+    const repo = makeRepo()
+    const row = manualImportRow(repo, { qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
+    const server: ImportWatcherServer = {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(),
+      manualImport: async () => 43,
+      manualImportCommandStatus: async () => ({ state: 'failed', error: 'manual import rejected' }),
+    }
+    const watcher = watcherWithServers(repo, [server])
+
+    await watcher.tick()
+    await watcher.tick()
+
+    expect(repo.get(row.id)).toMatchObject({ status: 'failed', error: 'manual import rejected' })
+  })
+
+  test('marks a manual import row failed when the connector reports a permanent import error', async () => {
+    const repo = makeRepo()
+    const row = manualImportRow(repo, { qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
+    const server: ImportWatcherServer = {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(),
+      manualImport: async () => {
+        throw new PermanentManualImportError('episode ids could not be resolved')
+      },
+      manualImportCommandStatus: async () => ({ state: 'pending' }),
+    }
+    const watcher = watcherWithServers(repo, [server])
+
+    await watcher.tick()
+
+    expect(repo.get(row.id)).toMatchObject({ status: 'failed', error: 'episode ids could not be resolved' })
   })
 })

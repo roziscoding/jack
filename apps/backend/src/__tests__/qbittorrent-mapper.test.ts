@@ -26,8 +26,10 @@ function baseRecord(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
     error: null,
     qbCategory: 'jack-abc12345',
     qbSourceServer: 'My Radarr',
+    sourceServerId: 'abc12345',
     importMode: null,
     importTarget: null,
+    manualImportCommandId: null,
     ...overrides,
   }
 }

@@ -7,7 +7,7 @@ import { BadRequestError } from '../../errors/BadRequestError'
 import { ReleaseCategory } from '../../release'
 import { setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
-import { ArrServerConnector, basename, stripExtension } from './base'
+import { ArrServerConnector, basename, PermanentManualImportError, stripExtension } from './base'
 
 type SeriesWithId = SeriesResource & { id: number }
 
@@ -88,6 +88,16 @@ export class SonarrServerConnector extends ArrServerConnector {
       includeEpisodeFile: 'true',
     })
     return Array.isArray(episodes) ? episodes : []
+  }
+
+  private async episodeIdsFromRelease(seriesId: number, release: ManualImportParams['release']): Promise<number[]> {
+    if (release?.season == null || release.episode == null)
+      return []
+    const episodes = await this.listEpisodes(seriesId)
+    return episodes
+      .filter(e => e.seasonNumber === release.season && e.episodeNumber === release.episode)
+      .map(e => e.id)
+      .filter((id): id is number => id != null)
   }
 
   private async releasesForSeries(series: SeriesWithId, filter?: (e: EpisodeResource) => boolean): Promise<Release[]> {
@@ -211,7 +221,7 @@ export class SonarrServerConnector extends ArrServerConnector {
     return created.id
   }
 
-  protected override async doManualImport(params: ManualImportParams): Promise<void> {
+  protected override async doManualImport(params: ManualImportParams): Promise<number> {
     if (params.target.kind !== 'series')
       throw new BadRequestError(`Sonarr cannot import a "${params.target.kind}" target`)
     const { seriesId } = params.target
@@ -222,25 +232,34 @@ export class SonarrServerConnector extends ArrServerConnector {
       filterExistingFiles: 'false',
     })
     const wanted = new Set(params.paths)
-    const files = (Array.isArray(candidates) ? candidates : [])
+    const matches = (Array.isArray(candidates) ? candidates : [])
       .filter((c): c is SonarrManualImportCandidate & { path: string } => typeof c.path === 'string' && wanted.has(c.path))
-      .map(c => ({
+    if (matches.length === 0)
+      throw new BadRequestError(`Sonarr found no importable episode file for series ${seriesId} in ${params.folder}`)
+
+    const fallbackEpisodeIds = await this.episodeIdsFromRelease(seriesId, params.release)
+    const files = matches.map((c) => {
+      const parsedEpisodeIds = (c.episodes ?? []).map(e => e.id).filter((id): id is number => id != null)
+      const episodeIds = parsedEpisodeIds.length > 0 ? parsedEpisodeIds : fallbackEpisodeIds
+      if (episodeIds.length === 0)
+        throw new PermanentManualImportError(`Sonarr could not resolve episode ids for ${c.path}`)
+      return {
         path: c.path,
         seriesId,
-        episodeIds: (c.episodes ?? []).map(e => e.id).filter((id): id is number => id != null),
+        episodeIds,
         quality: c.quality,
         languages: c.languages ?? [],
         releaseGroup: c.releaseGroup ?? '',
         downloadId: params.downloadId,
-      }))
-      .filter(f => f.episodeIds.length > 0)
-    if (files.length === 0)
-      throw new BadRequestError(`Sonarr found no importable episode file for series ${seriesId} in ${params.folder}`)
+      }
+    })
 
-    await this.fetch('/api/v3/command', {
+    const command = await this.fetch('/api/v3/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'ManualImport', importMode: 'move', files }),
+      schema: CreatedId,
     })
+    return command.id
   }
 }

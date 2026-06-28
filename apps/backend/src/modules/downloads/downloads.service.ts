@@ -60,6 +60,7 @@ export class DownloadsService {
     torrentFilename: string
     qbCategory?: string | null
     qbSourceServer?: string | null
+    sourceServerId?: string | null
     importMode?: 'jack_manual' | null
     importTarget?: ManualImportTarget | null
   }): Promise<CreateDownloadOutcome> {
@@ -102,6 +103,7 @@ export class DownloadsService {
       release,
       qbCategory: input.qbCategory ?? null,
       qbSourceServer: input.qbSourceServer ?? null,
+      sourceServerId: input.sourceServerId ?? null,
       importMode: input.importMode ?? null,
       importTarget: input.importTarget ?? null,
     })
@@ -131,8 +133,10 @@ export class DownloadsService {
         error: null,
         qbCategory: input.qbCategory ?? null,
         qbSourceServer: input.qbSourceServer ?? null,
+        sourceServerId: input.sourceServerId ?? null,
         importMode: input.importMode ?? null,
         importTarget: input.importTarget ?? null,
+        manualImportCommandId: null,
       },
     }
   }
@@ -146,6 +150,7 @@ export class DownloadsService {
     itemId: string
     qbCategory: string
     qbSourceServer: string
+    sourceServerId: string
   }): Promise<StartQbDownloadResult> {
     // qB-added downloads have no on-disk stub, but createDownload + the row still
     // need a stable filename.
@@ -180,6 +185,7 @@ export class DownloadsService {
     peerId: string
     itemId: string
     destinationServerName: string
+    destinationServerId: string
     importTarget: ManualImportTarget
   }): Promise<StartQbDownloadResult> {
     const torrentFilename = `direct-${input.peerId}-${input.itemId}.torrent`.replace(UNSAFE_FILENAME_CHARS, '_')
@@ -190,6 +196,7 @@ export class DownloadsService {
         itemId: input.itemId,
         torrentFilename,
         qbSourceServer: input.destinationServerName,
+        sourceServerId: input.destinationServerId,
         importMode: 'jack_manual',
         importTarget: input.importTarget,
       })

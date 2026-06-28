@@ -2,8 +2,8 @@ import type { CatalogTitle, TmdbMetadata } from '~/types/management'
 import { describe, expect, test } from 'bun:test'
 import { useCatalogMetadata } from './useCatalogMetadata'
 
-type StateRef<T> = { value: T }
-type ManagementStub = { request: <T>(path: string) => Promise<T> }
+interface StateRef<T> { value: T }
+interface ManagementStub { request: <T>(path: string) => Promise<T> }
 
 type NuxtComposableGlobals = typeof globalThis & {
   useManagement: () => ManagementStub

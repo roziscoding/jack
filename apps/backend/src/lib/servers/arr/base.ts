@@ -33,6 +33,11 @@ export const DestinationServerHealthIssue = z.array(
 // *arr returns the saved download client on create; we only need its id to bind
 // the auto-registered indexer to it.
 const DownloadClientResource = z.object({ id: z.number().int() })
+const CommandResource = z.object({
+  id: z.number().int().optional(),
+  status: z.string().nullable().optional(),
+  message: z.string().nullable().optional(),
+})
 
 // Register the Jack client at *arr's lowest selectable priority (the UI caps it
 // at 50). *arr's general client pool only round-robins among the best-priority
@@ -61,6 +66,20 @@ export interface ManualImportParams {
   target: ManualImportTarget
   /** Stub infohash = deriveHash(title,size); recorded in *arr history so the watcher matches it. */
   downloadId: string
+  /** Original release numbering, used as a Sonarr fallback when filename parsing omits episode ids. */
+  release?: Pick<Release, 'season' | 'episode'>
+}
+
+export type ManualImportCommandState
+  = | { state: 'pending' }
+    | { state: 'completed' }
+    | { state: 'failed', error: string }
+
+export class PermanentManualImportError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PermanentManualImportError'
+  }
 }
 
 export function basename(path: string): string {
@@ -216,11 +235,26 @@ export abstract class ArrServerConnector extends ServerConnector {
   /** Import already-downloaded file(s) into this *arr, mapped to `target`. */
   @requiresDestination
   @requiresInitialization
-  async manualImport(params: ManualImportParams): Promise<void> {
+  async manualImport(params: ManualImportParams): Promise<number> {
     return this.doManualImport(params)
   }
 
-  protected abstract doManualImport(params: ManualImportParams): Promise<void>
+  protected abstract doManualImport(params: ManualImportParams): Promise<number>
+
+  /** Current state for a previously accepted ManualImport command. */
+  @requiresDestination
+  @requiresInitialization
+  async manualImportCommandStatus(commandId: number): Promise<ManualImportCommandState> {
+    const command = await this.fetch(`/api/v3/command/${commandId}`, { method: 'GET', schema: CommandResource })
+    const status = command.status?.toLowerCase()
+    if (status === 'completed')
+      return { state: 'completed' }
+    if (status === 'failed' || status === 'aborted' || status === 'cancelled') {
+      const message = command.message ?? `Manual import command ${commandId} ${status}`
+      return { state: 'failed', error: message }
+    }
+    return { state: 'pending' }
+  }
 
   /** First quality profile id — required to add a title (manual import detects real quality from the file). */
   protected async resolveQualityProfileId(): Promise<number> {

@@ -195,7 +195,7 @@ export class RadarrServerConnector extends ArrServerConnector {
     return created.id
   }
 
-  protected override async doManualImport(params: ManualImportParams): Promise<void> {
+  protected override async doManualImport(params: ManualImportParams): Promise<number> {
     if (params.target.kind !== 'movie')
       throw new BadRequestError(`Radarr cannot import a "${params.target.kind}" target`)
     const { movieId } = params.target
@@ -219,10 +219,12 @@ export class RadarrServerConnector extends ArrServerConnector {
     if (files.length === 0)
       throw new BadRequestError(`Radarr found no importable file for movie ${movieId} in ${params.folder}`)
 
-    await this.fetch('/api/v3/command', {
+    const command = await this.fetch('/api/v3/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'ManualImport', importMode: 'move', files }),
+      schema: CreatedId,
     })
+    return command.id
   }
 }

@@ -1,6 +1,7 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
-import type { DownloadsRepository } from './downloads.repository'
+import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
 import { dirname } from 'node:path'
+import { PermanentManualImportError } from '../../lib/servers/arr/base'
 import { logger } from '../../logger'
 import { deriveHash } from '../qbittorrent/qbittorrent.mapper'
 
@@ -14,13 +15,6 @@ import { deriveHash } from '../qbittorrent/qbittorrent.mapper'
  */
 export class ImportWatcher {
   private timer?: ReturnType<typeof setInterval>
-  // Rows we've already pushed a ManualImport for this process (avoids re-POSTing
-  // every tick). Only added on a SUCCESSFUL push (inside the try, after the await),
-  // so a failed trigger is retried next tick. A restart clears the set; re-triggering
-  // is safe — *arr ignores a ManualImport whose file no longer exists at `path`
-  // (already moved/imported), and the row only leaves `import_queued` once the
-  // history hash confirms the import.
-  private readonly manualImportTriggered = new Set<number>()
 
   constructor(
     private readonly repository: DownloadsRepository,
@@ -29,6 +23,15 @@ export class ImportWatcher {
     private readonly connectorManager: { servers: ArrServerConnector[] },
     private readonly intervalMs: number,
   ) {}
+
+  private connectorFor(row: DownloadRecord): ArrServerConnector | undefined {
+    if (row.sourceServerId) {
+      const byId = this.connectorManager.servers.find(s => s.id === row.sourceServerId)
+      if (byId)
+        return byId
+    }
+    return row.qbSourceServer ? this.connectorManager.servers.find(s => s.name === row.qbSourceServer) : undefined
+  }
 
   start(): void {
     if (this.timer)
@@ -52,59 +55,85 @@ export class ImportWatcher {
 
   /** One reconciliation pass. Returns how many downloads it marked imported. */
   async tick(): Promise<number> {
-    // Only qB-added downloads (qbSourceServer set) are imported by an *arr we can
-    // poll; blackhole rows have no server to ask, so they're left as-is.
-    const queued = this.repository.listByStatus('import_queued').filter(r => r.qbSourceServer)
+    // Only rows with an owning destination can be reconciled; blackhole rows have
+    // no server to poll, so they're left as-is.
+    const queued = this.repository.listByStatus('import_queued').filter(r => r.sourceServerId || r.qbSourceServer)
     if (queued.length === 0)
       return 0
 
-    const byServer = new Map<string, typeof queued>()
-    for (const row of queued) {
-      const group = byServer.get(row.qbSourceServer!) ?? []
-      group.push(row)
-      byServer.set(row.qbSourceServer!, group)
-    }
-
+    const importedIdsByConnector = new Map<string, Set<string>>()
+    const skippedConnectors = new Set<string>()
     let importedCount = 0
-    for (const [serverName, rows] of byServer) {
-      const connector = this.connectorManager.servers.find(s => s.name === serverName)
+
+    for (const row of queued) {
+      const connector = this.connectorFor(row)
       if (!connector || !connector.isInitialized)
         continue
 
-      let importedIds: Set<string>
-      try {
-        importedIds = await connector.recentlyImportedDownloadIds()
+      if (!importedIdsByConnector.has(connector.id) && !skippedConnectors.has(connector.id)) {
+        try {
+          importedIdsByConnector.set(connector.id, await connector.recentlyImportedDownloadIds())
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          skippedConnectors.add(connector.id)
+          logger.warn({ server: connector.name, error: message }, 'Could not read import history; will retry next tick')
+        }
       }
-      catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        logger.warn({ server: serverName, error: message }, 'Could not read import history; will retry next tick')
+      const importedIds = importedIdsByConnector.get(connector.id)
+      if (!importedIds)
+        continue
+
+      const hash = deriveHash(row.release.title, row.releaseSize).toLowerCase()
+      if (importedIds.has(hash)) {
+        this.repository.markImported(row.id)
+        importedCount++
+        logger.info({ id: row.id, filename: row.filename, server: connector.name }, 'Download imported by *arr')
         continue
       }
 
-      for (const row of rows) {
-        const hash = deriveHash(row.release.title, row.releaseSize).toLowerCase()
-        if (importedIds.has(hash)) {
-          this.repository.markImported(row.id)
-          importedCount++
-          logger.info({ id: row.id, filename: row.filename, server: serverName }, 'Download imported by *arr')
+      if (row.importMode !== 'jack_manual' || !row.importTarget)
+        continue
+
+      if (row.manualImportCommandId != null) {
+        try {
+          const status = await connector.manualImportCommandStatus(row.manualImportCommandId)
+          if (status.state === 'completed') {
+            this.repository.markImported(row.id)
+            importedCount++
+            logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId: row.manualImportCommandId }, 'Manual import command completed')
+          }
+          else if (status.state === 'failed') {
+            this.repository.markFailed(row.id, status.error)
+            logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: status.error }, 'Manual import command failed')
+          }
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: message }, 'Could not read manual import command status; will retry next tick')
+        }
+        continue
+      }
+
+      try {
+        const commandId = await connector.manualImport({
+          folder: dirname(row.destPath),
+          paths: [row.destPath],
+          target: row.importTarget,
+          downloadId: deriveHash(row.release.title, row.releaseSize),
+          release: row.release,
+        })
+        this.repository.setManualImportCommand(row.id, commandId)
+        logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId }, 'Triggered *arr manual import')
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (err instanceof PermanentManualImportError) {
+          this.repository.markFailed(row.id, message)
+          logger.warn({ id: row.id, server: connector.name, error: message }, 'Manual import cannot be retried')
           continue
         }
-        if (row.importMode === 'jack_manual' && row.importTarget && !this.manualImportTriggered.has(row.id)) {
-          try {
-            await connector.manualImport({
-              folder: dirname(row.destPath),
-              paths: [row.destPath],
-              target: row.importTarget,
-              downloadId: deriveHash(row.release.title, row.releaseSize),
-            })
-            this.manualImportTriggered.add(row.id)
-            logger.info({ id: row.id, filename: row.filename, server: serverName }, 'Triggered *arr manual import')
-          }
-          catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            logger.warn({ id: row.id, server: serverName, error: message }, 'Manual import trigger failed; will retry next tick')
-          }
-        }
+        logger.warn({ id: row.id, server: connector.name, error: message }, 'Manual import trigger failed; will retry next tick')
       }
     }
     return importedCount
