@@ -4,7 +4,7 @@ import process from 'node:process'
 // Base URL and API key come from the environment.
 const BASE_URL = process.env.JACK_URL ?? 'http://localhost:5225'
 const API_KEY = process.env.JACK_API_KEY ?? ''
-const BASE_HEADERS = JSON.parse(process.env.JACK_HEADERS ?? '{}')
+const BASE_HEADERS = JSON.parse(process.env.JACK_HEADERS ?? '{}') as Record<string, string>
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
 
