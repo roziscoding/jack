@@ -15,10 +15,10 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "zod": "4.3.6"
+    "zod": "4.4.3"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.94.4",
+    "@hey-api/openapi-ts": "0.99.0",
     "@types/bun": "latest"
   }
 }
