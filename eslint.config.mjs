@@ -13,6 +13,9 @@ export default antfu(
     },
   },
   {
+    ignores: ['packages/schemas/src/generated/**'],
+  },
+  {
     // Force all span attributes through the redacting/serializing funnel in
     // lib/span-attributes.ts. The helper itself is the only sanctioned caller.
     files: ['apps/backend/**/*.ts'],
