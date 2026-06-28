@@ -20,6 +20,10 @@ onMounted(() => load(props.title))
 const canRequest = computed(() => props.title.mediaType === 'tv'
   ? props.title.tvdbId != null
   : props.title.tmdbId != null)
+// Logflix keys both movies and TV off the TMDB id (e.g. /movie/1301421, /tv/246461).
+const logflixUrl = computed(() => props.title.tmdbId == null
+  ? null
+  : `https://logflix.eu/${props.title.mediaType}/${props.title.tmdbId}`)
 </script>
 
 <template>
@@ -67,5 +71,19 @@ const canRequest = computed(() => props.title.mediaType === 'tv'
         @click="emit('download')"
       />
     </UTooltip>
+
+    <UButton
+      v-if="logflixUrl"
+      :to="logflixUrl"
+      target="_blank"
+      label="View in Logflix"
+      color="neutral"
+      variant="subtle"
+      block
+    >
+      <template #leading>
+        <img src="/logflix.svg" alt="" class="size-4">
+      </template>
+    </UButton>
   </div>
 </template>
