@@ -64,6 +64,10 @@ function itemToObject(item: TorznabItem): Record<string, any> {
     // Jack files are always freely available; tell *arr not to weight ratio.
     { '@name': 'downloadvolumefactor', '@value': 0 },
     { '@name': 'uploadvolumefactor', '@value': 1 },
+    // *arr's TorznabRssParser maps `tag=internal` to the Internal indexer flag,
+    // marking every Jack release as coming from your own peer network so a custom
+    // format (IndexerFlagSpecification) can score/prefer it.
+    { '@name': 'tag', '@value': 'internal' },
   ]
   if (item.imdbId)
     attrs.push({ '@name': 'imdbid', '@value': item.imdbId })
@@ -129,6 +133,11 @@ export function getTorznabRouter(controller: TorznabController) {
       return xml(c, body, 400)
     }
 
+    // The key the requester (Radarr/Sonarr) authenticated with — extracted the
+    // same way requireApiKey does. Embedded into each release's download URL so
+    // the subsequent grab passes auth (managed indexer keys, not the main key).
+    const apiKey = c.req.query('apikey') ?? c.req.header('x-api-key') ?? ''
+
     switch (t) {
       case 'caps': {
         return xml(c, CAPS_XML)
@@ -140,7 +149,7 @@ export function getTorznabRouter(controller: TorznabController) {
       // self-test, which *arr requires to return results).
       case 'search': {
         const q = c.req.query('q')?.trim()
-        const items = q ? [] : await controller.catalog()
+        const items = q ? [] : await controller.catalog(apiKey)
         const body = buildSearchResultXml(filterByCategory(items, c.req.query('cat')))
         return xml(c, body)
       }
@@ -151,9 +160,9 @@ export function getTorznabRouter(controller: TorznabController) {
         const q = c.req.query('q')?.trim()
         let items: TorznabItem[]
         if (tmdbId || imdbId)
-          items = await controller.searchMovie({ tmdbId, imdbId })
+          items = await controller.searchMovie({ tmdbId, imdbId }, apiKey)
         else
-          items = q ? [] : await controller.catalog()
+          items = q ? [] : await controller.catalog(apiKey)
         const body = buildSearchResultXml(filterByCategory(items, c.req.query('cat')))
         return xml(c, body)
       }
@@ -169,10 +178,11 @@ export function getTorznabRouter(controller: TorznabController) {
             tvdbId,
             season ? Number(season) : undefined,
             ep ? Number(ep) : undefined,
+            apiKey,
           )
         }
         else {
-          items = q ? [] : await controller.catalog()
+          items = q ? [] : await controller.catalog(apiKey)
         }
         const body = buildSearchResultXml(filterByCategory(items, c.req.query('cat')))
         return xml(c, body)

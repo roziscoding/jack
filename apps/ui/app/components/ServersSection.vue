@@ -3,9 +3,7 @@ import type { BadgeProps } from '@nuxt/ui'
 import type { ServerInput, ServerItem } from '~/types/management'
 
 const { request, extractError } = useManagement()
-
-const { data, pending, error, refresh } = await useAsyncData('servers', () =>
-  request<{ servers: ServerItem[] }>('config/servers'))
+const { settings, pending, error, reload } = useSettings()
 
 const showForm = ref(false)
 const editTarget = ref<ServerItem | null>(null)
@@ -48,7 +46,7 @@ async function submit(input: ServerInput) {
     else
       await request('config/servers', { method: 'POST', body: input })
     showForm.value = false
-    await refresh()
+    await reload()
   }
   catch (err) {
     formError.value = extractError(err, 'Could not save the server.')
@@ -66,7 +64,7 @@ async function confirmDelete() {
   try {
     await request(`config/servers/${confirmTarget.value.id}`, { method: 'DELETE' })
     confirmTarget.value = null
-    await refresh()
+    await reload()
   }
   catch (err) {
     deleteError.value = extractError(err, 'Could not remove the server.')
@@ -98,7 +96,7 @@ function sortKey(server: ServerItem) {
     return 1
   return 2
 }
-const servers = computed(() => [...(data.value?.servers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const servers = computed(() => [...(settings.value?.servers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
 const connected = computed(() => servers.value.filter(s => s.initialized).length)
 const unreachable = computed(() => servers.value.filter(s => !s.initialized && s.initializationError).length)
 const sources = computed(() => servers.value.filter(s => s.source).length)
@@ -111,14 +109,14 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
       <UButton label="Add server" icon="i-ph-plus" @click="openAdd" />
     </template>
 
-    <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
+    <UAlert v-if="error && !settings" color="error" variant="soft" icon="i-ph-warning" title="Failed to load servers." />
 
-    <p v-else-if="pending" class="flex items-center gap-2 text-sm text-muted">
+    <p v-else-if="pending && !settings" class="flex items-center gap-2 text-sm text-muted">
       <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
       Loading…
     </p>
 
-    <UCard v-else-if="data && data.servers.length === 0" variant="subtle">
+    <UCard v-else-if="settings && settings.servers.length === 0" variant="subtle">
       <div class="flex flex-col items-center gap-3 py-6 text-center">
         <UIcon name="i-ph-hard-drives" class="size-8 text-dimmed" />
         <p class="text-sm text-muted">
@@ -128,7 +126,7 @@ const destinations = computed(() => servers.value.filter(s => s.destination).len
       </div>
     </UCard>
 
-    <div v-else-if="data" class="space-y-3">
+    <div v-else-if="settings" class="space-y-3">
       <p class="text-xs tabular-nums text-muted">
         {{ connected }} of {{ servers.length }} connected<template v-if="unreachable">
           · <span class="text-error">{{ unreachable }} unreachable</span>

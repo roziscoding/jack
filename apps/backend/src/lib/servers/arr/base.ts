@@ -4,6 +4,8 @@ import z from 'zod'
 import { logger } from '../../../logger'
 import { requiresDestination, requiresSource } from '../../decorators/requires-capability'
 import { requiresInitialization } from '../../decorators/requires-initialization'
+import { BadRequestError } from '../../errors/BadRequestError'
+import { FetchError } from '../../errors/FetchError'
 import { ServerConnector } from '../base'
 
 const BASENAME_SEPARATOR_REGEX = /[/\\]/
@@ -32,6 +34,11 @@ export const DestinationServerHealthIssue = z.array(
 // *arr returns the saved download client on create; we only need its id to bind
 // the auto-registered indexer to it.
 const DownloadClientResource = z.object({ id: z.number().int() })
+const CommandResource = z.object({
+  id: z.number().int().optional(),
+  status: z.string().nullable().optional(),
+  message: z.string().nullable().optional(),
+})
 
 // Register the Jack client at *arr's lowest selectable priority (the UI caps it
 // at 50). *arr's general client pool only round-robins among the best-priority
@@ -41,6 +48,40 @@ const DownloadClientResource = z.object({ id: z.number().int() })
 const JACK_DOWNLOAD_CLIENT_PRIORITY = 50
 
 export type ReleaseKind = 'movie' | 'episode'
+
+export interface AddParams {
+  tmdbId?: number
+  tvdbId?: number
+  rootFolderPath: string
+}
+
+export type ManualImportTarget
+  = | { kind: 'movie', movieId: number }
+    | { kind: 'series', seriesId: number }
+
+export interface ManualImportParams {
+  /** Directory *arr scans for importable files (the downloads completedPath). */
+  folder: string
+  /** Absolute paths of the file(s) we downloaded; only these are imported. */
+  paths: string[]
+  target: ManualImportTarget
+  /** Stub infohash = deriveHash(title,size); recorded in *arr history so the watcher matches it. */
+  downloadId: string
+  /** Original release numbering, used as a Sonarr fallback when filename parsing omits episode ids. */
+  release?: Pick<Release, 'season' | 'episode'>
+}
+
+export type ManualImportCommandState
+  = | { state: 'pending' }
+    | { state: 'completed' }
+    | { state: 'failed', error: string }
+
+export class PermanentManualImportError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PermanentManualImportError'
+  }
+}
 
 export function basename(path: string): string {
   return path.split(BASENAME_SEPARATOR_REGEX).pop() ?? path
@@ -82,6 +123,9 @@ export abstract class ArrServerConnector extends ServerConnector {
   abstract get categories(): number[]
   // qBittorrent settings use a per-app category field name.
   protected abstract get qbCategoryFieldName(): string
+  // *arr's IndexerFlagSpecification value for the "Internal" flag differs per app
+  // (Sonarr = 8, Radarr = 32); a single hardcoded value would silently mismatch.
+  protected abstract get internalIndexerFlagValue(): number
 
   protected override async runInit(): Promise<void> {
     const apiInfo = await this.ping(z.object({ appName: z.string(), version: z.string() }))
@@ -169,6 +213,70 @@ export abstract class ArrServerConnector extends ServerConnector {
   @requiresInitialization
   async getHealthIssues() {
     return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
+  }
+
+  @requiresDestination
+  @requiresInitialization
+  async getRootFolders(): Promise<Array<{ path: string, freeSpace?: number }>> {
+    const folders = await this.arrGet<Array<{ path: string, freeSpace?: number }>>('/api/v3/rootfolder')
+    return (Array.isArray(folders) ? folders : [])
+      .filter(f => typeof f.path === 'string')
+      .map(f => ({ path: f.path, freeSpace: f.freeSpace }))
+  }
+
+  /** Add a title to this *arr (monitored) WITHOUT a search; returns the created or existing entity id. */
+  @requiresDestination
+  @requiresInitialization
+  async add(params: AddParams): Promise<number> {
+    return this.doAdd(params)
+  }
+
+  protected abstract doAdd(params: AddParams): Promise<number>
+
+  /** Import already-downloaded file(s) into this *arr, mapped to `target`. */
+  @requiresDestination
+  @requiresInitialization
+  async manualImport(params: ManualImportParams): Promise<number> {
+    return this.doManualImport(params)
+  }
+
+  protected abstract doManualImport(params: ManualImportParams): Promise<number>
+
+  /** Current state for a previously accepted ManualImport command. */
+  @requiresDestination
+  @requiresInitialization
+  async manualImportCommandStatus(commandId: number): Promise<ManualImportCommandState> {
+    let command: z.infer<typeof CommandResource>
+    try {
+      command = await this.fetch(`/api/v3/command/${commandId}`, { method: 'GET', schema: CommandResource })
+    }
+    catch (err) {
+      // *arr prunes command records after a while, so a 404 means this command is
+      // gone for good. Treat it as terminal (rather than re-throwing every tick) so
+      // the watcher fails the row instead of polling a vanished command id forever.
+      // A real success is already caught earlier by the import-history match, so we
+      // only reach here when the file never imported.
+      if (err instanceof FetchError && err.response.status === 404)
+        return { state: 'failed', error: `Manual import command ${commandId} no longer exists on ${this.name}` }
+      throw err
+    }
+    const status = command.status?.toLowerCase()
+    if (status === 'completed')
+      return { state: 'completed' }
+    if (status === 'failed' || status === 'aborted' || status === 'cancelled') {
+      const message = command.message ?? `Manual import command ${commandId} ${status}`
+      return { state: 'failed', error: message }
+    }
+    return { state: 'pending' }
+  }
+
+  /** First quality profile id — required to add a title (manual import detects real quality from the file). */
+  protected async resolveQualityProfileId(): Promise<number> {
+    const profiles = await this.arrGet<Array<{ id: number }>>('/api/v3/qualityprofile')
+    const first = Array.isArray(profiles) ? profiles[0] : undefined
+    if (!first)
+      throw new BadRequestError(`No quality profile found on ${this.name}; cannot add a title`)
+    return first.id
   }
 
   /**

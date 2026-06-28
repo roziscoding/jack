@@ -1,12 +1,25 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
+import type { AddParams, ManualImportParams } from './base'
+import { z } from 'zod'
+import { BadRequestError } from '../../errors/BadRequestError'
 import { ReleaseCategory } from '../../release'
 import { setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
-import { ArrServerConnector, basename, stripExtension } from './base'
+import { ArrServerConnector, basename, PermanentManualImportError, stripExtension } from './base'
 
 type SeriesWithId = SeriesResource & { id: number }
+
+const CreatedId = z.object({ id: z.number().int() })
+
+interface SonarrManualImportCandidate {
+  path?: string
+  quality?: unknown
+  languages?: unknown[]
+  releaseGroup?: string
+  episodes?: Array<{ id?: number }>
+}
 
 export class SonarrServerConnector extends ArrServerConnector {
   constructor(config: { url: string, apiKey: string, name: string, source: boolean, destination: boolean, autoregister: AutoRegisterConfig, headers?: ConnectorHeadersConfig }) {
@@ -24,6 +37,10 @@ export class SonarrServerConnector extends ArrServerConnector {
 
   protected override get qbCategoryFieldName(): string {
     return 'tvCategory'
+  }
+
+  protected override get internalIndexerFlagValue(): number {
+    return 8
   }
 
   private buildRelease(episode: EpisodeResource, series: SeriesResource | undefined, file: EpisodeFileResource | undefined): Release | null {
@@ -71,6 +88,16 @@ export class SonarrServerConnector extends ArrServerConnector {
       includeEpisodeFile: 'true',
     })
     return Array.isArray(episodes) ? episodes : []
+  }
+
+  private async episodeIdsFromRelease(seriesId: number, release: ManualImportParams['release']): Promise<number[]> {
+    if (release?.season == null || release.episode == null)
+      return []
+    const episodes = await this.listEpisodes(seriesId)
+    return episodes
+      .filter(e => e.seasonNumber === release.season && e.episodeNumber === release.episode)
+      .map(e => e.id)
+      .filter((id): id is number => id != null)
   }
 
   private async releasesForSeries(series: SeriesWithId, filter?: (e: EpisodeResource) => boolean): Promise<Release[]> {
@@ -162,5 +189,77 @@ export class SonarrServerConnector extends ArrServerConnector {
   protected override async doGetFilePath(id: string): Promise<string | null> {
     const bundle = await this.fetchEpisodeBundle(id)
     return bundle?.file?.path ?? null
+  }
+
+  protected override async doAdd(params: AddParams): Promise<number> {
+    if (params.tvdbId == null)
+      throw new BadRequestError('A tvdbId is required to add a series to Sonarr')
+
+    const existing = await this.listSeries({ tvdbId: String(params.tvdbId) })
+    if (existing[0]?.id != null)
+      return existing[0].id
+
+    const lookup = await this.arrGet<SeriesResource[]>('/api/v3/series/lookup', { term: `tvdb:${params.tvdbId}` })
+    const series = Array.isArray(lookup) ? lookup[0] : undefined
+    if (!series)
+      throw new BadRequestError(`No series found on ${this.name} for tvdbId ${params.tvdbId}`)
+
+    const body = {
+      ...series,
+      qualityProfileId: await this.resolveQualityProfileId(),
+      rootFolderPath: params.rootFolderPath,
+      monitored: true,
+      seasonFolder: true,
+      addOptions: { monitor: 'all', searchForMissingEpisodes: false },
+    }
+    const created = await this.fetch('/api/v3/series', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      schema: CreatedId,
+    })
+    return created.id
+  }
+
+  protected override async doManualImport(params: ManualImportParams): Promise<number> {
+    if (params.target.kind !== 'series')
+      throw new BadRequestError(`Sonarr cannot import a "${params.target.kind}" target`)
+    const { seriesId } = params.target
+
+    const candidates = await this.arrGet<SonarrManualImportCandidate[]>('/api/v3/manualimport', {
+      folder: params.folder,
+      seriesId: String(seriesId),
+      filterExistingFiles: 'false',
+    })
+    const wanted = new Set(params.paths)
+    const matches = (Array.isArray(candidates) ? candidates : [])
+      .filter((c): c is SonarrManualImportCandidate & { path: string } => typeof c.path === 'string' && wanted.has(c.path))
+    if (matches.length === 0)
+      throw new BadRequestError(`Sonarr found no importable episode file for series ${seriesId} in ${params.folder}`)
+
+    const fallbackEpisodeIds = await this.episodeIdsFromRelease(seriesId, params.release)
+    const files = matches.map((c) => {
+      const parsedEpisodeIds = (c.episodes ?? []).map(e => e.id).filter((id): id is number => id != null)
+      const episodeIds = parsedEpisodeIds.length > 0 ? parsedEpisodeIds : fallbackEpisodeIds
+      if (episodeIds.length === 0)
+        throw new PermanentManualImportError(`Sonarr could not resolve episode ids for ${c.path}`)
+      return {
+        path: c.path,
+        seriesId,
+        episodeIds,
+        quality: c.quality,
+        languages: c.languages ?? [],
+        releaseGroup: c.releaseGroup ?? '',
+        downloadId: params.downloadId,
+      }
+    })
+
+    const command = await this.fetch('/api/v3/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ManualImport', importMode: 'move', files }),
+      schema: CreatedId,
+    })
+    return command.id
   }
 }

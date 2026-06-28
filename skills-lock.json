@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "tmdb-api": {
+      "source": "ranisalt/skills",
+      "sourceType": "github",
+      "skillPath": "tmdb-api/SKILL.md",
+      "computedHash": "42a19223d669b90c49ddd08e70ed4c72efaafac53f56913c9456a3fc538e6c6f"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import type { AppDatabase } from '../../database/connection'
 import type { DownloadRow, DownloadStatus, ExpectedBytesSource, NewDownloadRow } from '../../database/schema'
 import type { Release } from '../../lib/release'
+import type { ManualImportTarget } from '../../lib/servers/arr/base'
 import { desc, eq, sql } from 'drizzle-orm'
 import { downloads } from '../../database/schema'
 
@@ -27,6 +28,10 @@ export interface DownloadRecord {
   error: string | null
   qbCategory: string | null
   qbSourceServer: string | null
+  sourceServerId: string | null
+  importMode: 'jack_manual' | null
+  importTarget: ManualImportTarget | null
+  manualImportCommandId: number | null
 }
 
 export interface CreateDownloadInput {
@@ -41,6 +46,10 @@ export interface CreateDownloadInput {
   release: Release
   qbCategory?: string | null
   qbSourceServer?: string | null
+  sourceServerId?: string | null
+  importMode?: 'jack_manual' | null
+  importTarget?: ManualImportTarget | null
+  manualImportCommandId?: number | null
 }
 
 function nowIso() {
@@ -71,6 +80,10 @@ function toRecord(row: DownloadRow): DownloadRecord {
     error: row.error,
     qbCategory: row.qbCategory ?? null,
     qbSourceServer: row.qbSourceServer ?? null,
+    sourceServerId: row.sourceServerId ?? null,
+    importMode: row.importMode ?? null,
+    importTarget: row.importTarget ? (JSON.parse(row.importTarget) as ManualImportTarget) : null,
+    manualImportCommandId: row.manualImportCommandId ?? null,
   }
 }
 
@@ -91,6 +104,10 @@ export class DownloadsRepository {
       releaseJson: JSON.stringify(input.release),
       qbCategory: input.qbCategory ?? null,
       qbSourceServer: input.qbSourceServer ?? null,
+      sourceServerId: input.sourceServerId ?? null,
+      importMode: input.importMode ?? null,
+      importTarget: input.importTarget ? JSON.stringify(input.importTarget) : null,
+      manualImportCommandId: input.manualImportCommandId ?? null,
       downloadedBytes: 0,
       status: 'downloading',
       startedAt: timestamp,
@@ -148,6 +165,13 @@ export class DownloadsRepository {
   markImported(id: number): void {
     this.db.update(downloads)
       .set({ status: 'imported', updatedAt: nowIso() })
+      .where(eq(downloads.id, id))
+      .run()
+  }
+
+  setManualImportCommand(id: number, commandId: number): void {
+    this.db.update(downloads)
+      .set({ manualImportCommandId: commandId, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
   }

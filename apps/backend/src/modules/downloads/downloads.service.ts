@@ -1,5 +1,6 @@
 import type { AppConfig } from '../../lib/config'
 import type { ConnectorManager } from '../../lib/servers'
+import type { ManualImportTarget } from '../../lib/servers/arr/base'
 import type { PeerDownloadProgressEvent } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
 import { basename, join } from 'node:path'
@@ -59,6 +60,9 @@ export class DownloadsService {
     torrentFilename: string
     qbCategory?: string | null
     qbSourceServer?: string | null
+    sourceServerId?: string | null
+    importMode?: 'jack_manual' | null
+    importTarget?: ManualImportTarget | null
   }): Promise<CreateDownloadOutcome> {
     const { peerId, itemId, torrentFilename } = input
     const peer = this.peers.find(p => p.id === peerId)
@@ -99,6 +103,9 @@ export class DownloadsService {
       release,
       qbCategory: input.qbCategory ?? null,
       qbSourceServer: input.qbSourceServer ?? null,
+      sourceServerId: input.sourceServerId ?? null,
+      importMode: input.importMode ?? null,
+      importTarget: input.importTarget ?? null,
     })
 
     return {
@@ -126,6 +133,10 @@ export class DownloadsService {
         error: null,
         qbCategory: input.qbCategory ?? null,
         qbSourceServer: input.qbSourceServer ?? null,
+        sourceServerId: input.sourceServerId ?? null,
+        importMode: input.importMode ?? null,
+        importTarget: input.importTarget ?? null,
+        manualImportCommandId: null,
       },
     }
   }
@@ -139,6 +150,7 @@ export class DownloadsService {
     itemId: string
     qbCategory: string
     qbSourceServer: string
+    sourceServerId: string
   }): Promise<StartQbDownloadResult> {
     // qB-added downloads have no on-disk stub, but createDownload + the row still
     // need a stable filename.
@@ -160,6 +172,47 @@ export class DownloadsService {
     void this.runDownload(outcome.record).catch((err) => {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
+    })
+    return 'started'
+  }
+
+  /**
+   * Catalog direct-download entrypoint: create a jack_manual row bound to a
+   * destination *arr + import target, then drive the download in the background.
+   * Import is pushed later by the ImportWatcher.
+   */
+  async startDirectDownload(input: {
+    peerId: string
+    itemId: string
+    destinationServerName: string
+    destinationServerId: string
+    importTarget: ManualImportTarget
+  }): Promise<StartQbDownloadResult> {
+    const torrentFilename = `direct-${input.peerId}-${input.itemId}.torrent`.replace(UNSAFE_FILENAME_CHARS, '_')
+    let outcome: CreateDownloadOutcome
+    try {
+      outcome = await this.createDownload({
+        peerId: input.peerId,
+        itemId: input.itemId,
+        torrentFilename,
+        qbSourceServer: input.destinationServerName,
+        sourceServerId: input.destinationServerId,
+        importMode: 'jack_manual',
+        importTarget: input.importTarget,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ peerId: input.peerId, itemId: input.itemId, error: message }, 'Failed to create direct download')
+      return 'failed'
+    }
+    if (outcome.kind === 'no-peer')
+      return 'failed'
+    if (outcome.kind === 'duplicate')
+      return 'duplicate'
+    void this.runDownload(outcome.record).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ itemId: input.itemId, error: message }, 'Direct download failed')
     })
     return 'started'
   }

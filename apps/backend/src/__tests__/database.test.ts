@@ -203,7 +203,7 @@ describe('DownloadsRepository', () => {
     handle.close()
   })
 
-  test('persists qbCategory and qbSourceServer round-trip; defaults to null', async () => {
+  test('persists qB source and manual import command fields round-trip; defaults to null', async () => {
     const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
     const repository = new DownloadsRepository(handle.db)
 
@@ -219,12 +219,18 @@ describe('DownloadsRepository', () => {
       release,
       qbCategory: 'jack-abc12345',
       qbSourceServer: 'My Radarr',
+      sourceServerId: 'radarr-1',
+      manualImportCommandId: 77,
     })
 
     expect(withQb.qbCategory).toBe('jack-abc12345')
     expect(withQb.qbSourceServer).toBe('My Radarr')
+    expect(withQb.sourceServerId).toBe('radarr-1')
+    expect(withQb.manualImportCommandId).toBe(77)
     expect(repository.get(withQb.id)?.qbCategory).toBe('jack-abc12345')
     expect(repository.get(withQb.id)?.qbSourceServer).toBe('My Radarr')
+    expect(repository.get(withQb.id)?.sourceServerId).toBe('radarr-1')
+    expect(repository.get(withQb.id)?.manualImportCommandId).toBe(77)
 
     const withoutQb = repository.create({
       torrentFilename: 'second.torrent',
@@ -240,6 +246,8 @@ describe('DownloadsRepository', () => {
 
     expect(withoutQb.qbCategory).toBeNull()
     expect(withoutQb.qbSourceServer).toBeNull()
+    expect(withoutQb.sourceServerId).toBeNull()
+    expect(withoutQb.manualImportCommandId).toBeNull()
     handle.close()
   })
 

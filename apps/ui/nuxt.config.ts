@@ -1,4 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import pkg from './package.json'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
   devtools: { enabled: false },
@@ -42,5 +44,11 @@ export default defineNuxtConfig({
     // Seals the cookie that holds the management key in cookie mode. MUST be set
     // (>= 32 chars) in production; the default is a clearly-insecure dev value.
     sessionKey: 'dev-insecure-session-key-change-me-please-1234',
+
+    // Browser-exposed: the app version, baked from package.json at build time and
+    // shown in Settings → About.
+    public: {
+      appVersion: pkg.version,
+    },
   },
 })

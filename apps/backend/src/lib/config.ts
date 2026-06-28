@@ -155,6 +155,8 @@ export const JackConfig = z.object({
   // only an internalUrl, in which case the public API authenticates via generated
   // keys (see require-auth.ts), not this key.
   apiKey: ConfigSecret().optional(),
+  // Optional TMDB v3 API key for enriching peer catalogs with artwork/metadata.
+  tmdbApiKey: ConfigSecret().optional(),
 })
 
 export type JackConfig = z.infer<typeof JackConfig>
@@ -164,6 +166,7 @@ export type JackConfig = z.infer<typeof JackConfig>
 export const RawJackConfig = z.object({
   internalUrl: z.url(),
   apiKey: RawConfigSecret.optional(),
+  tmdbApiKey: RawConfigSecret.optional(),
 })
 
 export type RawJackConfig = z.infer<typeof RawJackConfig>

@@ -77,7 +77,7 @@ describe('DownloadsService download progress persistence', () => {
     })
     const service = new DownloadsService(downloadsConfig(), { peers: [peer as any] }, repository)
 
-    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
     await waitForStatus(repository, 'import_queued')
 
     expect(calls).toHaveLength(1)
@@ -101,7 +101,7 @@ describe('DownloadsService download progress persistence', () => {
     } })
     const service = new DownloadsService(downloadsConfig(), { peers: [peer as any] }, repository)
 
-    const result = await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    const result = await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
 
     expect(result).toBe('failed')
     expect(repository.list()).toHaveLength(0)
@@ -118,7 +118,7 @@ describe('DownloadsService download progress persistence', () => {
     } })
     const service = new DownloadsService(downloadsConfig(), { peers: [peer as any] }, repository)
 
-    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
     await waitForStatus(repository, 'failed')
 
     expect(calls).toBe(1) // 404 is permanent — no retry
@@ -141,7 +141,7 @@ describe('DownloadsService download progress persistence', () => {
     })
     const service = new DownloadsService(downloadsConfig(), { peers: [peer as any] }, repository)
 
-    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
     await waitForStatus(repository, 'import_queued')
 
     expect(calls).toBe(2)
@@ -167,7 +167,7 @@ describe('DownloadsService download progress persistence', () => {
     })
     const service = new DownloadsService(downloadsConfig(), { peers: [peer as any] }, repository)
 
-    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
     await waitForStatus(repository, 'import_queued')
 
     expect(resetSpy).toHaveBeenCalledTimes(1)
@@ -197,8 +197,8 @@ describe('DownloadsService download progress persistence', () => {
     }
     const service = new DownloadsService(downloadsConfig({ maxConcurrentDownloads: 1 }), { peers: [peer as any] }, repository)
 
-    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
-    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:2', qbCategory: 'jack-x', qbSourceServer: 'My Radarr' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
+    await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:2', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
     for (let i = 0; i < 100 && repository.list().filter(d => d.status === 'import_queued').length < 2; i++)
       await Bun.sleep(10)
 
@@ -288,6 +288,7 @@ describe('DownloadsService download progress persistence', () => {
       itemId: 'movie:1',
       qbCategory: 'jack-x',
       qbSourceServer: 'My Radarr',
+      sourceServerId: 'radarr-1',
     })
 
     expect(result).toBe('started')
@@ -298,6 +299,7 @@ describe('DownloadsService download progress persistence', () => {
     expect(rows[0]?.status).toBe('import_queued')
     expect(rows[0]?.qbCategory).toBe('jack-x')
     expect(rows[0]?.qbSourceServer).toBe('My Radarr')
+    expect(rows[0]?.sourceServerId).toBe('radarr-1')
     handle.close()
   })
 
@@ -312,10 +314,37 @@ describe('DownloadsService download progress persistence', () => {
       itemId: 'movie:1',
       qbCategory: 'jack-x',
       qbSourceServer: 'My Radarr',
+      sourceServerId: 'radarr-1',
     })
 
     expect(result).toBe('failed')
     expect(repository.list()).toHaveLength(0)
+    handle.close()
+  })
+
+  test('startDirectDownload creates a jack_manual row carrying the importTarget and ends import_queued', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const service = new DownloadsService(downloadsConfig(), { peers: [fakePeer() as any] }, repository)
+
+    const result = await service.startDirectDownload({
+      peerId: 'peer-1',
+      itemId: 'movie:1',
+      destinationServerName: 'My Radarr',
+      destinationServerId: 'radarr-1',
+      importTarget: { kind: 'movie', movieId: 42 },
+    })
+
+    expect(result).toBe('started')
+    await waitForStatus(repository, 'import_queued')
+
+    const rows = repository.list()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.status).toBe('import_queued')
+    expect(rows[0]?.qbSourceServer).toBe('My Radarr')
+    expect(rows[0]?.sourceServerId).toBe('radarr-1')
+    expect(rows[0]?.importMode).toBe('jack_manual')
+    expect(rows[0]?.importTarget).toEqual({ kind: 'movie', movieId: 42 })
     handle.close()
   })
 })

@@ -14,6 +14,7 @@ const editing = computed(() => Boolean(props.initial))
 const state = reactive({
   internalUrl: props.initial?.internalUrl ?? '',
   apiKey: (props.initial?.apiKey ?? null) as SecretRef | null,
+  tmdbApiKey: (props.initial?.tmdbApiKey ?? null) as SecretRef | null,
 })
 
 // internalUrl is the only required field; the Main API key is optional/clearable.
@@ -28,6 +29,8 @@ function onSubmit() {
   // SecretInput emits null when cleared → omit apiKey entirely (optional).
   if (state.apiKey)
     input.apiKey = state.apiKey
+  if (state.tmdbApiKey)
+    input.tmdbApiKey = state.tmdbApiKey
   emit('submit', input)
 }
 </script>
@@ -47,6 +50,13 @@ function onSubmit() {
       <SecretInput v-model="state.apiKey" :editing="editing" />
       <template #help>
         <span class="text-warning">Deprecated — this single key will stop working soon. Use the API keys below instead.</span>
+      </template>
+    </UFormField>
+
+    <UFormField name="tmdbApiKey" label="TMDB API key" hint="Optional">
+      <SecretInput v-model="state.tmdbApiKey" :editing="editing" />
+      <template #help>
+        <span>Enables artwork and metadata when browsing peer catalogs. Applies after a restart.</span>
       </template>
     </UFormField>
 

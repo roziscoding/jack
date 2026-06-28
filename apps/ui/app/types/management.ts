@@ -45,6 +45,68 @@ export interface DownloadItem {
   expectedBytesMismatch: boolean
 }
 
+export interface TmdbMetadata {
+  tmdbId: number
+  title: string
+  overview: string | null
+  year: number | null
+  rating: number | null
+  posterUrl: string | null
+  backdropUrl: string | null
+  genres: string[]
+}
+
+export interface CatalogRelease {
+  id: string
+  title: string
+  filename: string
+  size: number
+  quality?: { name?: string, source?: string, resolution?: number }
+  season?: number
+  episode?: number
+}
+
+export interface CatalogTitlePeer {
+  id: string
+  name: string
+  releaseCount: number
+  totalSize: number
+  releases: CatalogRelease[]
+}
+
+export interface CatalogTitle {
+  key: string
+  mediaType: 'movie' | 'tv'
+  tmdbId?: number
+  imdbId?: string
+  tvdbId?: number
+  displayTitle: string
+  // Totals across every peer that carries this title.
+  releaseCount: number
+  totalSize: number
+  metadata?: TmdbMetadata | null
+  peers: CatalogTitlePeer[]
+}
+
+export interface CatalogResponse {
+  peers: Array<{ id: string, name: string }>
+  titles: CatalogTitle[]
+}
+
+export interface RequestServerOption {
+  id: string
+  name: string
+  type: 'radarr' | 'sonarr'
+  mediaType: 'movie' | 'tv'
+  rootFolders: Array<{ path: string, freeSpace?: number }>
+}
+
+export interface CatalogRequestPayload {
+  peerId: string
+  serverId: string
+  rootFolderPath: string
+}
+
 export interface Overview {
   peers: { total: number, initialized: number, items: PeerItem[] }
   servers: { total: number, initialized: number, sources: number, destinations: number, items: OverviewServerItem[] }
@@ -85,6 +147,7 @@ export interface ServerInput {
 export interface JackConfig {
   internalUrl: string
   apiKey?: SecretRef | null
+  tmdbApiKey?: SecretRef | null
 }
 
 export interface ApiKey {
