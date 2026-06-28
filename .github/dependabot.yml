@@ -4,11 +4,16 @@ updates:
   # JavaScript/TypeScript dependencies across the Bun workspace (root + every app and package).
   # Use the "bun" ecosystem so Dependabot updates bun.lock alongside package.json
   # (the "npm" ecosystem leaves bun.lock stale and breaks `bun install --frozen-lockfile`).
+  #
+  # Scan ONLY the workspace root. The whole repo is a single Bun workspace with one shared
+  # root bun.lock; the bun-ecosystem root scan already traverses every member's package.json
+  # (apps/*, packages/*) and regenerates that lockfile in the same PR. Adding per-member
+  # directories (e.g. '/apps/*') instead produced isolated package.json edits that left the
+  # shared root bun.lock stale, so CI's `bun install --frozen-lockfile` failed — and duplicated
+  # the bumps the root scan already makes.
   - package-ecosystem: bun
     directories:
       - /
-      - '/apps/*'
-      - '/packages/*'
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
