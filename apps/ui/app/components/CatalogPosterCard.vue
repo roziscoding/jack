@@ -30,6 +30,13 @@ const rating = computed(() => metadata.value?.rating ?? null)
 const typeLabel = computed(() => props.title.mediaType === 'tv' ? 'TV' : 'Movie')
 const mediaIcon = computed(() => props.title.mediaType === 'tv' ? 'i-ph-television' : 'i-ph-film-strip')
 
+// Peer chips along the poster's bottom edge: up to two name badges (CSS-truncated to
+// stay legible, and to shrink rather than overflow on small posters) then a "+N" badge
+// whose tooltip names the rest.
+const visiblePeers = computed(() => props.title.peers.slice(0, 2))
+const hiddenPeers = computed(() => props.title.peers.slice(2))
+const { dotClass } = usePeerColors()
+
 // Enrich only once the card nears the viewport, so off-screen cards don't all
 // fire lookups at once. rootMargin starts the fetch just before it scrolls in.
 const cardRef = ref<HTMLElement | null>(null)
@@ -88,6 +95,50 @@ onBeforeUnmount(() => observer?.disconnect())
         class="absolute right-1.5 top-1.5 gap-0.5 bg-black/65 font-semibold text-amber-300 ring-1 ring-white/10 backdrop-blur"
         :ui="{ leadingIcon: 'text-amber-400' }"
       />
+      <!-- Peers along the bottom, filling right-to-left so the first peer sits at the
+           right edge. -->
+      <div
+        v-if="title.peers.length"
+        class="absolute inset-x-1.5 bottom-1.5 flex justify-end gap-1"
+      >
+        <UTooltip
+          v-for="p in visiblePeers"
+          :key="p.id"
+          :text="`From ${p.name}'s library`"
+        >
+          <UBadge
+            :label="p.name"
+            variant="solid"
+            size="sm"
+            class="min-w-0 max-w-24 bg-black/65 font-medium text-white ring-1 ring-white/10 backdrop-blur"
+          >
+            <template #leading>
+              <span class="size-1.5 shrink-0 rounded-full" :class="dotClass(p.id)" />
+            </template>
+          </UBadge>
+        </UTooltip>
+        <UTooltip v-if="hiddenPeers.length" :ui="{ content: 'h-auto' }">
+          <template #content>
+            <div class="text-xs">
+              <p class="font-medium">
+                Also available from:
+              </p>
+              <ul class="mt-0.5 space-y-0.5">
+                <li v-for="p in hiddenPeers" :key="p.id" class="flex items-center gap-1.5 whitespace-nowrap">
+                  <span class="size-1.5 shrink-0 rounded-full" :class="dotClass(p.id)" />
+                  {{ p.name }}'s library
+                </li>
+              </ul>
+            </div>
+          </template>
+          <UBadge
+            :label="`+${hiddenPeers.length}`"
+            variant="solid"
+            size="sm"
+            class="shrink-0 bg-black/65 font-medium text-white ring-1 ring-white/10 backdrop-blur"
+          />
+        </UTooltip>
+      </div>
     </div>
     <div class="min-w-0">
       <p class="truncate text-sm font-medium text-default" :title="name">

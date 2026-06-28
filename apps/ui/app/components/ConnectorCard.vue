@@ -8,6 +8,9 @@ defineProps<{
   error?: string | null
   status: { color: BadgeProps['color'], label: string }
   to?: string
+  // Optional identity accent (e.g. a peer's derived text-color class) applied to the
+  // status icon. Left unset for connectors, which have no per-entry color.
+  accentClass?: string | null
 }>()
 defineEmits<{ edit: [], remove: [] }>()
 </script>
@@ -15,7 +18,7 @@ defineEmits<{ edit: [], remove: [] }>()
 <template>
   <UCard variant="subtle" :ui="{ body: 'sm:p-4' }">
     <div class="flex items-center gap-3">
-      <ConnDot :initialized="initialized" :error="error" />
+      <ConnDot :initialized="initialized" :error="error" :accent-class="accentClass" />
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline gap-2">
           <span class="truncate font-medium text-default" :title="name">{{ name }}</span>
