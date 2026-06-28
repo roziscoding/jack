@@ -64,13 +64,26 @@ function nameKey(release: Release): string {
  * title tracks a per-peer bucket with that peer's release detail.
  */
 export function groupReleasesIntoUnifiedTitles(peerReleases: PeerReleases[]): UnifiedCatalogTitle[] {
-  const nameToStrongKey = new Map<string, string>()
+  const strongKeysByName = new Map<string, Set<string>>()
   for (const { releases } of peerReleases) {
     for (const release of releases) {
       const sk = strongKey(release)
-      if (sk && !nameToStrongKey.has(nameKey(release)))
-        nameToStrongKey.set(nameKey(release), sk)
+      if (!sk)
+        continue
+      const nk = nameKey(release)
+      const keys = strongKeysByName.get(nk) ?? new Set<string>()
+      keys.add(sk)
+      strongKeysByName.set(nk, keys)
     }
+  }
+
+  const nameToStrongKey = new Map<string, string>()
+  for (const [nk, keys] of strongKeysByName) {
+    if (keys.size !== 1)
+      continue
+    const key = keys.values().next().value
+    if (typeof key === 'string')
+      nameToStrongKey.set(nk, key)
   }
 
   const keyOf = (release: Release): string =>
@@ -148,7 +161,7 @@ export function pickBestRelease(releases: Release[]): Release | undefined {
 export function pickBestPerEpisode(releases: Release[]): Release[] {
   const byEpisode = new Map<string, Release>()
   for (const r of releases) {
-    const key = `${r.season ?? 0}:${r.episode ?? 0}`
+    const key = r.season != null && r.episode != null ? `${r.season}:${r.episode}` : `unparsed:${r.id}`
     const current = byEpisode.get(key)
     if (!current || isBetterRelease(r, current))
       byEpisode.set(key, r)

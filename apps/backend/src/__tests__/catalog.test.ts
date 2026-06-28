@@ -77,6 +77,24 @@ describe('groupReleasesIntoUnifiedTitles', () => {
     expect(titles[0]!.peers.map(p => p.id).sort()).toEqual(['p1', 'p2'])
   })
 
+  test('does not alias id-less same-name releases when strong ids are ambiguous', () => {
+    const titles = groupReleasesIntoUnifiedTitles([
+      { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ title: 'The Thing', tmdbId: 1091 })] },
+      { peer: { id: 'p2', name: 'Beta' }, releases: [movie({ title: 'The Thing', tmdbId: 609 })] },
+      { peer: { id: 'p3', name: 'Gamma' }, releases: [movie({ title: 'The Thing' })] },
+    ])
+
+    const strongIds = titles
+      .map(title => title.tmdbId)
+      .filter((tmdbId): tmdbId is number => tmdbId != null)
+      .sort((a, b) => a - b)
+    const idLess = titles.find(title => title.key === 'movie:name:the thing')
+
+    expect(strongIds).toEqual([609, 1091])
+    expect(idLess?.releaseCount).toBe(1)
+    expect(idLess?.tmdbId).toBeUndefined()
+  })
+
   test('sorts unified titles by display title', () => {
     const titles = groupReleasesIntoUnifiedTitles([
       { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ title: 'Zebra', tmdbId: 1 }), movie({ title: 'Apple', tmdbId: 2 })] },
@@ -121,6 +139,17 @@ describe('pickBestPerEpisode', () => {
     expect(best).toContain(s1e1Hd)
     expect(best).toContain(s1e2)
     expect(best).not.toContain(s1e1Sd)
+  })
+
+  test('keeps unnumbered episode releases separate instead of collapsing them to one slot', () => {
+    const first = episode({ id: 'unparsed:1', tvdbId: 81189, title: 'Show.Special.A', filename: 'Show.Special.A.mkv', quality: { resolution: 720 } })
+    const second = episode({ id: 'unparsed:2', tvdbId: 81189, title: 'Show.Special.B', filename: 'Show.Special.B.mkv', quality: { resolution: 1080 } })
+
+    const best = pickBestPerEpisode([first, second])
+
+    expect(best).toHaveLength(2)
+    expect(best).toContain(first)
+    expect(best).toContain(second)
   })
 })
 

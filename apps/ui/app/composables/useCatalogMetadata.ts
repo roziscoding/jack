@@ -29,8 +29,11 @@ export function useCatalogMetadata() {
 
   async function load(title: CatalogTitle): Promise<void> {
     const key = keyFor(title)
-    // No id to look up, or already loading/loaded — don't refetch.
-    if (!key || cache.value[key])
+    if (!key)
+      return
+    const existing = cache.value[key]
+    // No id to look up, or already loading/loaded — don't refetch. Error entries retry.
+    if (existing?.status === 'loading' || existing?.status === 'loaded')
       return
     cache.value[key] = { status: 'loading', data: null }
     try {
