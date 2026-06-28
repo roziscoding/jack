@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+#MISE description="Typecheck non-Vue workspace files with tsc"
+
+bunx tsc --project tsconfig.json --noEmit --pretty false

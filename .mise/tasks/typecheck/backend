@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+#MISE description="Typecheck the backend with tsc"
+
+bunx tsc --project apps/backend/tsconfig.json --noEmit --pretty false
