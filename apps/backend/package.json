@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@hono/otel": "1.1.2",
-    "@hono/standard-validator": "0.2.2",
+    "@hono/standard-validator": "0.2.3",
     "@hono/zod-openapi": "1.4.0",
     "@jack/schemas": "workspace:*",
     "@opentelemetry/api": "1.9.1",
