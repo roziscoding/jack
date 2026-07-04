@@ -155,6 +155,7 @@ function haystack(row: Row): string {
   return [
     row.message,
     levelName(row),
+    typeof row.severity === 'string' ? row.severity : undefined,
     http?.method,
     http?.path,
     http?.status,

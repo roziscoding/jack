@@ -49,6 +49,13 @@ const LEVEL_STYLES: Record<LevelKey, LevelStyle> = {
 }
 
 export function levelStyle(record: LogRecord): LevelStyle {
+  // A severity string we can't map (a custom level like `critical`) with no
+  // numeric level would otherwise fall to INFO and hide. Show its own label with
+  // a lit rail so it can't pass as a normal line — we can't rank it, so treat it
+  // as noteworthy rather than silently benign.
+  const severity = typeof record.severity === 'string' ? record.severity.trim() : ''
+  if (severity && !LEVEL_KEYS.has(severity.toLowerCase()) && typeof record.level !== 'number')
+    return { label: severity.toUpperCase(), text: 'text-warning', rail: 'border-l-warning' }
   return LEVEL_STYLES[levelName(record)] ?? LEVEL_STYLES.info
 }
 

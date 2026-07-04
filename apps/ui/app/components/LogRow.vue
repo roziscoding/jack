@@ -72,7 +72,7 @@ async function copyRaw() {
       <time class="w-[6.5rem] shrink-0 tabular-nums text-dimmed">{{ time }}</time>
 
       <!-- Severity -->
-      <span class="w-12 shrink-0 font-medium tracking-tight" :class="level.text">{{ level.label }}</span>
+      <span class="w-12 shrink-0 truncate font-medium tracking-tight" :class="level.text" :title="level.label">{{ level.label }}</span>
 
       <!-- Content: a request line, or the plain message -->
       <span v-if="http" class="flex min-w-0 flex-1 items-center gap-2">
