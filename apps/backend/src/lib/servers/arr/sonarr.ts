@@ -1,7 +1,7 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import type { AddParams, ManualImportParams, ManualImportTarget } from './base'
+import type { AddParams, ManualImportParams } from './base'
 import { z } from 'zod'
 import { BadRequestError } from '../../errors/BadRequestError'
 import { ReleaseCategory } from '../../release'
@@ -189,24 +189,6 @@ export class SonarrServerConnector extends ArrServerConnector {
   protected override async doGetFilePath(id: string): Promise<string | null> {
     const bundle = await this.fetchEpisodeBundle(id)
     return bundle?.file?.path ?? null
-  }
-
-  protected override async importedReleasesFor(target: ManualImportTarget, release: Release): Promise<Release[]> {
-    if (target.kind !== 'series')
-      return []
-    // Scope to the queued release's own episode. Matching against every episode of
-    // the series would let releaseFilesMatch's coarse group+quality fallback retire
-    // this row when a *different* episode of the same series is on disk. Without a
-    // season/episode we can't scope safely, so we report nothing and let the normal
-    // history/command flow drive the import.
-    if (release.season == null || release.episode == null)
-      return []
-    const series = await this.arrGet<SeriesResource>(`/api/v3/series/${target.seriesId}`).catch(() => undefined)
-    const seriesWithId = series?.id != null ? (series as SeriesWithId) : undefined
-    return this.releasesForSeries(
-      seriesWithId ?? ({ id: target.seriesId } as SeriesWithId),
-      e => e.seasonNumber === release.season && e.episodeNumber === release.episode,
-    )
   }
 
   protected override async doAdd(params: AddParams): Promise<number> {

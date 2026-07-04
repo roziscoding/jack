@@ -121,25 +121,6 @@ export class ImportWatcher {
       if (row.importMode !== 'jack_manual' || !row.importTarget)
         continue
 
-      // Item-level reconciliation: ask *arr whether the target item (movieId /
-      // seriesId) already holds a file matching this release. This catches imports
-      // the history query above misses — completed before the history window, or
-      // recorded under a downloadId we can't reconstruct — so a row *arr has
-      // clearly already satisfied is retired instead of re-triggering the manual
-      // import (and flooding *arr) on every tick.
-      try {
-        if (await connector.hasImportedRelease(row.importTarget, row.release)) {
-          this.repository.markImported(row.id)
-          importedCount++
-          logger.info({ id: row.id, filename: row.filename, server: connector.name }, 'Target item already holds this release; marking imported')
-          continue
-        }
-      }
-      catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        logger.warn({ id: row.id, server: connector.name, error: message }, 'Could not check target item import status; will retry next tick')
-      }
-
       if (row.manualImportCommandId != null) {
         try {
           const status = await connector.manualImportCommandStatus(row.manualImportCommandId)

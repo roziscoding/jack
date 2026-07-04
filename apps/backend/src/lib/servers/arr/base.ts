@@ -93,43 +93,6 @@ export function stripExtension(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
-const TITLE_NOISE_REGEX = /[^a-z0-9]+/g
-
-function normalizeReleaseTitle(title: string): string {
-  return title.toLowerCase().replace(TITLE_NOISE_REGEX, '')
-}
-
-/**
- * Whether an on-disk file (`imported`) is the same release jack queued (`queued`).
- * Byte-identical size is the strongest signal — a 'move' import never rewrites the
- * file — so it settles the common case on its own. A normalized scene-title match
- * and a release-group + quality match are fallbacks for when *arr records a size
- * that differs from what the release advertised.
- *
- * The group + quality fallback is coarse (distinct files can share a tier), so it
- * is only safe when the caller compares against the *right* item's file(s): callers
- * must narrow the candidate set to the queued release's own movie/episode before
- * matching, rather than handing in every file of a series.
- */
-export function releaseFilesMatch(queued: Release, imported: Release): boolean {
-  if (queued.size > 0 && imported.size === queued.size)
-    return true
-
-  const queuedTitle = normalizeReleaseTitle(queued.title)
-  if (queuedTitle.length > 0 && queuedTitle === normalizeReleaseTitle(imported.title))
-    return true
-
-  const group = queued.releaseGroup?.toLowerCase()
-  const quality = queued.quality?.name ?? ''
-  if (group && quality.length > 0
-    && imported.releaseGroup?.toLowerCase() === group
-    && (imported.quality?.name ?? '') === quality) {
-    return true
-  }
-
-  return false
-}
-
 /**
  * A single connector for a Radarr/Sonarr server. It can act as a **source** (its
  * library is exposed to peers) and/or a **destination** (jack registers itself
@@ -251,13 +214,6 @@ export abstract class ArrServerConnector extends ServerConnector {
   protected abstract doListReleases(): Promise<Release[]>
   protected abstract doGetRelease(id: string): Promise<Release | null>
   protected abstract doGetFilePath(id: string): Promise<string | null>
-  /**
-   * On-disk files that could be the queued `release`, one Release per file (empty
-   * if none). Implementations must narrow to the release's own movie/episode — not
-   * the whole series — so {@link releaseFilesMatch}'s coarse group+quality fallback
-   * can't match a sibling file.
-   */
-  protected abstract importedReleasesFor(target: ManualImportTarget, release: Release): Promise<Release[]>
 
   // ---- Destination role ----
 
@@ -351,23 +307,6 @@ export abstract class ArrServerConnector extends ServerConnector {
         ids.add(record.downloadId.toLowerCase())
     }
     return ids
-  }
-
-  /**
-   * Whether this destination already holds a file matching `release` for the given
-   * manual-import target. Unlike {@link recentlyImportedDownloadIds} — which reads
-   * the time-windowed import history *arr keeps, keyed by jack's stub infohash —
-   * this asks about the target item itself (movieId / seriesId), so it still
-   * recognizes an import that completed long ago (outside the history window) or
-   * under a downloadId jack can't reconstruct. The import watcher uses it to retire
-   * an `import_queued` row the destination has already satisfied instead of
-   * re-triggering the manual import on every tick.
-   */
-  @requiresDestination
-  @requiresInitialization
-  async hasImportedRelease(target: ManualImportTarget, release: Release): Promise<boolean> {
-    const onDisk = await this.importedReleasesFor(target, release)
-    return onDisk.some(file => releaseFilesMatch(release, file))
   }
 
   @requiresDestination
