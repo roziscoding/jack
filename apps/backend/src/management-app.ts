@@ -14,6 +14,9 @@ import { CatalogController } from './modules/catalog/catalog.controller'
 import { getCatalogRouter } from './modules/catalog/catalog.router'
 import { ConfigController } from './modules/config/config.controller'
 import { getConfigRouter } from './modules/config/config.router'
+import { logHub } from './modules/logging/log-store'
+import { LogsController } from './modules/logging/logs.controller'
+import { getLogsRouter } from './modules/logging/logs.router'
 import { StatusController } from './modules/status/status.controller'
 import { getStatusRouter } from './modules/status/status.router'
 
@@ -43,6 +46,10 @@ export function getManagementApp(params: {
 
   const statusController = new StatusController(params.connectors, params.downloadsRepository)
   app.route('/', getStatusRouter(statusController))
+
+  // Logs read from the shared LogHub singleton the logger writes to (same module
+  // instance), so this exposes the running process's own logs.
+  app.route('/logs', getLogsRouter(new LogsController(logHub)))
 
   const tmdbClient = params.tmdbApiKey ? new TmdbClient(params.tmdbApiKey) : undefined
   const catalogController = new CatalogController(params.connectors, tmdbClient, params.downloadsService)

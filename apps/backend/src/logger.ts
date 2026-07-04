@@ -1,10 +1,13 @@
 import type { LogAttributes } from '@opentelemetry/api-logs'
+import type { DestinationStream, StreamEntry } from 'pino'
+import { createRequire } from 'node:module'
 import process from 'node:process'
 import { trace } from '@opentelemetry/api'
 import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { levels, multistream, pino } from 'pino'
 import { getAppEnvs, isOtelEnabled } from './lib/envs'
 import { redactObject } from './lib/redact'
+import { fileSink, logHub } from './modules/logging/log-store'
 
 const envs = getAppEnvs()
 const otelEnabled = isOtelEnabled(envs)
@@ -83,31 +86,30 @@ const otelLogStream = {
   },
 }
 
-// With tracing on, fan out to stdout (raw JSON) and the OTel bridge via an
-// in-process multistream — no worker thread, which `thread-stream` transports
-// don't survive under Bun. With tracing off, keep the original path:
-// pretty-printed in dev, plain synchronous stdout in production.
+// Console destination. In production it's plain synchronous stdout (raw JSON); in
+// dev it's pino-pretty used as an *in-process* stream (no worker thread, which
+// `thread-stream` transports don't survive under Bun). pino-pretty is a dev-only
+// dependency, so it's required lazily — production never hits this branch.
+function consoleStream(): DestinationStream {
+  if (envs.ENVIRONMENT === 'production')
+    return process.stdout
+  const nodeRequire = createRequire(import.meta.url)
+  const pretty = nodeRequire('pino-pretty') as (opts: Record<string, unknown>) => DestinationStream
+  return pretty({ colorize: true, singleLine: true, messageKey: 'message', ignore: 'pid,hostname,severity' })
+}
+
+// Everything fans out through one in-process multistream: console, the rotating
+// log file (persistence + the UI's backfill), the live SSE hub, and — when tracing
+// is on — the OTel bridge. No worker threads anywhere.
 function getLogger() {
-  if (!otelEnabled) {
-    return pino({
-      enabled: envs.ENABLE_LOGS,
-      level: envs.LOG_LEVEL,
-      messageKey: 'message',
-      formatters: logFormatters,
-      mixin: traceContextMixin,
-      transport: envs.ENVIRONMENT !== 'production'
-        ? {
-            target: 'pino-pretty',
-            options: {
-              colorize: true,
-              singleLine: true,
-              messageKey: 'message',
-              ignore: 'pid,hostname,severity',
-            },
-          }
-        : undefined,
-    })
-  }
+  const streams: StreamEntry[] = [
+    { stream: consoleStream(), level: envs.LOG_LEVEL },
+  ]
+  if (otelEnabled)
+    streams.push({ stream: otelLogStream, level: envs.LOG_LEVEL })
+  if (fileSink)
+    streams.push({ stream: fileSink, level: envs.LOG_LEVEL })
+  streams.push({ stream: logHub, level: envs.LOG_LEVEL })
 
   return pino(
     {
@@ -117,10 +119,7 @@ function getLogger() {
       formatters: logFormatters,
       mixin: traceContextMixin,
     },
-    multistream([
-      { stream: process.stdout, level: envs.LOG_LEVEL },
-      { stream: otelLogStream, level: envs.LOG_LEVEL },
-    ]),
+    multistream(streams),
   )
 }
 

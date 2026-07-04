@@ -122,6 +122,9 @@ const config = AppConfig.parse({
 const envs: Envs = {
   APP_CONFIG_PATH: '/data/config.json',
   ENABLE_LOGS: false,
+  LOG_TO_FILE: false,
+  LOG_MAX_FILE_BYTES: 10_485_760,
+  LOG_MAX_FILES: 5,
   ENVIRONMENT: 'test' as any,
   HTTP_TIMEOUT_MS: 3000,
   LOG_LEVEL: 'fatal',
