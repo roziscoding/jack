@@ -268,7 +268,7 @@ async function confirmRevoke() {
                 </div>
                 <UBadge v-bind="expiryInfo(key)" variant="subtle" />
                 <UButton icon="i-ph-pencil-simple" color="neutral" variant="ghost" size="sm" aria-label="Edit key" @click="openEdit(key)" />
-                <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Revoke key" @click="confirmTarget = key" />
+                <UButton icon="i-ph-trash" color="neutral" variant="ghost" size="sm" aria-label="Revoke key" @click="() => { confirmTarget = key }" />
               </div>
             </UCard>
           </div>

@@ -80,7 +80,7 @@ watch([mode, value], () => {
           size="sm"
           :icon="reveal ? 'i-ph-eye-slash' : 'i-ph-eye'"
           :aria-label="reveal ? 'Hide value' : 'Show value'"
-          @click="reveal = !reveal"
+          @click="() => { reveal = !reveal }"
         />
       </template>
     </UInput>
