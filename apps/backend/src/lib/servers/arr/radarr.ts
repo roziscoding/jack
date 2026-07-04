@@ -1,7 +1,7 @@
 import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import type { AddParams, ManualImportParams } from './base'
+import type { AddParams, ManualImportParams, ManualImportTarget } from './base'
 import { z } from 'zod'
 import { BadRequestError } from '../../errors/BadRequestError'
 import { normalizeImdbId, ReleaseCategory } from '../../release'
@@ -161,6 +161,16 @@ export class RadarrServerConnector extends ArrServerConnector {
   protected override async doGetFilePath(id: string): Promise<string | null> {
     const movie = await this.getMovie(id)
     return (movie?.movieFile as MovieFileResource | undefined)?.path ?? null
+  }
+
+  protected override async importedReleasesFor(target: ManualImportTarget): Promise<Release[]> {
+    if (target.kind !== 'movie')
+      return []
+    // toRelease returns null unless the movie has a file, so this is empty until
+    // Radarr has actually imported something for the movie.
+    const movie = await this.arrGet<MovieResource>(`/api/v3/movie/${target.movieId}`)
+    const release = movie ? this.toRelease(movie) : null
+    return release ? [release] : []
   }
 
   protected override async doAdd(params: AddParams): Promise<number> {

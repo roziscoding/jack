@@ -123,6 +123,7 @@ function manualServer(name: string, importedHashes: string[], manualImport: (par
     name,
     isInitialized: opts.initialized ?? true,
     recentlyImportedDownloadIds: async () => new Set(importedHashes.map(h => h.toLowerCase())),
+    hasImportedRelease: async () => false,
     manualImport,
     manualImportCommandStatus: async () => ({ state: 'pending' as const }),
   } as unknown as ArrServerConnector
@@ -173,6 +174,55 @@ describe('ImportWatcher jack_manual trigger', () => {
     expect(manualImport).toHaveBeenCalledTimes(1)
   })
 
+  test('marks imported (and never pushes) when the target item already holds the release', async () => {
+    // The flooding case: the import completed long ago, so it's absent from the
+    // recent-history window, but *arr still reports the movie holds this release.
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    const manualImport = mock(async () => 105)
+    const server = {
+      ...manualServer('My Radarr', [], manualImport),
+      hasImportedRelease: async () => true,
+    } as unknown as ArrServerConnector
+    const watcher = new ImportWatcher(repo, { servers: [server] }, 1000)
+
+    expect(await watcher.tick()).toBe(1)
+    expect(repo.get(row.id)?.status).toBe('imported')
+    expect(manualImport).not.toHaveBeenCalled()
+  })
+
+  test('still pushes when the item holds a different release (no false match)', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    const manualImport = mock(async () => 106)
+    const server = {
+      ...manualServer('My Radarr', [], manualImport),
+      hasImportedRelease: async () => false,
+    } as unknown as ArrServerConnector
+    const watcher = new ImportWatcher(repo, { servers: [server] }, 1000)
+
+    await watcher.tick()
+
+    expect(manualImport).toHaveBeenCalledTimes(1)
+    expect(repo.get(row.id)?.status).toBe('import_queued')
+  })
+
+  test('a hasImportedRelease failure leaves the row for the next tick', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    const manualImport = mock(async () => 107)
+    const server = {
+      ...manualServer('My Radarr', [], manualImport),
+      hasImportedRelease: async () => { throw new Error('arr down') },
+    } as unknown as ArrServerConnector
+    const watcher = new ImportWatcher(repo, { servers: [server] }, 1000)
+
+    // The check throwing must not abort the tick; it falls through to the trigger.
+    await watcher.tick()
+    expect(repo.get(row.id)?.status).toBe('import_queued')
+    expect(manualImport).toHaveBeenCalledTimes(1)
+  })
+
   test('retries on the next tick when the manual-import push throws', async () => {
     const repo = makeRepo()
     manualRow(repo, 'My Radarr')
@@ -201,6 +251,7 @@ interface ImportWatcherServer {
   name: string
   isInitialized: boolean
   recentlyImportedDownloadIds: () => Promise<Set<string>>
+  hasImportedRelease: () => Promise<boolean>
   manualImport: (params: ManualImportParams) => Promise<number>
   manualImportCommandStatus: (commandId: number) => Promise<TestManualImportCommandState>
 }
@@ -239,6 +290,7 @@ describe('ImportWatcher tracked manual imports', () => {
       name: 'New Radarr',
       isInitialized: true,
       recentlyImportedDownloadIds: async () => new Set(),
+      hasImportedRelease: async () => false,
       manualImport: async () => 41,
       manualImportCommandStatus: async () => ({ state: 'pending' }),
     }
@@ -257,6 +309,7 @@ describe('ImportWatcher tracked manual imports', () => {
       name: 'My Radarr',
       isInitialized: true,
       recentlyImportedDownloadIds: async () => new Set(),
+      hasImportedRelease: async () => false,
       manualImport: async () => 42,
       manualImportCommandStatus: async () => ({ state: 'completed' }),
     }
@@ -276,6 +329,7 @@ describe('ImportWatcher tracked manual imports', () => {
       name: 'My Radarr',
       isInitialized: true,
       recentlyImportedDownloadIds: async () => new Set(),
+      hasImportedRelease: async () => false,
       manualImport: async () => 43,
       manualImportCommandStatus: async () => ({ state: 'failed', error: 'manual import rejected' }),
     }
@@ -295,6 +349,7 @@ describe('ImportWatcher tracked manual imports', () => {
       name: 'My Radarr',
       isInitialized: true,
       recentlyImportedDownloadIds: async () => new Set(),
+      hasImportedRelease: async () => false,
       manualImport: async () => {
         throw new PermanentManualImportError('episode ids could not be resolved')
       },

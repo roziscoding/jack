@@ -1,7 +1,7 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import type { AddParams, ManualImportParams } from './base'
+import type { AddParams, ManualImportParams, ManualImportTarget } from './base'
 import { z } from 'zod'
 import { BadRequestError } from '../../errors/BadRequestError'
 import { ReleaseCategory } from '../../release'
@@ -189,6 +189,18 @@ export class SonarrServerConnector extends ArrServerConnector {
   protected override async doGetFilePath(id: string): Promise<string | null> {
     const bundle = await this.fetchEpisodeBundle(id)
     return bundle?.file?.path ?? null
+  }
+
+  protected override async importedReleasesFor(target: ManualImportTarget): Promise<Release[]> {
+    if (target.kind !== 'series')
+      return []
+    // Every on-disk episode file for the series; the caller's size/title match
+    // picks out the one that corresponds to the queued release.
+    const series = await this.arrGet<SeriesResource>(`/api/v3/series/${target.seriesId}`).catch(() => undefined)
+    const seriesWithId = series?.id != null ? (series as SeriesWithId) : undefined
+    return this.releasesForSeries(
+      seriesWithId ?? ({ id: target.seriesId } as SeriesWithId),
+    )
   }
 
   protected override async doAdd(params: AddParams): Promise<number> {
