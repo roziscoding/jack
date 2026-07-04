@@ -95,6 +95,49 @@ describe('LogHub backfill', () => {
     expect(out.map(r => r.message)).toEqual(['warn', 'error'])
   })
 
+  test('reads across rotated files to fulfill the requested line count', async () => {
+    // Older history lives in .1; the active file holds the newest lines.
+    await writeFile(`${path}.1`, ndjson([
+      { level: 30, message: 'a' },
+      { level: 30, message: 'b' },
+    ]))
+    await writeFile(path, ndjson([
+      { level: 30, message: 'c' },
+      { level: 30, message: 'd' },
+    ]))
+    const hub = new LogHub(path)
+
+    const out = await hub.backfill({ lines: 3 })
+
+    expect(out.map(r => r.message)).toEqual(['b', 'c', 'd'])
+  })
+
+  test('does not read older files once enough recent lines are collected', async () => {
+    await writeFile(`${path}.1`, ndjson([{ level: 30, message: 'old' }]))
+    await writeFile(path, ndjson([
+      { level: 30, message: 'x' },
+      { level: 30, message: 'y' },
+    ]))
+    const hub = new LogHub(path)
+
+    const out = await hub.backfill({ lines: 2 })
+
+    expect(out.map(r => r.message)).toEqual(['x', 'y'])
+  })
+
+  test('fails closed: a record without a numeric level is excluded under a level floor', async () => {
+    await writeFile(path, `${[
+      { level: 30, message: 'info' },
+      { message: 'no-level' },
+      { level: 50, message: 'error' },
+    ].map(r => JSON.stringify(r)).join('\n')}\n`)
+    const hub = new LogHub(path)
+
+    const out = await hub.backfill({ lines: 10, minLevel: 40 })
+
+    expect(out.map(r => r.message)).toEqual(['error'])
+  })
+
   test('returns empty when the file does not exist', async () => {
     const hub = new LogHub(join(dir, 'missing.ndjson'))
     expect(await hub.backfill({ lines: 10 })).toEqual([])

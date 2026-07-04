@@ -39,7 +39,9 @@ export function getLogsRouter(controller: LogsController) {
     return streamSSE(c, async (stream) => {
       const pending: LogRecord[] = []
       const unsubscribe = controller.subscribe((record) => {
-        if (minLevel != null && typeof record.level === 'number' && record.level < minLevel)
+        // Fail closed, matching backfill: a level floor requires a numeric level
+        // at or above it; missing/malformed levels are dropped.
+        if (minLevel != null && !(typeof record.level === 'number' && record.level >= minLevel))
           return
         pending.push(record)
         if (pending.length > MAX_PENDING)

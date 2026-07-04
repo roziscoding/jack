@@ -87,6 +87,9 @@ function connect() {
 }
 
 async function reload() {
+  // Close the old stream first: otherwise it keeps appending previous-filter
+  // records during the backfill request, so wrong-level lines can flash in.
+  disconnect()
   await loadBackfill()
   if (live.value)
     connect()

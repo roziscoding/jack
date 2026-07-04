@@ -55,31 +55,42 @@ export class LogHub {
   }
 
   /**
-   * The most recent `lines` records from the persisted file, oldest→newest,
-   * optionally dropping anything below `minLevel` (pino numeric level). Reads the
-   * active file only (size-capped by rotation), which still holds recent history
-   * across restarts because the file is on a persistent volume.
+   * The most recent `lines` records, oldest→newest, optionally keeping only those
+   * at or above `minLevel` (pino numeric level). Reads the active file and, if it
+   * doesn't yet hold enough lines (e.g. just after a rotation), walks back through
+   * the rotated siblings `.1`, `.2`, … so retained history isn't silently dropped.
+   * Persists across restarts because the files live on a persistent volume.
    */
   async backfill({ lines, minLevel }: { lines: number, minLevel?: number }): Promise<LogRecord[]> {
-    const file = Bun.file(this.filePath)
-    if (!(await file.exists()))
-      return []
-    const text = await file.text()
-    const records: LogRecord[] = []
-    for (const raw of text.split('\n')) {
-      if (!raw)
-        continue
-      let record: LogRecord
-      try {
-        record = JSON.parse(raw) as LogRecord
+    // Fail closed: when a level floor is set, a record must carry a numeric level
+    // at or above it — a missing/malformed level is excluded, not let through.
+    const passesLevel = (record: LogRecord): boolean =>
+      minLevel == null || (typeof record.level === 'number' && record.level >= minLevel)
+
+    let collected: LogRecord[] = []
+    // i = 0 is the active file; i > 0 are the successively older rotated files.
+    // Each rotated file is entirely older than the previous, so prepend its records.
+    for (let i = 0; i < 1000 && collected.length < lines; i++) {
+      const path = i === 0 ? this.filePath : `${this.filePath}.${i}`
+      const file = Bun.file(path)
+      if (!(await file.exists()))
+        break
+      const records: LogRecord[] = []
+      for (const raw of (await file.text()).split('\n')) {
+        if (!raw)
+          continue
+        let record: LogRecord
+        try {
+          record = JSON.parse(raw) as LogRecord
+        }
+        catch {
+          continue
+        }
+        if (passesLevel(record))
+          records.push(record)
       }
-      catch {
-        continue
-      }
-      if (minLevel != null && typeof record.level === 'number' && record.level < minLevel)
-        continue
-      records.push(record)
+      collected = records.concat(collected)
     }
-    return records.slice(-lines)
+    return collected.slice(-lines)
   }
 }

@@ -15,9 +15,27 @@ export const logFilePath = join(
   'jack.ndjson',
 )
 
-/** Undefined when file logging is disabled (e.g. under test), so the logger simply omits the sink. */
-export const fileSink = envs.LOG_TO_FILE
-  ? new RotatingFileSink({ path: logFilePath, maxBytes: envs.LOG_MAX_FILE_BYTES, maxFiles: envs.LOG_MAX_FILES })
-  : undefined
+/**
+ * The rotating file sink, or undefined when file logging is off (tests) or the log
+ * directory can't be opened. Construction happens at import time and this module is
+ * imported by the logger itself, so a failure must NOT throw — a non-writable
+ * `/config` would otherwise crash the process before it starts, even with the
+ * management API disabled. Instead we warn to stderr and disable file logging;
+ * console/OTel logging keep working.
+ */
+function createFileSink(): RotatingFileSink | undefined {
+  if (!envs.LOG_TO_FILE)
+    return undefined
+  try {
+    return new RotatingFileSink({ path: logFilePath, maxBytes: envs.LOG_MAX_FILE_BYTES, maxFiles: envs.LOG_MAX_FILES })
+  }
+  catch (err) {
+    // Can't use `logger` here (it imports this module).
+    console.error(`[jack] file logging disabled: could not open ${logFilePath}: ${err instanceof Error ? err.message : String(err)}`)
+    return undefined
+  }
+}
+
+export const fileSink = createFileSink()
 
 export const logHub = new LogHub(logFilePath)
