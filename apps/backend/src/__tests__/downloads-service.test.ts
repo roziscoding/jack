@@ -38,6 +38,9 @@ function downloadsConfig(overrides: Partial<Record<string, number>> = {}) {
     retryMaxDelayMs: 0,
     idleTimeoutMs: 60_000,
     importPollIntervalMs: 30_000,
+    maxManualImportAttempts: 6,
+    manualImportBackoffBaseMs: 60_000,
+    manualImportBackoffMaxMs: 1_800_000,
     ...overrides,
   }
 }

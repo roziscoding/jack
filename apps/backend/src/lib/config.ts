@@ -181,6 +181,14 @@ export const DownloadsConfig = z.object({
   // How often the import watcher polls each destination *arr's history to detect
   // which finished downloads it has imported (flipping them import_queued → imported).
   importPollIntervalMs: z.number().int().min(1000).default(30_000),
+  // When a jack_manual import trigger keeps failing (e.g. *arr returns 500 because
+  // the movie's library folder is missing), the watcher backs off exponentially
+  // between attempts instead of re-triggering every tick, and gives up — marking
+  // the row failed — after this many attempts. This stops a broken import from
+  // flooding *arr indefinitely.
+  maxManualImportAttempts: z.number().int().min(1).default(6),
+  manualImportBackoffBaseMs: z.number().int().min(0).default(60_000),
+  manualImportBackoffMaxMs: z.number().int().min(0).default(1_800_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>

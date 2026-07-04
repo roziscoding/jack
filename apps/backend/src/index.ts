@@ -129,7 +129,11 @@ managedApiKeys.prune(registrable.map(d => d.id))
 
 // Detect *arr imports of finished downloads and flip them import_queued → imported.
 const importWatcher = config.downloads
-  ? new ImportWatcher(downloadsRepository, connectorManager, config.downloads.importPollIntervalMs)
+  ? new ImportWatcher(downloadsRepository, connectorManager, config.downloads.importPollIntervalMs, {
+      maxAttempts: config.downloads.maxManualImportAttempts,
+      backoffBaseMs: config.downloads.manualImportBackoffBaseMs,
+      backoffMaxMs: config.downloads.manualImportBackoffMaxMs,
+    })
   : undefined
 importWatcher?.start()
 
