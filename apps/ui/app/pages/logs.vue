@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import type { BadgeProps } from '@nuxt/ui'
+import type { GroupedRow } from '~/components/LogRow.vue'
 import type { LogRecord } from '~/types/management'
+import { extractHttp, groupKey, levelName } from '~/utils/logFormat'
 
 type Row = LogRecord & { _id: number }
 
@@ -21,6 +22,10 @@ const pending = ref(false)
 const error = ref('')
 const live = ref(true)
 const connected = ref(false)
+
+// View controls.
+const query = ref('')
+const collapse = ref(true)
 
 let seq = 0
 let source: EventSource | null = null
@@ -144,46 +149,57 @@ function scheduleScroll(force: boolean) {
   })
 }
 
-// --- Per-row display helpers. ---
-const RESERVED = new Set(['time', 'level', 'severity', 'message', 'pid', 'hostname', 'msg'])
-
-function levelName(record: LogRecord): string {
-  if (record.severity)
-    return record.severity
-  const level = record.level ?? 30
-  return level >= 60 ? 'fatal' : level >= 50 ? 'error' : level >= 40 ? 'warn' : level >= 30 ? 'info' : level >= 20 ? 'debug' : 'trace'
+// --- Text filter over the raw stream (path, message, method, status, level). ---
+function haystack(row: Row): string {
+  const http = extractHttp(row)
+  return [
+    row.message,
+    levelName(row),
+    http?.method,
+    http?.path,
+    http?.status,
+  ].filter(v => v != null).join(' ').toLowerCase()
 }
 
-function levelColor(name: string): BadgeProps['color'] {
-  if (name === 'warn')
-    return 'warning'
-  if (name === 'error' || name === 'fatal')
-    return 'error'
-  if (name === 'info')
-    return 'info'
-  return 'neutral'
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q)
+    return rows.value
+  return rows.value.filter(row => haystack(row).includes(q))
+})
+
+// --- Fold consecutive identical lines into one row with a ×N counter. ---
+function durationOf(row: Row): number | undefined {
+  return typeof row.durationMs === 'number' ? row.durationMs : undefined
 }
 
-function clockTime(record: LogRecord): string {
-  if (typeof record.time !== 'number')
-    return ''
-  const date = new Date(record.time)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString()
-}
+const groups = computed<GroupedRow[]>(() => {
+  const list = filtered.value
+  if (!collapse.value)
+    return list.map(r => ({ ...r, _count: 1, _durations: durationOf(r) !== undefined ? [durationOf(r)!] : [] }))
 
-function detail(record: Row): string {
-  const extra: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(record)) {
-    if (key === '_id' || RESERVED.has(key))
-      continue
-    extra[key] = value
+  const out: GroupedRow[] = []
+  let prevKey: string | null = null
+  for (const r of list) {
+    const key = groupKey(r)
+    const dur = durationOf(r)
+    const last = out.at(-1)
+    if (last && key === prevKey) {
+      // Refresh to the latest occurrence but keep the run's first id as a stable
+      // key so an expanded row doesn't collapse as identical lines stream in.
+      const id = last._id
+      const durations = last._durations
+      if (dur !== undefined)
+        durations.push(dur)
+      Object.assign(last, r, { _id: id, _count: last._count + 1, _durations: durations })
+    }
+    else {
+      out.push({ ...r, _count: 1, _durations: dur !== undefined ? [dur] : [] })
+      prevKey = key
+    }
   }
-  return JSON.stringify(extra, null, 2)
-}
-
-function hasDetail(record: Row): boolean {
-  return detail(record) !== '{}'
-}
+  return out
+})
 
 const expanded = ref<Set<number>>(new Set())
 function toggle(id: number) {
@@ -194,6 +210,16 @@ function toggle(id: number) {
     next.add(id)
   expanded.value = next
 }
+
+const summary = computed(() => {
+  const total = rows.value.length
+  const shown = groups.value.length
+  if (query.value.trim())
+    return `${filtered.value.length} of ${total} lines`
+  if (collapse.value && shown !== total)
+    return `${shown} rows · ${total} lines`
+  return `${total} lines`
+})
 </script>
 
 <template>
@@ -209,7 +235,7 @@ function toggle(id: number) {
             >
               {{ live ? (connected ? 'Live' : 'Reconnecting…') : 'Paused' }}
             </UBadge>
-            <USelect v-model="level" :items="levelItems" size="sm" class="w-36" aria-label="Minimum log level" />
+            <USelect v-model="level" :items="levelItems" size="sm" class="w-32" aria-label="Minimum log level" />
             <UButton
               :icon="live ? 'i-ph-pause' : 'i-ph-play'"
               :label="live ? 'Pause' : 'Resume'"
@@ -225,53 +251,72 @@ function toggle(id: number) {
     </template>
 
     <template #body>
-      <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
+      <div class="flex h-full flex-col gap-3">
+        <!-- Filter bar -->
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <UInput
+            v-model="query"
+            icon="i-ph-magnifying-glass"
+            placeholder="Filter by path, method, status or message"
+            size="sm"
+            class="min-w-56 flex-1"
+            :ui="{ trailing: 'pe-1' }"
+          >
+            <template v-if="query" #trailing>
+              <UButton
+                icon="i-ph-x"
+                color="neutral"
+                variant="link"
+                size="xs"
+                aria-label="Clear filter"
+                @click="() => { query = '' }"
+              />
+            </template>
+          </UInput>
+          <USwitch v-model="collapse" label="Collapse repeats" size="sm" />
+          <span class="ms-auto shrink-0 text-xs tabular-nums text-dimmed">{{ summary }}</span>
+        </div>
 
-      <p v-else-if="pending && rows.length === 0" class="flex items-center gap-2 text-sm text-muted">
-        <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
-        Loading…
-      </p>
+        <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
 
-      <UCard v-else-if="rows.length === 0" variant="subtle">
-        <div class="flex flex-col items-center gap-3 py-6 text-center">
-          <UIcon name="i-ph-scroll" class="size-8 text-dimmed" />
+        <p v-else-if="pending && rows.length === 0" class="flex items-center gap-2 text-sm text-muted">
+          <UIcon name="i-ph-circle-notch" class="size-4 animate-spin" />
+          Loading…
+        </p>
+
+        <UCard v-else-if="rows.length === 0" variant="subtle">
+          <div class="flex flex-col items-center gap-3 py-6 text-center">
+            <UIcon name="i-ph-scroll" class="size-8 text-dimmed" />
+            <p class="text-sm text-muted">
+              No log lines yet. New entries stream in here as the server logs them.
+            </p>
+          </div>
+        </UCard>
+
+        <div
+          v-else-if="groups.length === 0"
+          class="flex flex-col items-center gap-2 rounded-lg border border-dashed border-default py-10 text-center"
+        >
+          <UIcon name="i-ph-magnifying-glass" class="size-6 text-dimmed" />
           <p class="text-sm text-muted">
-            No log lines yet. New entries stream in here as the server logs them.
+            No lines match “{{ query }}”.
           </p>
         </div>
-      </UCard>
 
-      <div
-        v-else
-        ref="scroller"
-        class="h-full overflow-auto rounded-lg border border-default bg-elevated/40 font-mono text-xs"
-        @scroll="onScroll"
-      >
         <div
-          v-for="row in rows"
-          :key="row._id"
-          class="border-b border-default/50 last:border-b-0"
+          v-else
+          ref="scroller"
+          class="min-h-0 flex-1 overflow-auto rounded-lg border border-default bg-elevated/40 font-mono text-xs"
+          @scroll="onScroll"
         >
-          <button
-            type="button"
-            class="flex w-full items-start gap-2 px-3 py-1 text-left hover:bg-elevated"
-            @click="toggle(row._id)"
-          >
-            <span class="shrink-0 tabular-nums text-dimmed">{{ clockTime(row) }}</span>
-            <UBadge :color="levelColor(levelName(row))" variant="subtle" size="sm" class="shrink-0 uppercase">
-              {{ levelName(row) }}
-            </UBadge>
-            <span class="min-w-0 flex-1 break-words whitespace-pre-wrap text-default">{{ row.message }}</span>
-            <UIcon
-              v-if="hasDetail(row)"
-              :name="expanded.has(row._id) ? 'i-ph-caret-up' : 'i-ph-caret-down'"
-              class="mt-0.5 size-3.5 shrink-0 text-dimmed"
-            />
-          </button>
-          <pre
-            v-if="expanded.has(row._id) && hasDetail(row)"
-            class="overflow-x-auto border-t border-default/50 bg-default/50 px-3 py-2 text-muted"
-          >{{ detail(row) }}</pre>
+          <LogRow
+            v-for="row in groups"
+            :key="row._id"
+            :row="row"
+            :expanded="expanded.has(row._id)"
+            class="border-b border-default/40 last:border-b-0"
+            @toggle="toggle(row._id)"
+          />
         </div>
       </div>
     </template>
