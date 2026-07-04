@@ -9,6 +9,7 @@ const items: NavigationMenuItem[] = [
   { label: 'Dashboard', icon: 'i-ph-gauge', to: '/', exact: true },
   { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
   { label: 'Peer Catalog', icon: 'i-ph-film-reel', to: '/catalog' },
+  { label: 'Logs', icon: 'i-ph-scroll', to: '/logs' },
   { label: 'Settings', icon: 'i-ph-gear-six', to: '/settings' },
 ]
 
