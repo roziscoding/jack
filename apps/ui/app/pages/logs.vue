@@ -33,22 +33,6 @@ function levelQuery(prefix: '?' | '&'): string {
   return level.value === 'all' ? '' : `${prefix}level=${level.value}`
 }
 
-async function loadBackfill() {
-  pending.value = true
-  error.value = ''
-  try {
-    const res = await request<{ logs: LogRecord[] }>(`logs?lines=${BACKFILL_LINES}${levelQuery('&')}`)
-    rows.value = res.logs.map(tag)
-    scheduleScroll(true)
-  }
-  catch (err) {
-    error.value = extractError(err, 'Failed to load logs.')
-  }
-  finally {
-    pending.value = false
-  }
-}
-
 function append(record: LogRecord) {
   rows.value.push(tag(record))
   if (rows.value.length > MAX_ROWS)
@@ -86,11 +70,34 @@ function connect() {
   }
 }
 
+// Guards overlapping reloads (fast level changes): each reload takes a ticket and
+// only the newest may replace `rows`, clear `pending`, or reconnect — so a slower
+// earlier backfill can't resolve late and win with stale, wrong-filter rows.
+let reloadSeq = 0
+
 async function reload() {
-  // Close the old stream first: otherwise it keeps appending previous-filter
-  // records during the backfill request, so wrong-level lines can flash in.
+  const seq = ++reloadSeq
+  // Close the old stream first so it can't append previous-filter lines during
+  // the backfill request.
   disconnect()
-  await loadBackfill()
+  pending.value = true
+  error.value = ''
+  try {
+    const res = await request<{ logs: LogRecord[] }>(`logs?lines=${BACKFILL_LINES}${levelQuery('&')}`)
+    if (seq !== reloadSeq)
+      return
+    rows.value = res.logs.map(tag)
+    scheduleScroll(true)
+  }
+  catch (err) {
+    if (seq !== reloadSeq)
+      return
+    error.value = extractError(err, 'Failed to load logs.')
+  }
+  finally {
+    if (seq === reloadSeq)
+      pending.value = false
+  }
   if (live.value)
     connect()
 }
