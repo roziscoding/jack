@@ -50,12 +50,17 @@ function connect() {
   if (!import.meta.client)
     return
   disconnect()
-  source = new EventSource(`/api/management/logs/stream${levelQuery('?')}`)
-  source.onopen = () => {
-    connected.value = true
+  // Capture this stream so a callback queued from a superseded EventSource (a
+  // fast level change reconnects mid-dispatch) can't append a previous-filter
+  // record or flip `connected` after `source` has moved on.
+  const nextSource = new EventSource(`/api/management/logs/stream${levelQuery('?')}`)
+  source = nextSource
+  nextSource.onopen = () => {
+    if (source === nextSource)
+      connected.value = true
   }
-  source.onmessage = (event) => {
-    if (!event.data)
+  nextSource.onmessage = (event) => {
+    if (source !== nextSource || !event.data)
       return
     try {
       append(JSON.parse(event.data) as LogRecord)
@@ -64,9 +69,10 @@ function connect() {
       // Ignore a malformed frame rather than break the stream.
     }
   }
-  source.onerror = () => {
+  nextSource.onerror = () => {
     // EventSource reconnects on its own; just reflect the gap in the UI.
-    connected.value = false
+    if (source === nextSource)
+      connected.value = false
   }
 }
 
