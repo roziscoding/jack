@@ -183,11 +183,53 @@ describe('ImportWatcher jack_manual trigger', () => {
         throw new Error('arr down')
       return 104
     })
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    // backoffBaseMs: 0 → retry immediately on the next tick.
+    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000, {
+      maxAttempts: 6,
+      backoffBaseMs: 0,
+      backoffMaxMs: 0,
+    })
 
     await watcher.tick()
     await watcher.tick()
     expect(manualImport).toHaveBeenCalledTimes(2)
+  })
+
+  test('backs off instead of re-firing the trigger every tick after a failure', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    const manualImport = mock(() => Promise.reject(new Error('arr 500')))
+    // A long back-off window means the second, immediate tick must skip the trigger.
+    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000, {
+      maxAttempts: 6,
+      backoffBaseMs: 60_000,
+      backoffMaxMs: 60_000,
+    })
+
+    await watcher.tick()
+    await watcher.tick()
+
+    expect(manualImport).toHaveBeenCalledTimes(1)
+    expect(repo.get(row.id)?.status).toBe('import_queued')
+  })
+
+  test('gives up and marks the row failed after maxAttempts trigger failures', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    const manualImport = mock(() => Promise.reject(new Error('arr 500')))
+    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000, {
+      maxAttempts: 3,
+      backoffBaseMs: 0,
+      backoffMaxMs: 0,
+    })
+
+    await watcher.tick()
+    await watcher.tick()
+    await watcher.tick()
+
+    expect(manualImport).toHaveBeenCalledTimes(3)
+    expect(repo.get(row.id)).toMatchObject({ status: 'failed' })
+    expect(repo.get(row.id)?.error).toContain('after 3 attempts')
   })
 })
 
