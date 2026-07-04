@@ -36,7 +36,18 @@ export function getLogsRouter(controller: LogsController) {
     const { level } = c.req.valid('query')
     const minLevel = controller.minLevelFor(level)
 
+    // Hint proxies not to buffer the stream (honored by nginx-family proxies).
+    c.header('X-Accel-Buffering', 'no')
+
     return streamSSE(c, async (stream) => {
+      // Open the stream with a comment so the very first body byte goes out at
+      // t=0. Bun's HTTP server withholds the response header block until the
+      // first byte of the body is written; an idle SSE response (no log events
+      // yet) would otherwise never flush its headers, and a reverse proxy in
+      // front (Traefik) stalls indefinitely waiting for them. A `:` comment is
+      // ignored by EventSource clients and just forces the flush.
+      await stream.write(': open\n\n')
+
       const pending: LogRecord[] = []
       const unsubscribe = controller.subscribe((record) => {
         // Fail closed, matching backfill: a level floor requires a numeric level

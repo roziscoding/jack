@@ -58,6 +58,12 @@ describe('logs router — SSE stream', () => {
     const reader = res.body!.getReader()
     const decoder = new TextDecoder()
     try {
+      // The stream opens with a comment so the first body byte (and thus the
+      // response headers) flush at t=0 instead of waiting for the first event —
+      // otherwise a reverse proxy in front stalls on an idle stream.
+      const first = await reader.read()
+      expect(decoder.decode(first.value, { stream: true })).toMatch(/^:/)
+
       // Wait until the endpoint has subscribed before emitting.
       for (let i = 0; i < 100 && hub.subscriberCount === 0; i++)
         await Bun.sleep(10)
