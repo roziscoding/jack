@@ -3,4 +3,7 @@
 
 @theme {
   --font-sans: 'Inter', sans-serif;
+  /* Log stream reads as a terminal grid; @nuxt/fonts self-hosts JetBrains Mono,
+     with a system-mono fallback so an offline build still renders cleanly. */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
 }
