@@ -17,6 +17,15 @@ export const Envs = z.object({
   OTEL_SERVICE_NAME: z.string().default('jack-backend'),
   NODE_ENV: z.string().optional(),
   ENABLE_LOGS: z.stringbool().optional().default(true),
+  // Persist logs to a rotating NDJSON file the management API serves to the UI.
+  LOG_TO_FILE: z.stringbool().optional().default(true),
+  // Directory for the rotating log files. Defaults to a `logs/` dir next to the
+  // config file (the same persistent volume as the sqlite DB).
+  LOG_DIR: z.string().optional(),
+  // Rotate the active log file once it reaches this many bytes (default 10 MiB).
+  LOG_MAX_FILE_BYTES: z.coerce.number().int().positive().default(10_485_760),
+  // Keep this many rotated files (plus the active one); older ones are pruned.
+  LOG_MAX_FILES: z.coerce.number().int().min(0).default(5),
   // Management API credential. When set, the management surface starts on its OWN
   // port (MANAGEMENT_PORT) and every request must carry `X-Management-Key: <this>`.
   // When unset, the management listener is not started at all.
@@ -28,6 +37,8 @@ export const Envs = z.object({
 }).transform(vars => ({
   ...vars,
   ENABLE_LOGS: vars.NODE_ENV !== 'test' && vars.ENABLE_LOGS,
+  // Never write log files during tests (they construct their own temp sinks).
+  LOG_TO_FILE: vars.NODE_ENV !== 'test' && vars.LOG_TO_FILE,
 }))
 
 export type Envs = z.infer<typeof Envs>

@@ -169,3 +169,15 @@ export interface ApiKeyInput {
   description?: string | null
   expiresAt?: string | null
 }
+
+// One NDJSON log line as served by GET /logs and the /logs/stream SSE. `time` is
+// epoch millis, `level` the pino numeric level, `severity` its label; anything
+// else (trace_id, request fields, …) rides along as extra keys.
+export interface LogRecord {
+  time?: number
+  level?: number
+  severity?: string
+  message?: string
+  trace_id?: string
+  [key: string]: unknown
+}
