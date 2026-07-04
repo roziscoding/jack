@@ -114,7 +114,7 @@ const columns: TableColumn<DownloadItem>[] = [
             :color="chip.color"
             :variant="filter === chip.key ? 'subtle' : 'ghost'"
             size="sm"
-            @click="filter = chip.key"
+            @click="() => { filter = chip.key }"
           >
             {{ chip.label }}
             <UBadge :color="chip.color" :variant="filter === chip.key ? 'solid' : 'soft'" size="sm">
