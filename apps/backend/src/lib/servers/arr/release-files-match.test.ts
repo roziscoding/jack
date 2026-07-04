@@ -27,20 +27,12 @@ describe('releaseFilesMatch', () => {
     expect(releaseFilesMatch(queued, onDisk)).toBe(true)
   })
 
-  test('does NOT match on release group + quality tier alone (size and title differ)', () => {
-    // A different edition of the same movie can share group + quality; retiring on
-    // that would drop a still-missing release.
+  test('matches on release group + quality name as a last resort', () => {
+    // Coarse by design: safe only because callers narrow the candidate set to the
+    // release's own movie/episode before matching (see importedReleasesFor).
     const queued = release({ title: 'A', size: 1000, releaseGroup: 'FraMeSToR', quality: { name: 'Remux-2160p' } })
     const onDisk = release({ title: 'B', size: 2000, releaseGroup: 'framestor', quality: { name: 'Remux-2160p' } })
-    expect(releaseFilesMatch(queued, onDisk)).toBe(false)
-  })
-
-  test('does not match another episode of the same series that shares group + quality', () => {
-    // Sonarr's whole-series scan hands us every on-disk episode; a sibling episode
-    // from the same group/quality must not retire this row.
-    const queued = release({ title: 'Show.S01E05.2160p.REMUX-GRP', size: 1000, releaseGroup: 'GRP', quality: { name: 'Remux-2160p' } })
-    const sibling = release({ title: 'Show.S01E03.2160p.REMUX-GRP', size: 2000, releaseGroup: 'GRP', quality: { name: 'Remux-2160p' } })
-    expect(releaseFilesMatch(queued, sibling)).toBe(false)
+    expect(releaseFilesMatch(queued, onDisk)).toBe(true)
   })
 
   test('does not match a different release of the same item', () => {

@@ -191,15 +191,21 @@ export class SonarrServerConnector extends ArrServerConnector {
     return bundle?.file?.path ?? null
   }
 
-  protected override async importedReleasesFor(target: ManualImportTarget): Promise<Release[]> {
+  protected override async importedReleasesFor(target: ManualImportTarget, release: Release): Promise<Release[]> {
     if (target.kind !== 'series')
       return []
-    // Every on-disk episode file for the series; the caller's size/title match
-    // picks out the one that corresponds to the queued release.
+    // Scope to the queued release's own episode. Matching against every episode of
+    // the series would let releaseFilesMatch's coarse group+quality fallback retire
+    // this row when a *different* episode of the same series is on disk. Without a
+    // season/episode we can't scope safely, so we report nothing and let the normal
+    // history/command flow drive the import.
+    if (release.season == null || release.episode == null)
+      return []
     const series = await this.arrGet<SeriesResource>(`/api/v3/series/${target.seriesId}`).catch(() => undefined)
     const seriesWithId = series?.id != null ? (series as SeriesWithId) : undefined
     return this.releasesForSeries(
       seriesWithId ?? ({ id: target.seriesId } as SeriesWithId),
+      e => e.seasonNumber === release.season && e.episodeNumber === release.episode,
     )
   }
 

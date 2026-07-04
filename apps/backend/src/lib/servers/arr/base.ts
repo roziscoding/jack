@@ -101,13 +101,15 @@ function normalizeReleaseTitle(title: string): string {
 
 /**
  * Whether an on-disk file (`imported`) is the same release jack queued (`queued`).
- * Both signals identify an individual file: byte-identical size is the strongest
- * (a 'move' import never rewrites the file, so it settles the common case on its
- * own), and a normalized scene-title match covers the rare case where *arr records
- * a size that differs from what the release advertised. We deliberately do NOT fall
- * back to release group + quality tier: several distinct files (a different edition
- * of the same movie, or a different episode of the same series) can share a tier,
- * so matching on it would retire a queued row whose release is still missing.
+ * Byte-identical size is the strongest signal — a 'move' import never rewrites the
+ * file — so it settles the common case on its own. A normalized scene-title match
+ * and a release-group + quality match are fallbacks for when *arr records a size
+ * that differs from what the release advertised.
+ *
+ * The group + quality fallback is coarse (distinct files can share a tier), so it
+ * is only safe when the caller compares against the *right* item's file(s): callers
+ * must narrow the candidate set to the queued release's own movie/episode before
+ * matching, rather than handing in every file of a series.
  */
 export function releaseFilesMatch(queued: Release, imported: Release): boolean {
   if (queued.size > 0 && imported.size === queued.size)
@@ -116,6 +118,14 @@ export function releaseFilesMatch(queued: Release, imported: Release): boolean {
   const queuedTitle = normalizeReleaseTitle(queued.title)
   if (queuedTitle.length > 0 && queuedTitle === normalizeReleaseTitle(imported.title))
     return true
+
+  const group = queued.releaseGroup?.toLowerCase()
+  const quality = queued.quality?.name ?? ''
+  if (group && quality.length > 0
+    && imported.releaseGroup?.toLowerCase() === group
+    && (imported.quality?.name ?? '') === quality) {
+    return true
+  }
 
   return false
 }
@@ -241,8 +251,13 @@ export abstract class ArrServerConnector extends ServerConnector {
   protected abstract doListReleases(): Promise<Release[]>
   protected abstract doGetRelease(id: string): Promise<Release | null>
   protected abstract doGetFilePath(id: string): Promise<string | null>
-  /** Releases currently on disk for a manual-import target, one per imported file (empty if none). */
-  protected abstract importedReleasesFor(target: ManualImportTarget): Promise<Release[]>
+  /**
+   * On-disk files that could be the queued `release`, one Release per file (empty
+   * if none). Implementations must narrow to the release's own movie/episode — not
+   * the whole series — so {@link releaseFilesMatch}'s coarse group+quality fallback
+   * can't match a sibling file.
+   */
+  protected abstract importedReleasesFor(target: ManualImportTarget, release: Release): Promise<Release[]>
 
   // ---- Destination role ----
 
@@ -351,7 +366,7 @@ export abstract class ArrServerConnector extends ServerConnector {
   @requiresDestination
   @requiresInitialization
   async hasImportedRelease(target: ManualImportTarget, release: Release): Promise<boolean> {
-    const onDisk = await this.importedReleasesFor(target)
+    const onDisk = await this.importedReleasesFor(target, release)
     return onDisk.some(file => releaseFilesMatch(release, file))
   }
 
