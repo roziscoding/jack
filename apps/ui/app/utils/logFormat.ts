@@ -17,10 +17,16 @@ const RESERVED = new Set([
 
 export type LevelKey = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
-// pino numeric level -> label. Falls back to the string `severity` when present.
+const LEVEL_KEYS = new Set<string>(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+
+// Prefer the string `severity`, but only when it's a label we can style — an
+// unrecognised one (a custom level like `critical`) would miss LEVEL_STYLES and
+// mis-render as INFO, hiding a high-priority line. Fall through to the numeric
+// pino level in that case rather than trusting the string blindly.
 export function levelName(record: LogRecord): LevelKey {
-  if (typeof record.severity === 'string')
-    return record.severity as LevelKey
+  const severity = typeof record.severity === 'string' ? record.severity.toLowerCase() : undefined
+  if (severity && LEVEL_KEYS.has(severity))
+    return severity as LevelKey
   const l = typeof record.level === 'number' ? record.level : 30
   return l >= 60 ? 'fatal' : l >= 50 ? 'error' : l >= 40 ? 'warn' : l >= 30 ? 'info' : l >= 20 ? 'debug' : 'trace'
 }
