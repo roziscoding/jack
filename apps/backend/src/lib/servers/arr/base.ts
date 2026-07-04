@@ -101,10 +101,13 @@ function normalizeReleaseTitle(title: string): string {
 
 /**
  * Whether an on-disk file (`imported`) is the same release jack queued (`queued`).
- * Byte-identical size is the strongest signal — a 'move' import never rewrites the
- * file — so it settles the common case on its own. A normalized scene-title match
- * and a release-group + quality match are fallbacks for when *arr records a size
- * that differs from what the release advertised.
+ * Both signals identify an individual file: byte-identical size is the strongest
+ * (a 'move' import never rewrites the file, so it settles the common case on its
+ * own), and a normalized scene-title match covers the rare case where *arr records
+ * a size that differs from what the release advertised. We deliberately do NOT fall
+ * back to release group + quality tier: several distinct files (a different edition
+ * of the same movie, or a different episode of the same series) can share a tier,
+ * so matching on it would retire a queued row whose release is still missing.
  */
 export function releaseFilesMatch(queued: Release, imported: Release): boolean {
   if (queued.size > 0 && imported.size === queued.size)
@@ -113,14 +116,6 @@ export function releaseFilesMatch(queued: Release, imported: Release): boolean {
   const queuedTitle = normalizeReleaseTitle(queued.title)
   if (queuedTitle.length > 0 && queuedTitle === normalizeReleaseTitle(imported.title))
     return true
-
-  const group = queued.releaseGroup?.toLowerCase()
-  const quality = queued.quality?.name ?? ''
-  if (group && quality.length > 0
-    && imported.releaseGroup?.toLowerCase() === group
-    && (imported.quality?.name ?? '') === quality) {
-    return true
-  }
 
   return false
 }
