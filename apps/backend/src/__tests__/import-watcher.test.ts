@@ -129,6 +129,71 @@ function manualServer(name: string, importedHashes: string[], manualImport: (par
 }
 
 describe('ImportWatcher jack_manual trigger', () => {
+  test('coalesces overlapping ticks so they trigger one manual import', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    const started = Promise.withResolvers<void>()
+    const finish = Promise.withResolvers<void>()
+    const manualImport = mock(async () => {
+      started.resolve()
+      await finish.promise
+      return 106
+    })
+    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+
+    const first = watcher.tick()
+    await started.promise
+    const second = watcher.tick()
+    finish.resolve()
+    await Promise.all([first, second])
+
+    expect(manualImport).toHaveBeenCalledTimes(1)
+    expect(repo.get(row.id)?.manualImportCommandId).toBe(106)
+  })
+
+  test('serializes a manual retry against a watcher tick and revalidates state', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    repo.markFailed(row.id, 'manual import rejected', 'import')
+    const started = Promise.withResolvers<void>()
+    const finish = Promise.withResolvers<void>()
+    const manualImport = mock(async () => {
+      started.resolve()
+      await finish.promise
+      return 107
+    })
+    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+
+    const retrying = watcher.retry(row.id)
+    await started.promise
+    const ticking = watcher.tick()
+    finish.resolve()
+    await Promise.all([retrying, ticking])
+
+    expect(manualImport).toHaveBeenCalledTimes(1)
+    expect(repo.get(row.id)?.manualImportCommandId).toBe(107)
+  })
+
+  test('retry re-triggers a failed manual import without changing transfer bytes', async () => {
+    const repo = makeRepo()
+    const row = manualRow(repo, 'My Radarr')
+    repo.updateProgress(row.id, release.size)
+    repo.markFailed(row.id, 'manual import rejected', 'import')
+    const manualImport = mock(async () => 105)
+    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+
+    await watcher.retry(row.id)
+
+    expect(manualImport).toHaveBeenCalledTimes(1)
+    expect(repo.get(row.id)).toMatchObject({
+      status: 'import_queued',
+      downloadedBytes: release.size,
+      lastOperation: 'import',
+      operationFailed: false,
+      manualImportCommandId: 105,
+    })
+  })
+
   test('pushes manualImport once across two ticks while the hash is absent from history', async () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')

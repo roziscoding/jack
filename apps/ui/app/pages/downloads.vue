@@ -1,15 +1,59 @@
 <script setup lang="ts">
 import type { BadgeProps, TableColumn } from '@nuxt/ui'
 import type { DownloadItem } from '~/types/management'
+import type { DownloadAction } from '~/utils/download-actions'
 
 type StatusFilter = DownloadItem['status'] | 'all'
 
-const { request } = useManagement()
+const { request, extractError } = useManagement()
+const toast = useToast()
 
 const { data, pending, error, refresh } = await useAsyncData('downloads', () =>
   request<{ downloads: DownloadItem[] }>('downloads'))
 
 const { REFRESH_OPTIONS, intervalMs, paused, secondsLeft, togglePaused } = useAutoRefresh(refresh)
+
+const pendingActions = ref<Record<number, DownloadAction | undefined>>({})
+
+function confirmationFor(download: DownloadItem, action: DownloadAction): string | null {
+  if (action === 'cancel')
+    return `Cancel ${download.filename}? Its partial file will be kept so the transfer can be retried.`
+  if (action === 'delete')
+    return `Delete ${download.filename}? This removes its history and any partial or completed download artifact.`
+  return null
+}
+
+async function runAction(download: DownloadItem, action: DownloadAction) {
+  if (pendingActions.value[download.id])
+    return
+  const confirmation = confirmationFor(download, action)
+  // eslint-disable-next-line no-alert -- destructive actions require confirmation
+  if (confirmation && !window.confirm(confirmation))
+    return
+
+  pendingActions.value[download.id] = action
+  try {
+    if (action === 'delete')
+      await request<{ ok: true }>(`downloads/${download.id}`, { method: 'DELETE' })
+    else
+      await request<{ download: DownloadItem }>(`downloads/${download.id}/${action}`, { method: 'POST' })
+    toast.add({
+      title: action === 'cancel' ? 'Download cancelled' : action === 'retry' ? 'Download retry started' : 'Download deleted',
+      color: 'success',
+    })
+    await refresh()
+  }
+  catch (actionError) {
+    toast.add({
+      title: `Failed to ${action} download`,
+      description: extractError(actionError),
+      color: 'error',
+    })
+  }
+  finally {
+    delete pendingActions.value[download.id]
+  }
+}
 
 const statusBadge: Record<DownloadItem['status'], { color: BadgeProps['color'], label: string }> = {
   downloading: { color: 'primary', label: 'Downloading' },
@@ -69,6 +113,7 @@ const columns: TableColumn<DownloadItem>[] = [
   { accessorKey: 'progress', header: 'Progress' },
   { accessorKey: 'totalBytes', header: 'Size' },
   { accessorKey: 'updatedAt', header: 'Updated' },
+  { id: 'actions', header: '' },
 ]
 </script>
 
@@ -162,6 +207,14 @@ const columns: TableColumn<DownloadItem>[] = [
               </span>
             </template>
 
+            <template #actions-cell="{ row }">
+              <DownloadActions
+                :download="row.original"
+                :pending="pendingActions[row.original.id]"
+                @action="runAction(row.original, $event)"
+              />
+            </template>
+
             <template #empty>
               <div class="py-6 text-center text-sm text-muted">
                 No {{ statusBadge[filter as DownloadItem['status']].label.toLowerCase() }} downloads.
@@ -193,6 +246,11 @@ const columns: TableColumn<DownloadItem>[] = [
                 <span class="truncate">{{ d.peerName }}</span>
                 <span class="shrink-0 tabular-nums">{{ formatBytes(d.totalBytes) }} · {{ formatAgo(d.updatedAt) }} ago</span>
               </div>
+              <DownloadActions
+                :download="d"
+                :pending="pendingActions[d.id]"
+                @action="runAction(d, $event)"
+              />
             </div>
           </UCard>
 

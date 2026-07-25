@@ -67,6 +67,16 @@ logger.info({
   destinations: connectorManager.destinations.length,
 }, 'Server listening')
 
+// Detect *arr imports of finished downloads and flip them import_queued → imported.
+// Construct this before the management app so failed imports can be retried there.
+const importWatcher = config.downloads
+  ? new ImportWatcher(downloadsRepository, connectorManager, config.downloads.importPollIntervalMs, {
+      maxAttempts: config.downloads.maxManualImportAttempts,
+      backoffBaseMs: config.downloads.manualImportBackoffBaseMs,
+      backoffMaxMs: config.downloads.manualImportBackoffMaxMs,
+    })
+  : undefined
+
 function startManagementServer() {
   if (!envs.MANAGEMENT_KEY)
     return undefined
@@ -83,6 +93,7 @@ function startManagementServer() {
     configService,
     downloadsRepository,
     downloadsService,
+    importWatcher,
     apiKeysRepository,
     tmdbApiKey: config.jack.tmdbApiKey,
   })
@@ -127,14 +138,6 @@ for (const dest of registrable) {
 // Drop managed keys for destinations no longer registrable so stale keys can't authenticate.
 managedApiKeys.prune(registrable.map(d => d.id))
 
-// Detect *arr imports of finished downloads and flip them import_queued → imported.
-const importWatcher = config.downloads
-  ? new ImportWatcher(downloadsRepository, connectorManager, config.downloads.importPollIntervalMs, {
-      maxAttempts: config.downloads.maxManualImportAttempts,
-      backoffBaseMs: config.downloads.manualImportBackoffBaseMs,
-      backoffMaxMs: config.downloads.manualImportBackoffMaxMs,
-    })
-  : undefined
 importWatcher?.start()
 
 // Re-drive interrupted downloads from a prior run.

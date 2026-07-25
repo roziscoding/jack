@@ -103,6 +103,27 @@ describe('retry', () => {
     })).rejects.toThrow('maxAttempts must be at least 1')
     expect(calls).toBe(0)
   })
+
+  test('aborts immediately while sleeping between attempts', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    const result = retry(async () => {
+      calls++
+      throw new Error('transient')
+    }, {
+      maxAttempts: 3,
+      baseDelayMs: 60_000,
+      maxDelayMs: 60_000,
+      isRetryable: () => true,
+      random: () => 1,
+      signal: controller.signal,
+    })
+
+    await Bun.sleep(0)
+    controller.abort(new Error('cancelled during backoff'))
+    await expect(result).rejects.toThrow('cancelled during backoff')
+    expect(calls).toBe(1)
+  })
 })
 
 describe('download retry backoff schedule', () => {

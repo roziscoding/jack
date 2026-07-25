@@ -39,6 +39,10 @@ export interface DownloadItem {
   releaseSize: number
   attempts: number
   error: string | null
+  lastOperation: 'transfer' | 'import'
+  operationFailed: boolean
+  importMode: 'jack_manual' | null
+  importTarget: { kind: 'movie', movieId: number } | { kind: 'series', seriesId: number } | null
   startedAt: string
   updatedAt: string
   completedAt: string | null

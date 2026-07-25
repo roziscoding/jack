@@ -6,6 +6,7 @@ import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-cor
 export const DOWNLOAD_STATUSES = ['downloading', 'import_queued', 'imported', 'failed'] as const
 export type DownloadStatus = typeof DOWNLOAD_STATUSES[number]
 export type ExpectedBytesSource = 'content_length' | 'content_range' | 'release_size'
+export type DownloadOperation = 'transfer' | 'import'
 
 export const downloads = sqliteTable('downloads', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -28,6 +29,8 @@ export const downloads = sqliteTable('downloads', {
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
   error: text('error'),
+  lastOperation: text('last_operation').$type<DownloadOperation>().notNull().default('transfer'),
+  operationFailed: integer('operation_failed', { mode: 'boolean' }).notNull().default(false),
   // qBittorrent emulation: the category *arr sent on add, and the server
   // connector that added it. Presence of qbSourceServer marks a qB-added
   // download (→ *arr-pull import, no jack push). Null for blackhole-added rows.
@@ -43,6 +46,7 @@ export const downloads = sqliteTable('downloads', {
 }, t => [
   check('downloads_status_check', sql`${t.status} in ('downloading', 'import_queued', 'imported', 'failed')`),
   check('downloads_expected_bytes_source_check', sql`${t.expectedBytesSource} is null or ${t.expectedBytesSource} in ('content_length', 'content_range', 'release_size')`),
+  check('downloads_last_operation_check', sql`${t.lastOperation} in ('transfer', 'import')`),
   index('downloads_status_idx').on(t.status),
   index('downloads_updated_at_idx').on(t.updatedAt),
 ])

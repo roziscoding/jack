@@ -27,6 +27,7 @@ export type PeerDownloadProgressEvent
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
 
 export interface PeerDownloadOptions {
+  signal?: AbortSignal
   idleTimeoutMs?: number
   torrentFilename?: string
   partPath?: string
@@ -223,6 +224,7 @@ export class PeerConnector extends ServerConnector {
       // trips it. The abort carries a sentinel reason so only it — not a later real
       // error — is reclassified as a retryable IdleTimeoutError.
       const controller = new AbortController()
+      const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
       const IDLE_ABORT_REASON = 'jack:idle-timeout'
       let idleTimer: ReturnType<typeof setTimeout> | undefined
       const clearIdle = () => {
@@ -243,11 +245,12 @@ export class PeerConnector extends ServerConnector {
       let existingBytes = await partFile.exists() ? partFile.size : 0
 
       const doFetch = async (withRange: boolean): Promise<Response> => {
+        signal.throwIfAborted()
         armIdle()
         try {
           return await fetch(url, {
             headers: withRange ? { ...baseHeaders, Range: `bytes=${existingBytes}-` } : baseHeaders,
-            signal: controller.signal,
+            signal,
           })
         }
         catch (err) {
@@ -292,6 +295,7 @@ export class PeerConnector extends ServerConnector {
           existingBytes = 0
         }
         else if (existingBytes === options.releaseSize) {
+          signal.throwIfAborted()
           await rename(partPath, destPath)
           setSpanAttribute(span, 'download.downloaded_bytes', existingBytes)
           // Emit headers too so the service persists expectedBytes/source (the
@@ -458,6 +462,7 @@ export class PeerConnector extends ServerConnector {
           throw new IncompleteDownloadError(`Incomplete file download: got ${downloadedBytes} bytes, expected ${expectedBytes}`)
         reader.releaseLock()
 
+        signal.throwIfAborted()
         await rename(partPath, destPath)
         setSpanAttribute(span, 'download.downloaded_bytes', downloadedBytes)
         try {

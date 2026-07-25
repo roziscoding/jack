@@ -39,6 +39,34 @@ describe('Semaphore', () => {
     expect(ran).toBe('next')
   })
 
+  test('removes an aborted waiter without consuming the next released permit', async () => {
+    const sem = new Semaphore(1)
+    await sem.acquire()
+    const controller = new AbortController()
+    const aborted = sem.acquire(controller.signal)
+    const next = sem.acquire()
+
+    controller.abort(new Error('cancelled while queued'))
+    await expect(aborted).rejects.toThrow('cancelled while queued')
+    sem.release()
+    await next
+  })
+
+  test('does not run work when its signal aborts while queued', async () => {
+    const sem = new Semaphore(1)
+    await sem.acquire()
+    const controller = new AbortController()
+    let ran = false
+    const queued = sem.run(async () => {
+      ran = true
+    }, controller.signal)
+
+    controller.abort(new Error('cancelled while queued'))
+    await expect(queued).rejects.toThrow('cancelled while queued')
+    expect(ran).toBe(false)
+    sem.release()
+  })
+
   test('rejects a non-positive permit count', () => {
     expect(() => new Semaphore(0)).toThrow()
   })
