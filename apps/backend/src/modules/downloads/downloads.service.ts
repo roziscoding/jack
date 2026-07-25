@@ -300,6 +300,8 @@ export class DownloadsService {
       throw new NotFoundError(`Download ${id} not found`)
     if (!record.operationFailed || record.lastOperation !== 'transfer')
       throw new ConflictError(`Download ${id} has no failed transfer to retry`)
+    if (this.coordinator?.isPathDeleting(resolve(record.destPath)))
+      throw new ConflictError(`Download ${id} is being deleted`)
     if (this.transfers.has(id) || this.active.has(record.destPath))
       throw new ConflictError(`Download ${id} is already active`)
     repo.markTransferStarted(id)

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { openDatabase } from '../database/connection'
 import { FetchError } from '../lib/errors/FetchError'
+import { DownloadOperationCoordinator } from '../modules/downloads/download-operation-coordinator'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 import { DownloadsService } from '../modules/downloads/downloads.service'
 import { ImportWatcher } from '../modules/downloads/import-watcher'
@@ -344,6 +345,41 @@ describe('DownloadsService download progress persistence', () => {
     await deleting
     expect(repository.get(row.id)).toBeNull()
     expect(await Bun.file(row.destPath).exists()).toBe(false)
+    handle.close()
+  })
+
+  test('retry cannot restart a transfer while its delete is waiting for the row lock', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const row = repository.create({
+      torrentFilename: 'failed.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend Jack',
+      itemId: 'failed',
+      filename: release.filename,
+      destPath: join(completedPath, release.filename),
+      partPath: `${join(completedPath, release.filename)}.part`,
+      releaseSize: release.size,
+      release,
+    })
+    repository.markFailed(row.id, 'transfer failed')
+    const coordinator = new DownloadOperationCoordinator()
+    const locked = Promise.withResolvers<void>()
+    const releaseLock = Promise.withResolvers<void>()
+    const holding = coordinator.runExclusive(row.id, async () => {
+      locked.resolve()
+      await releaseLock.promise
+    })
+    await locked.promise
+    const service = new DownloadsService(downloadsConfig(), { peers: [fakePeer() as any] }, repository, coordinator)
+
+    const deleting = service.delete(row.id)
+    expect(() => service.retry(row.id)).toThrow('is being deleted')
+
+    releaseLock.resolve()
+    await holding
+    await deleting
+    expect(repository.get(row.id)).toBeNull()
     handle.close()
   })
 
