@@ -7,7 +7,9 @@ submits the key once and the BFF keeps it in a sealed `HttpOnly` cookie.
 
 It talks **only** to the management API (never the public peer API). The management
 API exposes richer, UI-oriented endpoints (`/overview`, `/downloads`) on top of the
-config CRUD (`/config/peers`, `/config/servers`).
+config CRUD (`/config/peers`, `/config/servers`). The downloads view can cancel active
+transfers, retry the last failed transfer or import operation, and delete individual
+records and their artifacts.
 
 ## How it relates to the server
 
