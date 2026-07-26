@@ -2,11 +2,16 @@ import type { AppConfig } from '../../lib/config'
 import type { ConnectorManager } from '../../lib/servers'
 import type { ManualImportTarget } from '../../lib/servers/arr/base'
 import type { PeerDownloadProgressEvent } from '../../lib/servers/peer'
+import type { DownloadOperationCoordinator } from './download-operation-coordinator'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
-import { basename, join } from 'node:path'
+import { unlink } from 'node:fs/promises'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { ConflictError } from '../../lib/errors/ConflictError'
+import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { retry } from '../../lib/retry'
 import { Semaphore } from '../../lib/semaphore'
 import { logger } from '../../logger'
+import { coordinatorFor } from './download-operation-coordinator'
 import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
 type DownloadsServiceConfig = NonNullable<AppConfig['downloads']>
@@ -34,6 +39,8 @@ export class DownloadsService {
   // Dest paths with a download in flight — guards two concurrent live drops that
   // resolve to the same destination (no duplicate rows / writers).
   private readonly active = new Set<string>()
+  private readonly transfers = new Map<number, { controller: AbortController, task: Promise<void> }>()
+  private readonly coordinator?: DownloadOperationCoordinator
 
   constructor(
     private readonly config: DownloadsServiceConfig,
@@ -41,12 +48,20 @@ export class DownloadsService {
     // ConnectorManager (live) or a test stub both satisfy it.
     private readonly connectorManager: { peers: ConnectorManager['peers'] },
     private readonly downloadsRepository?: DownloadsRepository,
+    coordinator?: DownloadOperationCoordinator,
   ) {
     this.semaphore = new Semaphore(config.maxConcurrentDownloads)
+    this.coordinator = coordinator ?? (downloadsRepository ? coordinatorFor(downloadsRepository) : undefined)
   }
 
   private get peers() {
     return this.connectorManager.peers
+  }
+
+  private requireRepository(): DownloadsRepository {
+    if (!this.downloadsRepository)
+      throw new ConflictError('Download management is unavailable')
+    return this.downloadsRepository
   }
 
   /**
@@ -86,7 +101,7 @@ export class DownloadsService {
     const destPath = join(this.config.completedPath, safeName)
     const partPath = `${destPath}.part`
 
-    if (this.active.has(destPath)) {
+    if (this.active.has(destPath) || this.coordinator?.isPathDeleting(resolve(destPath))) {
       logger.debug({ torrentFilename, destPath }, 'A download for this destination is already active; skipping duplicate')
       return { kind: 'duplicate' }
     }
@@ -131,6 +146,8 @@ export class DownloadsService {
         updatedAt: '',
         completedAt: null,
         error: null,
+        lastOperation: 'transfer',
+        operationFailed: false,
         qbCategory: input.qbCategory ?? null,
         qbSourceServer: input.qbSourceServer ?? null,
         sourceServerId: input.sourceServerId ?? null,
@@ -169,7 +186,7 @@ export class DownloadsService {
     // A duplicate is already in flight: no new row, but a success — don't make *arr retry.
     if (outcome.kind === 'duplicate')
       return 'duplicate'
-    void this.runDownload(outcome.record).catch((err) => {
+    void this.enqueue(outcome.record).catch((err) => {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
     })
@@ -210,7 +227,7 @@ export class DownloadsService {
       return 'failed'
     if (outcome.kind === 'duplicate')
       return 'duplicate'
-    void this.runDownload(outcome.record).catch((err) => {
+    void this.enqueue(outcome.record).catch((err) => {
       const message = err instanceof Error ? err.message : String(err)
       logger.error({ itemId: input.itemId, error: message }, 'Direct download failed')
     })
@@ -238,7 +255,7 @@ export class DownloadsService {
     }
     for (const record of resumable) {
       // Fire-and-forget: the semaphore caps concurrency.
-      void this.runDownload(record).catch((err) => {
+      void this.enqueue(record).catch((err) => {
         const message = err instanceof Error ? err.message : String(err)
         logger.error({ torrentFilename: record.torrentFilename, error: message }, 'Failed to resume stale download')
       })
@@ -248,19 +265,110 @@ export class DownloadsService {
     return resumable.length
   }
 
-  private async runDownload(record: DownloadRecord): Promise<void> {
+  private enqueue(record: DownloadRecord): Promise<void> {
+    const controller = new AbortController()
+    const task = this.runDownload(record, controller)
+    this.transfers.set(record.id, { controller, task })
+    void task.finally(() => {
+      if (this.transfers.get(record.id)?.task === task)
+        this.transfers.delete(record.id)
+    }).catch(() => {})
+    return task
+  }
+
+  async cancel(id: number): Promise<DownloadRecord> {
+    const repo = this.requireRepository()
+    const record = repo.get(id)
+    if (!record)
+      throw new NotFoundError(`Download ${id} not found`)
+    if (record.status === 'failed' && record.operationFailed && record.lastOperation === 'transfer' && record.error?.includes('cancelled'))
+      return record
+    if (record.status !== 'downloading')
+      throw new ConflictError(`Download ${id} is not active`)
+    const transfer = this.transfers.get(id)
+    if (!transfer)
+      throw new ConflictError(`Download ${id} is not active in this process`)
+    transfer.controller.abort(new Error('Download cancelled by user'))
+    await transfer.task
+    return repo.get(id) ?? record
+  }
+
+  retry(id: number): DownloadRecord {
+    const repo = this.requireRepository()
+    const record = repo.get(id)
+    if (!record)
+      throw new NotFoundError(`Download ${id} not found`)
+    if (!record.operationFailed || record.lastOperation !== 'transfer')
+      throw new ConflictError(`Download ${id} has no failed transfer to retry`)
+    if (this.coordinator?.isPathDeleting(resolve(record.destPath)))
+      throw new ConflictError(`Download ${id} is being deleted`)
+    if (this.transfers.has(id) || this.active.has(record.destPath))
+      throw new ConflictError(`Download ${id} is already active`)
+    repo.markTransferStarted(id)
+    void this.enqueue(record).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error({ id, error: message }, 'Retried download failed')
+    })
+    return repo.get(id) ?? record
+  }
+
+  async delete(id: number): Promise<void> {
+    const repo = this.requireRepository()
+    const record = repo.get(id)
+    if (!record)
+      throw new NotFoundError(`Download ${id} not found`)
+    const paths = [resolve(record.partPath), resolve(record.destPath)]
+    const operation = async () => {
+      const current = repo.get(id)
+      if (!current)
+        throw new NotFoundError(`Download ${id} not found`)
+      if (current.status === 'downloading')
+        await this.cancel(id)
+
+      const root = resolve(this.config.completedPath)
+      for (const artifact of [record.partPath, record.destPath]) {
+        const resolved = resolve(artifact)
+        const fromRoot = relative(root, resolved)
+        const isSafe = fromRoot !== '' && !fromRoot.startsWith('..') && !isAbsolute(fromRoot)
+        // Re-read ownership immediately before each unlink. A sibling that began
+        // before the path reservation was installed must keep the shared file.
+        const live = repo.get(id)
+        const stillOwned = live != null && [resolve(live.partPath), resolve(live.destPath)].includes(resolved)
+        const siblingOwns = repo.list().some(row => row.id !== id
+          && [resolve(row.destPath), resolve(row.partPath)].includes(resolved))
+        if (isSafe && stillOwned && !siblingOwns) {
+          await unlink(resolved).catch((err: unknown) => {
+            if (err instanceof Error && 'code' in err && err.code === 'ENOENT')
+              return
+            throw err
+          })
+        }
+      }
+      repo.delete(id)
+    }
+    if (this.coordinator)
+      await this.coordinator.runDelete(id, paths, operation)
+    else
+      await operation()
+  }
+
+  private async runDownload(record: DownloadRecord, controller: AbortController): Promise<void> {
     if (this.active.has(record.destPath))
       return
     this.active.add(record.destPath)
     try {
-      await this.semaphore.run(() => this.downloadWithRetry(record))
+      await this.semaphore.run(() => this.downloadWithRetry(record, controller.signal), controller.signal)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.downloadsRepository?.markFailed(record.id, message, 'transfer')
     }
     finally {
       this.active.delete(record.destPath)
     }
   }
 
-  private async downloadWithRetry(record: DownloadRecord): Promise<void> {
+  private async downloadWithRetry(record: DownloadRecord, signal: AbortSignal): Promise<void> {
     const repo = this.downloadsRepository
     const peer = this.peers.find(p => p.id === record.peerId)
     if (!peer) {
@@ -289,6 +397,7 @@ export class DownloadsService {
 
     try {
       await retry(async () => {
+        signal.throwIfAborted()
         repo?.incrementAttempts(record.id)
         await peer.downloadFile(record.itemId, record.destPath, {
           torrentFilename: record.torrentFilename,
@@ -296,6 +405,7 @@ export class DownloadsService {
           releaseSize: record.releaseSize,
           idleTimeoutMs: this.config.idleTimeoutMs,
           onProgress,
+          signal,
         })
       }, {
         maxAttempts: this.config.maxDownloadAttempts,
@@ -307,8 +417,10 @@ export class DownloadsService {
           const message = error instanceof Error ? error.message : String(error)
           logger.warn({ torrentFilename: record.torrentFilename, attempt, delayMs, error: message }, 'Retrying peer download after transient failure')
         },
+        signal,
       })
 
+      signal.throwIfAborted()
       repo?.markImportQueued(record.id)
       logger.info({ torrentFilename: record.torrentFilename, filename: record.filename }, 'Download complete')
     }

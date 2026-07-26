@@ -24,6 +24,8 @@ function baseRecord(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
     updatedAt: '2026-06-06T00:00:00.000Z',
     completedAt: null,
     error: null,
+    lastOperation: 'transfer',
+    operationFailed: false,
     qbCategory: 'jack-abc12345',
     qbSourceServer: 'My Radarr',
     sourceServerId: 'abc12345',

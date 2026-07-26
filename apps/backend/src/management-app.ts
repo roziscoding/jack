@@ -3,6 +3,7 @@ import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
 import type { ConfigService } from './modules/config/config.service'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
+import type { ImportWatcher } from './modules/downloads/import-watcher'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { TmdbClient } from './lib/tmdb/client'
@@ -14,6 +15,8 @@ import { CatalogController } from './modules/catalog/catalog.controller'
 import { getCatalogRouter } from './modules/catalog/catalog.router'
 import { ConfigController } from './modules/config/config.controller'
 import { getConfigRouter } from './modules/config/config.router'
+import { DownloadsManagementController } from './modules/downloads/downloads.controller'
+import { getDownloadsManagementRouter } from './modules/downloads/downloads.router'
 import { logHub } from './modules/logging/log-store'
 import { LogsController } from './modules/logging/logs.controller'
 import { getLogsRouter } from './modules/logging/logs.router'
@@ -28,6 +31,7 @@ export function getManagementApp(params: {
   configService?: ConfigService
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
+  importWatcher?: ImportWatcher
   apiKeysRepository?: ApiKeysRepository
   tmdbApiKey?: string
 }) {
@@ -46,6 +50,12 @@ export function getManagementApp(params: {
 
   const statusController = new StatusController(params.connectors, params.downloadsRepository)
   app.route('/', getStatusRouter(statusController))
+
+  app.route('/downloads', getDownloadsManagementRouter(new DownloadsManagementController(
+    params.downloadsRepository,
+    params.downloadsService,
+    params.importWatcher,
+  )))
 
   // Logs read from the shared LogHub singleton the logger writes to (same module
   // instance), so this exposes the running process's own logs.

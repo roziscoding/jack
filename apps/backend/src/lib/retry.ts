@@ -12,9 +12,28 @@ export interface RetryOptions {
   sleep?: (ms: number) => Promise<void>
   /** Injectable for tests (defaults to Math.random). */
   random?: () => number
+  /** Cancels both pending backoff delays and subsequent attempts. */
+  signal?: AbortSignal
 }
 
 const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+function abortableDefaultSleep(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(finish, ms)
+    const onAbort = () => finish(signal.reason)
+    function finish(error?: unknown) {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      if (error === undefined)
+        resolve()
+      else
+        reject(error)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 export async function retry<T>(fn: (attempt: number) => Promise<T>, options: RetryOptions): Promise<T> {
   const { maxAttempts, baseDelayMs, maxDelayMs, isRetryable, retryAfterMs, onRetry } = options
@@ -26,6 +45,7 @@ export async function retry<T>(fn: (attempt: number) => Promise<T>, options: Ret
 
   for (let attempt = 1; ; attempt++) {
     try {
+      options.signal?.throwIfAborted()
       return await fn(attempt)
     }
     catch (error) {
@@ -37,7 +57,21 @@ export async function retry<T>(fn: (attempt: number) => Promise<T>, options: Ret
       const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1))
       const delayMs = explicit != null ? Math.min(explicit, maxDelayMs) : random() * backoff
       onRetry?.({ attempt, delayMs, error })
-      await sleep(delayMs)
+      if (options.signal && !options.sleep) {
+        await abortableDefaultSleep(delayMs, options.signal)
+        continue
+      }
+      const delay = sleep(delayMs)
+      if (!options.signal) {
+        await delay
+        continue
+      }
+      options.signal.throwIfAborted()
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(options.signal!.reason)
+        options.signal!.addEventListener('abort', onAbort, { once: true })
+        void delay.then(resolve, reject).finally(() => options.signal!.removeEventListener('abort', onAbort))
+      })
     }
   }
 }

@@ -120,7 +120,7 @@ jack day to day:
 
 - **Overview** — your configured servers and peers, and whether each one
   initialized cleanly.
-- **Downloads** — in-flight and finished grabs.
+- **Downloads** — inspect, cancel, retry, and delete in-flight or finished grabs.
 - **Peers** — add, edit, and remove the friends you consume from.
 - **Servers** — add, edit, and remove your Radarr/Sonarr connectors.
 
@@ -482,6 +482,16 @@ Connector, status and download views are **not** on the peer-facing app — they
 leak peer/server names and URLs to peers. They live on the management API (separate
 port, authenticated with the management key): `GET /config/servers`, `GET /config/peers`,
 `GET /overview`, and `GET /downloads`.
+
+Downloads are managed by their numeric record ID rather than their synthetic
+infohash, so separate grabs of the same release remain isolated:
+
+- `POST /downloads/:id/cancel` — stop an active transfer and preserve its `.part`
+  file for a later retry.
+- `POST /downloads/:id/retry` — repeat the last failed operation; transfers resume
+  from the partial file, while failed manual imports retry without downloading again.
+- `DELETE /downloads/:id` — cancel any active work, remove the history row, and
+  delete its unshared partial or completed artifacts.
 
 ## Running without Docker
 

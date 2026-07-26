@@ -245,6 +245,35 @@ describe('PeerConnector.downloadFile', () => {
     }
   })
 
+  test('does not rename a completed part when cancelled during finalization', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
+        new Response(streamOf([1, 2, 3, 4]), { headers: { 'Content-Length': '4' } })),
+    )
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const controller = new AbortController()
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-late-cancel-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 4,
+        signal: controller.signal,
+        onProgress: (event) => {
+          if (event.type === 'progress')
+            controller.abort(new Error('cancelled before rename'))
+        },
+      })).rejects.toThrow('cancelled before rename')
+      expect(await Bun.file(partPath).exists()).toBe(true)
+      expect(await Bun.file(destPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('does not leave the response body locked when opening the .part file fails', async () => {
     let body: Response['body'] = null
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => {
@@ -360,6 +389,29 @@ describe('PeerConnector.downloadFile', () => {
 })
 
 describe('PeerConnector.downloadFile resume', () => {
+  test('does not finalize an already-complete part when the signal is aborted', async () => {
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const controller = new AbortController()
+    controller.abort(new Error('cancelled before fast-path rename'))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-resume-cancelled-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+    await writeFile(partPath, new Uint8Array([0, 1, 2, 3]))
+
+    try {
+      await expect(peer.downloadFile('remote1:movie:99', destPath, {
+        partPath,
+        releaseSize: 4,
+        signal: controller.signal,
+      })).rejects.toThrow('cancelled before fast-path rename')
+      expect(await Bun.file(partPath).exists()).toBe(true)
+      expect(await Bun.file(destPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('resumes from an existing .part via a Range request and appends', async () => {
     const seen: { range: string | null } = { range: null }
     server.use(

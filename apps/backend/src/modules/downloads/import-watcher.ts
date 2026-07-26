@@ -1,9 +1,13 @@
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import type { DownloadOperationCoordinator } from './download-operation-coordinator'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
 import { dirname } from 'node:path'
+import { ConflictError } from '../../lib/errors/ConflictError'
+import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { PermanentManualImportError } from '../../lib/servers/arr/base'
 import { logger } from '../../logger'
 import { deriveHash } from '../qbittorrent/qbittorrent.mapper'
+import { coordinatorFor } from './download-operation-coordinator'
 
 /**
  * Periodically reconciles `import_queued` downloads against the history of each
@@ -33,6 +37,8 @@ export class ImportWatcher {
   // *arr 500s because the movie folder is missing) backs off instead of re-firing
   // every tick. In-memory by design: a restart is a fair signal to try again.
   private readonly triggerFailures = new Map<number, { failures: number, nextAttemptAt: number }>()
+  private readonly coordinator: DownloadOperationCoordinator
+  private tickInFlight?: Promise<number>
 
   constructor(
     private readonly repository: DownloadsRepository,
@@ -41,7 +47,10 @@ export class ImportWatcher {
     private readonly connectorManager: { servers: ArrServerConnector[] },
     private readonly intervalMs: number,
     private readonly retryPolicy: ManualImportRetryPolicy = DEFAULT_RETRY_POLICY,
-  ) {}
+    coordinator?: DownloadOperationCoordinator,
+  ) {
+    this.coordinator = coordinator ?? coordinatorFor(repository)
+  }
 
   private connectorFor(row: DownloadRecord): ArrServerConnector | undefined {
     if (row.sourceServerId) {
@@ -72,8 +81,54 @@ export class ImportWatcher {
     this.timer = undefined
   }
 
+  async retry(id: number): Promise<DownloadRecord> {
+    return this.coordinator.runExclusive(id, async () => {
+      const row = this.repository.get(id)
+      if (!row)
+        throw new NotFoundError(`Download ${id} not found`)
+      if (!row.operationFailed || row.lastOperation !== 'import')
+        throw new ConflictError(`Download ${id} has no failed import to retry`)
+      if (row.importMode !== 'jack_manual' || !row.importTarget)
+        throw new ConflictError(`Download ${id} does not support a manual import retry`)
+      const connector = this.connectorFor(row)
+      if (!connector?.isInitialized)
+        throw new ConflictError(`Destination for download ${id} is unavailable`)
+
+      this.repository.markImportRetryStarted(id)
+      try {
+        const commandId = await connector.manualImport({
+          folder: dirname(row.destPath),
+          paths: [row.destPath],
+          target: row.importTarget,
+          downloadId: deriveHash(row.release.title, row.releaseSize),
+          release: row.release,
+        })
+        this.repository.setManualImportCommand(id, commandId)
+        this.triggerFailures.delete(id)
+        return this.repository.get(id) ?? row
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        this.repository.markFailed(id, message, 'import')
+        throw err
+      }
+    })
+  }
+
   /** One reconciliation pass. Returns how many downloads it marked imported. */
-  async tick(): Promise<number> {
+  tick(): Promise<number> {
+    if (this.tickInFlight)
+      return this.tickInFlight
+    const tick = this.tickOnce()
+    this.tickInFlight = tick
+    void tick.finally(() => {
+      if (this.tickInFlight === tick)
+        this.tickInFlight = undefined
+    }).catch(() => {})
+    return tick
+  }
+
+  private async tickOnce(): Promise<number> {
     // Only rows with an owning destination can be reconciled; blackhole rows have
     // no server to poll, so they're left as-is.
     const queued = this.repository.listByStatus('import_queued').filter(r => r.sourceServerId || r.qbSourceServer)
@@ -91,95 +146,98 @@ export class ImportWatcher {
     const skippedConnectors = new Set<string>()
     let importedCount = 0
 
-    for (const row of queued) {
-      const connector = this.connectorFor(row)
-      if (!connector || !connector.isInitialized)
-        continue
+    for (const queuedRow of queued) {
+      importedCount += await this.coordinator.runExclusive(queuedRow.id, async () => {
+        // Another tick/retry/delete may have changed or removed the row while this
+        // operation waited for the per-ID lock. Never act on the stale snapshot.
+        const row = this.repository.get(queuedRow.id)
+        if (!row || row.status !== 'import_queued')
+          return 0
+        const connector = this.connectorFor(row)
+        if (!connector || !connector.isInitialized)
+          return 0
 
-      if (!importedIdsByConnector.has(connector.id) && !skippedConnectors.has(connector.id)) {
+        if (!importedIdsByConnector.has(connector.id) && !skippedConnectors.has(connector.id)) {
+          try {
+            importedIdsByConnector.set(connector.id, await connector.recentlyImportedDownloadIds())
+          }
+          catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            skippedConnectors.add(connector.id)
+            logger.warn({ server: connector.name, error: message }, 'Could not read import history; will retry next tick')
+          }
+        }
+        const importedIds = importedIdsByConnector.get(connector.id)
+        if (!importedIds)
+          return 0
+
+        const hash = deriveHash(row.release.title, row.releaseSize).toLowerCase()
+        if (importedIds.has(hash)) {
+          this.repository.markImported(row.id)
+          logger.info({ id: row.id, filename: row.filename, server: connector.name }, 'Download imported by *arr')
+          return 1
+        }
+
+        if (row.importMode !== 'jack_manual' || !row.importTarget)
+          return 0
+
+        if (row.manualImportCommandId != null) {
+          try {
+            const status = await connector.manualImportCommandStatus(row.manualImportCommandId)
+            if (status.state === 'completed') {
+              this.repository.markImported(row.id)
+              logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId: row.manualImportCommandId }, 'Manual import command completed')
+              return 1
+            }
+            if (status.state === 'failed') {
+              this.repository.markFailed(row.id, status.error, 'import')
+              logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: status.error }, 'Manual import command failed')
+            }
+          }
+          catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: message }, 'Could not read manual import command status; will retry next tick')
+          }
+          return 0
+        }
+
+        const backoff = this.triggerFailures.get(row.id)
+        if (backoff && now < backoff.nextAttemptAt)
+          return 0
+
         try {
-          importedIdsByConnector.set(connector.id, await connector.recentlyImportedDownloadIds())
+          const commandId = await connector.manualImport({
+            folder: dirname(row.destPath),
+            paths: [row.destPath],
+            target: row.importTarget,
+            downloadId: deriveHash(row.release.title, row.releaseSize),
+            release: row.release,
+          })
+          this.repository.setManualImportCommand(row.id, commandId)
+          this.triggerFailures.delete(row.id)
+          logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId }, 'Triggered *arr manual import')
         }
         catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          skippedConnectors.add(connector.id)
-          logger.warn({ server: connector.name, error: message }, 'Could not read import history; will retry next tick')
-        }
-      }
-      const importedIds = importedIdsByConnector.get(connector.id)
-      if (!importedIds)
-        continue
-
-      const hash = deriveHash(row.release.title, row.releaseSize).toLowerCase()
-      if (importedIds.has(hash)) {
-        this.repository.markImported(row.id)
-        importedCount++
-        logger.info({ id: row.id, filename: row.filename, server: connector.name }, 'Download imported by *arr')
-        continue
-      }
-
-      if (row.importMode !== 'jack_manual' || !row.importTarget)
-        continue
-
-      if (row.manualImportCommandId != null) {
-        try {
-          const status = await connector.manualImportCommandStatus(row.manualImportCommandId)
-          if (status.state === 'completed') {
-            this.repository.markImported(row.id)
-            importedCount++
-            logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId: row.manualImportCommandId }, 'Manual import command completed')
+          if (err instanceof PermanentManualImportError) {
+            this.repository.markFailed(row.id, message, 'import')
+            this.triggerFailures.delete(row.id)
+            logger.warn({ id: row.id, server: connector.name, error: message }, 'Manual import cannot be retried')
+            return 0
           }
-          else if (status.state === 'failed') {
-            this.repository.markFailed(row.id, status.error)
-            logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: status.error }, 'Manual import command failed')
+          const failures = (this.triggerFailures.get(row.id)?.failures ?? 0) + 1
+          if (failures >= this.retryPolicy.maxAttempts) {
+            this.repository.markFailed(row.id, `manual import failed after ${failures} attempts: ${message}`, 'import')
+            this.triggerFailures.delete(row.id)
+            logger.warn({ id: row.id, server: connector.name, attempts: failures, error: message }, 'Manual import gave up after repeated failures')
+            return 0
           }
+          const delayMs = Math.min(this.retryPolicy.backoffMaxMs, this.retryPolicy.backoffBaseMs * 2 ** (failures - 1))
+          this.triggerFailures.set(row.id, { failures, nextAttemptAt: now + delayMs })
+          logger.warn({ id: row.id, server: connector.name, attempts: failures, retryInMs: delayMs, error: message }, 'Manual import trigger failed; backing off')
         }
-        catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: message }, 'Could not read manual import command status; will retry next tick')
-        }
-        continue
-      }
-
-      // Still inside a back-off window from a recent trigger failure: skip so a
-      // persistently failing import (e.g. *arr 500s on a missing folder) doesn't
-      // re-fire every tick. The item/history checks above still ran this tick, so
-      // we'll notice the moment *arr actually gains the file.
-      const backoff = this.triggerFailures.get(row.id)
-      if (backoff && now < backoff.nextAttemptAt)
-        continue
-
-      try {
-        const commandId = await connector.manualImport({
-          folder: dirname(row.destPath),
-          paths: [row.destPath],
-          target: row.importTarget,
-          downloadId: deriveHash(row.release.title, row.releaseSize),
-          release: row.release,
-        })
-        this.repository.setManualImportCommand(row.id, commandId)
-        this.triggerFailures.delete(row.id)
-        logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId }, 'Triggered *arr manual import')
-      }
-      catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (err instanceof PermanentManualImportError) {
-          this.repository.markFailed(row.id, message)
-          this.triggerFailures.delete(row.id)
-          logger.warn({ id: row.id, server: connector.name, error: message }, 'Manual import cannot be retried')
-          continue
-        }
-        const failures = (this.triggerFailures.get(row.id)?.failures ?? 0) + 1
-        if (failures >= this.retryPolicy.maxAttempts) {
-          this.repository.markFailed(row.id, `manual import failed after ${failures} attempts: ${message}`)
-          this.triggerFailures.delete(row.id)
-          logger.warn({ id: row.id, server: connector.name, attempts: failures, error: message }, 'Manual import gave up after repeated failures')
-          continue
-        }
-        const delayMs = Math.min(this.retryPolicy.backoffMaxMs, this.retryPolicy.backoffBaseMs * 2 ** (failures - 1))
-        this.triggerFailures.set(row.id, { failures, nextAttemptAt: now + delayMs })
-        logger.warn({ id: row.id, server: connector.name, attempts: failures, retryInMs: delayMs, error: message }, 'Manual import trigger failed; backing off')
-      }
+        return 0
+      })
     }
     return importedCount
   }

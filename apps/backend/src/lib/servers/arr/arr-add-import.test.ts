@@ -253,13 +253,17 @@ describe('SonarrServerConnector.add', () => {
 })
 
 describe('SonarrServerConnector.manualImport', () => {
-  test('imports the matching file carrying seriesId, episodeIds, downloadId, quality, languages', async () => {
+  test('discovers candidates without seriesId and imports the match with explicit series metadata', async () => {
     let commandBody: unknown = null
+    const manualImportUrls: string[] = []
     server.use(
-      http.get(`${SONARR_URL}/api/v3/manualimport`, () => HttpResponse.json([
-        { path: '/downloads/Ep.mkv', quality: { quality: { id: 4 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP', episodes: [{ id: 11 }, { id: 12 }] },
-        { path: '/downloads/Other.mkv', quality: {}, languages: [], episodes: [{ id: 99 }] },
-      ])),
+      http.get(`${SONARR_URL}/api/v3/manualimport`, ({ request }) => {
+        manualImportUrls.push(request.url)
+        return HttpResponse.json([
+          { path: '/downloads/Ep.mkv', quality: { quality: { id: 4 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP', episodes: [{ id: 11 }, { id: 12 }] },
+          { path: '/downloads/Other.mkv', quality: {}, languages: [], episodes: [{ id: 99 }] },
+        ])
+      }),
       http.post(`${SONARR_URL}/api/v3/command`, async ({ request }) => {
         commandBody = await request.json()
         return HttpResponse.json({ id: 1 })
@@ -276,6 +280,10 @@ describe('SonarrServerConnector.manualImport', () => {
     })
 
     const body = CommandBody.parse(commandBody)
+    const manualImportQuery = new URL(manualImportUrls[0]!).searchParams
+    expect(manualImportQuery.get('folder')).toBe('/downloads')
+    expect(manualImportQuery.get('filterExistingFiles')).toBe('false')
+    expect(manualImportQuery.has('seriesId')).toBe(false)
     expect(commandId).toBe(1)
     expect(body.name).toBe('ManualImport')
     expect(body.importMode).toBe('move')

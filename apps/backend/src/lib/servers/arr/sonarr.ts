@@ -228,7 +228,6 @@ export class SonarrServerConnector extends ArrServerConnector {
 
     const candidates = await this.arrGet<SonarrManualImportCandidate[]>('/api/v3/manualimport', {
       folder: params.folder,
-      seriesId: String(seriesId),
       filterExistingFiles: 'false',
     })
     const wanted = new Set(params.paths)
