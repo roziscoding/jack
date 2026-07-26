@@ -7,8 +7,9 @@
   // Env/file forms keep secrets out of this file (recommended for deployments).
   // File paths must be absolute. All forms resolve to the same string.
 
-  // Identity of THIS jack instance. Required for the Torznab indexer and
-  // for peers to reach you. `internalUrl` must be reachable from your *arr apps.
+  // Identity of THIS jack instance. Required for the Torznab indexer.
+  // `internalUrl` must be reachable from your own *arr apps; peers use the
+  // separate URL they configure for this instance in their `peers` list.
   "jack": {
     "internalUrl": "http://jack:5225"
     // Peers authenticate with per-peer API keys (managed in the UI's "API keys"
@@ -25,9 +26,9 @@
     // can delete any line to keep the default. (Note the comma after
     // "completedPath" above is required once any field follows it.)
     "maxConcurrentDownloads": 3,
-    "maxDownloadAttempts": 5,
+    "maxDownloadAttempts": 13,
     "retryBaseDelayMs": 1000,
-    "retryMaxDelayMs": 60000
+    "retryMaxDelayMs": 1800000
   },
 
   // Your Radarr/Sonarr servers. apiKey is the *arr API key: exactly 32 hex

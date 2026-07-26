@@ -1,6 +1,17 @@
 import { z } from 'zod'
 
-export const Envs = z.object({
+function preferPrefixedManagementKey(input: unknown) {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    return input
+
+  const vars = input as Record<string, unknown>
+  if (vars.JACK_MANAGEMENT_KEY === undefined)
+    return vars
+
+  return { ...vars, MANAGEMENT_KEY: vars.JACK_MANAGEMENT_KEY }
+}
+
+export const Envs = z.preprocess(preferPrefixedManagementKey, z.object({
   PORT: z.coerce.number().int().default(5225),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   ENVIRONMENT: z.enum(['development', 'production']).default('development'),
@@ -26,20 +37,19 @@ export const Envs = z.object({
   LOG_MAX_FILE_BYTES: z.coerce.number().int().positive().default(10_485_760),
   // Keep this many rotated files (plus the active one); older ones are pruned.
   LOG_MAX_FILES: z.coerce.number().int().min(0).default(5),
-  // Management API credential. When set, the management surface starts on its OWN
-  // port (MANAGEMENT_PORT) and every request must carry `X-Management-Key: <this>`.
-  // When unset, the management listener is not started at all.
+  // Management API credential. The preprocess above maps JACK_MANAGEMENT_KEY here
+  // when present; MANAGEMENT_KEY remains supported for backwards compatibility.
   MANAGEMENT_KEY: z.string().min(1).optional(),
   // Port for the management API listener (separate from the public PORT so the
-  // peer-facing port never exposes management at all). Only used when MANAGEMENT_KEY
-  // is set.
+  // peer-facing port never exposes management at all). Only used when a management
+  // key is set.
   MANAGEMENT_PORT: z.coerce.number().int().default(5226),
 }).transform(vars => ({
   ...vars,
   ENABLE_LOGS: vars.NODE_ENV !== 'test' && vars.ENABLE_LOGS,
   // Never write log files during tests (they construct their own temp sinks).
   LOG_TO_FILE: vars.NODE_ENV !== 'test' && vars.LOG_TO_FILE,
-}))
+})))
 
 export type Envs = z.infer<typeof Envs>
 

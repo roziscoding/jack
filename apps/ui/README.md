@@ -1,8 +1,9 @@
 # @jack/ui — management console
 
 A Nuxt 4 app that is also the **BFF** (backend-for-frontend) for jack's management
-API. It serves the SPA and proxies every data call to the management API, injecting
-the `X-Management-Key` so the browser never sees it.
+API. It serves the SPA and proxies every data call to the management API. An
+environment-injected key never reaches the browser; in cookie mode the browser
+submits the key once and the BFF keeps it in a sealed `HttpOnly` cookie.
 
 It talks **only** to the management API (never the public peer API). The management
 API exposes richer, UI-oriented endpoints (`/overview`, `/downloads`) on top of the
@@ -11,7 +12,8 @@ config CRUD (`/config/peers`, `/config/servers`).
 ## How it relates to the server
 
 The jack backend starts its management API on `MANAGEMENT_PORT` (default `5226`)
-**only when `MANAGEMENT_KEY` is set**. Point this UI at that port.
+**only when `JACK_MANAGEMENT_KEY` or the legacy `MANAGEMENT_KEY` is set**. If both
+are present, the backend uses `JACK_MANAGEMENT_KEY`. Point this UI at that port.
 
 ## Auth modes
 
@@ -25,11 +27,12 @@ Both are supported on one axis — where the key comes from:
 
 2. **Cookie prompt.** Leave `JACK_MANAGEMENT_KEY` unset. The browser hits `/api/ping`,
    gets `needs-key`, and prompts. The key is validated against the management API and
-   stored in an `HttpOnly` + `Secure` + `SameSite=Strict` sealed cookie. CSRF is
-   closed by `SameSite=Strict` plus a same-origin check on the BFF.
+   stored in an `HttpOnly` + `SameSite=Strict` sealed cookie (`Secure` when served
+   over HTTPS). CSRF is closed by `SameSite=Strict` plus a same-origin check on the
+   BFF.
 
 `/api/ping` resolves to one of: `ok`, `needs-key`, `disabled` (management API
-unreachable — server has no `MANAGEMENT_KEY`), or `error`.
+unreachable or disabled), or `error`.
 
 ## Environment
 
@@ -54,7 +57,8 @@ reverse proxy terminating TLS.
 mise run ui                    # http://localhost:3000
 ```
 
-Run the backend with `MANAGEMENT_KEY` set first, then point the UI at it:
+Run the backend with `JACK_MANAGEMENT_KEY` (preferred) or `MANAGEMENT_KEY` set
+first, then point the UI at it:
 
 ```sh
 JACK_MANAGEMENT_API_URL=http://localhost:5226 \
@@ -66,5 +70,5 @@ mise run ui
 
 ```sh
 bun run --cwd apps/ui build    # outputs .output/ (Nitro)
-node apps/ui/.output/server/index.mjs
+bun apps/ui/.output/server/index.mjs
 ```
