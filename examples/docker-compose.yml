@@ -7,7 +7,7 @@ services:
     ports:
       - '${JACK_PORT:-5225}:5225'
     environment:
-      # production turns off pino-pretty and structured-logs JSON
+      # production disables pino-pretty and emits structured JSON logs
       ENVIRONMENT: production
       LOG_LEVEL: info
       PORT: 5225
@@ -16,7 +16,7 @@ services:
       # jack-ui service talks to. The UI injects this same value as its
       # X-Management-Key, so both read one variable and always match. To run jack
       # headless, drop the jack-ui service below and this line.
-      MANAGEMENT_KEY: ${JACK_MANAGEMENT_KEY:?set JACK_MANAGEMENT_KEY in a .env file next to this compose (any long random string)}
+      JACK_MANAGEMENT_KEY: ${JACK_MANAGEMENT_KEY:?set JACK_MANAGEMENT_KEY in a .env file next to this compose (any long random string)}
     volumes:
       # App config. Drop your config.jsonc in a ./config dir next to this file
       # (start from the config.jsonc template in this examples/ folder).
@@ -65,7 +65,7 @@ services:
       # 5226 is published — the UI is the only thing that needs it.
       JACK_MANAGEMENT_API_URL: http://jack:5226
       # Inject mode: the BFF adds X-Management-Key on every call, so the browser is
-      # never prompted. Same variable as jack's MANAGEMENT_KEY above, so they match.
+      # never prompted. Same variable as jack's JACK_MANAGEMENT_KEY above, so they match.
       JACK_MANAGEMENT_KEY: ${JACK_MANAGEMENT_KEY:?set JACK_MANAGEMENT_KEY in a .env file next to this compose (any long random string)}
       # Only used in cookie-prompt mode (when JACK_MANAGEMENT_KEY is unset): seals
       # the session cookie and must be >= 32 chars. Left unset here because this

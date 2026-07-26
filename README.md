@@ -125,16 +125,18 @@ jack day to day:
 - **Servers** — add, edit, and remove your Radarr/Sonarr connectors.
 
 It's a Nuxt **BFF** (backend-for-frontend): it serves the SPA and proxies every
-call to jack's **management API**, injecting the management key so the browser
-never handles it. The management API is a *separate* listener from the public
-peer/Torznab port — it only starts when the backend has `MANAGEMENT_KEY` set
-(see [Environment variables](#environment-variables)), and the UI talks only to
-it, never to the public peer API.
+call to jack's **management API**. In injected mode the BFF adds the key without
+exposing it to the browser; in cookie mode the browser submits it once and the
+BFF keeps it in a sealed `HttpOnly` cookie. The management API is a *separate*
+listener from the public peer/Torznab port — it only starts when the backend has
+`JACK_MANAGEMENT_KEY` or the legacy `MANAGEMENT_KEY` set (see
+[Environment variables](#environment-variables)), and the UI talks only to it,
+never to the public peer API.
 
 With the [Quick start](#quick-start-docker-compose) compose file the UI runs as
 the `jack-ui` service and comes up at **http://localhost:3000** (override the
 host port with `JACK_UI_PORT`). Don't want it? Delete the `jack-ui` service and
-the backend's `MANAGEMENT_KEY` line to run jack headless.
+the backend's `JACK_MANAGEMENT_KEY` line to run jack headless.
 
 ### Access control
 
@@ -259,10 +261,12 @@ So keys flow in two directions:
 
 ### Sharing with friends (peering)
 
-Peering is symmetric — you each run jack and exchange two things: your
-**`internalUrl`** and a **peer API key**.
+Peering is symmetric — you each run jack and exchange two things: a URL where
+the other instance can reach your peer API and a **peer API key**. This public or
+LAN-reachable peer URL is independent of `jack.internalUrl`, which is the address
+your own Radarr/Sonarr use to reach jack.
 
-- **You give a friend** your `jack.internalUrl` plus a peer API key you issue them
+- **You give a friend** your reachable peer URL plus a peer API key you issue them
   (management UI → *API keys*). They add you under `peers` in *their* config:
 
   ```jsonc
@@ -292,15 +296,14 @@ jack reads a [JSONC](https://github.com/microsoft/node-jsonc-parser) file
 the file doesn't exist, jack writes a default one on first boot. Copy
 [`examples/config.jsonc`](examples/config.jsonc) as a starting point.
 
-Every top-level block is optional — configure only what you need for what
-you're doing.
+The `jack` block is required. `downloads`, `servers`, and `peers` are optional —
+configure only what you need for what you're doing.
 
 ```jsonc
 {
-  // This instance's identity. Needed to expose a Torznab indexer and to be
-  // reachable by peers.
+  // This instance's identity. internalUrl is where your own *arr apps reach jack.
   "jack": {
-    "internalUrl": "http://jack:5225" // URL your *arr apps / peers reach you at
+    "internalUrl": "http://jack:5225" // URL your own *arr apps use to reach jack
   },
 
   // Downloads. Needed to *consume* (download) from peers — jack registers
@@ -348,9 +351,9 @@ you're doing.
 
 Field notes:
 
-- **`jack.internalUrl`** must be reachable by your *arr apps (and by peers, if you're
-  sharing). On a shared Docker network use the container name; otherwise the host
-  IP/domain.
+- **`jack.internalUrl`** must be reachable by your own *arr apps. On a shared
+  Docker network use the container name; otherwise the host IP/domain. Peers use
+  the separate URL configured in their `peers[].url` entry for your instance.
 - **`peers[].apiKey`** is the peer API key that peer issued *you* (see
   [API keys](#api-keys)), not your own.
 - **`servers[].name` / `peers[].name`** are required display names used in logs,
@@ -416,13 +419,18 @@ refuses to load that config.
 | `LOG_LEVEL` | `info` | `trace`/`debug`/`info`/`warn`/`error`/`fatal` |
 | `ENVIRONMENT` | `development` | `production` switches logs to JSON (no pretty-print) |
 | `APP_CONFIG_PATH` | `/config/config.jsonc` | Path to the config file |
-| `MANAGEMENT_KEY` | unset | Enables the management API (the UI's backend). When set, the management API starts on `MANAGEMENT_PORT` and every request must carry `X-Management-Key: <this>`. Unset → the management listener is never started |
-| `MANAGEMENT_PORT` | `5226` | Port for the management API listener, separate from `PORT` so the peer-facing port never exposes management. Only used when `MANAGEMENT_KEY` is set |
+| `JACK_MANAGEMENT_KEY` | unset | Preferred management API key. When set, the management API starts on `MANAGEMENT_PORT` and every request must carry `X-Management-Key: <this>` |
+| `MANAGEMENT_KEY` | unset | Backwards-compatible alias for `JACK_MANAGEMENT_KEY`; ignored when the prefixed variable is also set |
+| `MANAGEMENT_PORT` | `5226` | Port for the management API listener, separate from `PORT` so the peer-facing port never exposes management. Only used when a management key is set |
 | `HTTP_TIMEOUT_MS` | `30000` | Default timeout, in milliseconds, for outbound connector requests |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables OpenTelemetry traces and logs and sends OTLP/HTTP data to this base endpoint |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Also enables OpenTelemetry when set; useful if traces use a signal-specific endpoint |
 | `OTEL_SERVICE_NAME` | `jack-backend` | Service name attached to emitted telemetry |
 | `ENABLE_LOGS` | `true` | Set false to disable pino logging; logs are also disabled automatically when `NODE_ENV=test` |
+| `LOG_TO_FILE` | `true` | Persist logs to rotating NDJSON files for the management API and UI; disabled automatically when `NODE_ENV=test` |
+| `LOG_DIR` | `logs` next to `APP_CONFIG_PATH` | Directory for persisted log files |
+| `LOG_MAX_FILE_BYTES` | `10485760` | Rotate the active log file after this many bytes (10 MiB by default) |
+| `LOG_MAX_FILES` | `5` | Number of rotated files to retain, in addition to the active file |
 
 > Set `LOG_LEVEL=trace` to log every HTTP request — method, path, response
 > status, and duration — as it completes.
@@ -473,7 +481,7 @@ Operational endpoints (peer-facing app):
 Connector, status and download views are **not** on the peer-facing app — they would
 leak peer/server names and URLs to peers. They live on the management API (separate
 port, authenticated with the management key): `GET /config/servers`, `GET /config/peers`,
-`GET /status/overview`, and `GET /status/downloads`.
+`GET /overview`, and `GET /downloads`.
 
 ## Running without Docker
 
