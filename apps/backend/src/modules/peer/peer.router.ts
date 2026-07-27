@@ -1,6 +1,6 @@
 import type { PeerController } from './peer.controller'
 import { Hono } from 'hono'
-import { validator as zValidator } from 'hono-openapi'
+import { describeRoute, resolver, validator as zValidator } from 'hono-openapi'
 import z from 'zod'
 
 // Strip characters that could break out of the quoted filename or inject extra
@@ -16,6 +16,18 @@ export function getPeerRouter(controller: PeerController) {
 
   app.get(
     '/search',
+    describeRoute({
+      tags: ['Peer'],
+      summary: 'Search this library',
+      description: 'Search the local Radarr/Sonarr libraries by external id. Only movies/episodes that have files are returned. Serves empty results when no local source is configured.',
+      security: [{ 'X-Api-Key': [] }],
+      responses: {
+        200: {
+          description: 'Matching releases, mirroring the *arr file metadata',
+          content: { 'application/json': { schema: resolver(z.object({ items: z.array(z.record(z.string(), z.unknown())) })) } },
+        },
+      },
+    }),
     zValidator('query', z.object({
       imdbId: z.string().optional(),
       tmdbId: z.string().optional(),
@@ -30,7 +42,15 @@ export function getPeerRouter(controller: PeerController) {
     },
   )
 
-  app.get('/items/:itemId', async (c) => {
+  app.get('/items/:itemId', describeRoute({
+    tags: ['Peer'],
+    summary: 'Get release metadata',
+    security: [{ 'X-Api-Key': [] }],
+    responses: {
+      200: { description: 'Release metadata for the item' },
+      404: { description: 'No item with this id' },
+    },
+  }), async (c) => {
     const { itemId } = c.req.param()
     const item = await controller.getItem(itemId)
     if (!item) {
@@ -39,7 +59,18 @@ export function getPeerRouter(controller: PeerController) {
     return c.json(item)
   })
 
-  app.get('/items/:itemId/file', async (c) => {
+  app.get('/items/:itemId/file', describeRoute({
+    tags: ['Peer'],
+    summary: 'Stream the release file',
+    description: 'Streams the file straight from disk at the path the local *arr reports. Supports HTTP Range requests for resumable transfers.',
+    security: [{ 'X-Api-Key': [] }],
+    responses: {
+      200: { description: 'Full file stream', content: { 'application/octet-stream': {} } },
+      206: { description: 'Partial content for a satisfiable Range request', content: { 'application/octet-stream': {} } },
+      404: { description: 'No item with this id, or its file is missing on disk' },
+      416: { description: 'Unsatisfiable Range request' },
+    },
+  }), async (c) => {
     const { itemId } = c.req.param()
     const result = await controller.streamFile(itemId, c.req.header('Range'))
 

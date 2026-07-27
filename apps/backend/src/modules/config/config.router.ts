@@ -1,53 +1,61 @@
 import type { ConfigController } from './config.controller'
 import { Hono } from 'hono'
-import { validator as zValidator } from 'hono-openapi'
+import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
 import { RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 
 const idParam = z.object({ id: z.string().min(1) })
 
+const configDoc = (summary: string, description?: string, status = 200) => describeRoute({
+  tags: ['Config'],
+  summary,
+  description,
+  security: [{ 'X-Management-Key': [] }],
+  responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
+})
+
 export function getConfigRouter(controller: ConfigController) {
   const app = new Hono()
 
-  app.get('/', c => c.json(controller.listConfig()))
-  app.get('/peers', c => c.json(controller.listPeers()))
-  app.get('/servers', c => c.json(controller.listServers()))
-  app.get('/jack', c => c.json(controller.getJack()))
+  app.get('/', configDoc('Get the full config', 'The loaded configuration with secrets redacted.'), c => c.json(controller.listConfig()))
+  app.get('/peers', configDoc('List configured peers'), c => c.json(controller.listPeers()))
+  app.get('/servers', configDoc('List configured servers'), c => c.json(controller.listServers()))
+  app.get('/jack', configDoc('Get the jack block'), c => c.json(controller.getJack()))
 
   // Mutation routes only exist when a ConfigService is wired in. Without one, these
   // paths are simply unregistered → 404 (rather than a 500 from an unconfigured call).
   if (controller.canMutate) {
     // `?force=true` persists the peer even if its handshake fails — it stays
     // resident and auto-retries lazily, instead of aborting + rolling back.
-    app.post('/peers', zValidator('json', RawPeerConfig), async (c) => {
+    app.post('/peers', configDoc('Add a peer', 'Persists a new peer and connects to it. `?force=true` keeps the peer even if its handshake fails; it auto-retries lazily.', 201), zValidator('json', RawPeerConfig), async (c) => {
       const force = c.req.query('force') === 'true'
       return c.json(await controller.addPeer(c.req.valid('json'), { force }), 201)
     })
 
-    app.delete('/peers/:id', zValidator('param', idParam), async (c) => {
+    app.delete('/peers/:id', configDoc('Remove a peer'), zValidator('param', idParam), async (c) => {
       return c.json(await controller.removePeer(c.req.valid('param').id))
     })
 
-    app.patch('/peers/:id', zValidator('param', idParam), zValidator('json', RawPeerConfig), async (c) => {
+    app.patch('/peers/:id', configDoc('Update a peer', 'Persists changes and reconnects. `?force=true` keeps the peer even if its handshake fails.'), zValidator('param', idParam), zValidator('json', RawPeerConfig), async (c) => {
       const force = c.req.query('force') === 'true'
       return c.json(await controller.updatePeer(c.req.valid('param').id, c.req.valid('json'), { force }))
     })
 
-    app.post('/servers', zValidator('json', RawServerConfig), async (c) => {
+    app.post('/servers', configDoc('Add a Radarr/Sonarr server', undefined, 201), zValidator('json', RawServerConfig), async (c) => {
       return c.json(await controller.addServer(c.req.valid('json')), 201)
     })
 
-    app.delete('/servers/:id', zValidator('param', idParam), async (c) => {
+    app.delete('/servers/:id', configDoc('Remove a server'), zValidator('param', idParam), async (c) => {
       return c.json(await controller.removeServer(c.req.valid('param').id))
     })
 
-    app.patch('/servers/:id', zValidator('param', idParam), zValidator('json', RawServerConfig), async (c) => {
+    app.patch('/servers/:id', configDoc('Update a server'), zValidator('param', idParam), zValidator('json', RawServerConfig), async (c) => {
       return c.json(await controller.updateServer(c.req.valid('param').id, c.req.valid('json')))
     })
 
     // jack has no connectivity check (boot-captured) → a successful PATCH just
     // persists; internalUrl is required, apiKey optional (RawJackConfig).
-    app.patch('/jack', zValidator('json', RawJackConfig), async (c) => {
+    app.patch('/jack', configDoc('Update the jack block', 'Persists the new values; they take effect on next boot (no connectivity check).'), zValidator('json', RawJackConfig), async (c) => {
       return c.json(await controller.updateJack(c.req.valid('json')))
     })
   }
