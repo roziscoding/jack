@@ -1,7 +1,7 @@
 import type { LogRecord } from './log-hub'
 import type { LogsController } from './logs.controller'
 import { Hono } from 'hono'
-import { validator as zValidator } from 'hono-openapi'
+import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 
@@ -26,13 +26,25 @@ export function getLogsRouter(controller: LogsController) {
   const app = new Hono()
 
   // Initial "last N lines" for the log view, oldest→newest, optional level floor.
-  app.get('/', zValidator('query', backfillQuery), async (c) => {
+  app.get('/', describeRoute({
+    tags: ['Logs'],
+    summary: 'Backfill recent logs',
+    description: 'The last N log records, oldest to newest, with an optional minimum level.',
+    security: [{ 'X-Management-Key': [] }],
+    responses: { 200: { description: 'Log records', content: { 'application/json': {} } } },
+  }), zValidator('query', backfillQuery), async (c) => {
     const { lines, level } = c.req.valid('query')
     return c.json({ logs: await controller.backfill({ lines, level }) })
   })
 
   // Live tail as Server-Sent Events. Each event's `data` is one NDJSON log record.
-  app.get('/stream', zValidator('query', streamQuery), (c) => {
+  app.get('/stream', describeRoute({
+    tags: ['Logs'],
+    summary: 'Live-tail logs',
+    description: 'Server-Sent Events stream; each event\'s `data` is one JSON log record. Emits a `ping` event every 15s to keep idle proxies from dropping the connection.',
+    security: [{ 'X-Management-Key': [] }],
+    responses: { 200: { description: 'SSE stream of log records', content: { 'text/event-stream': {} } } },
+  }), zValidator('query', streamQuery), (c) => {
     const { level } = c.req.valid('query')
     const minLevel = controller.minLevelFor(level)
 

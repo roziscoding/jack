@@ -7,8 +7,11 @@ import type { DownloadsService } from './modules/downloads/downloads.service'
 import type { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
+import { describeRoute, openAPIRouteHandler, resolver } from 'hono-openapi'
 import { secureHeaders } from 'hono/secure-headers'
+import z from 'zod'
 import { getAppEnvs, isOtelEnabled } from './lib/envs'
+import { peerDocumentation } from './lib/openapi'
 import { PROTOCOL_VERSION } from './lib/version'
 import { handleError } from './middleware/handle-error'
 import { logRequests } from './middleware/log-requests'
@@ -47,7 +50,14 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   app.use('*', secureHeaders())
 
   // Health check — unauthenticated, used by Docker/orchestrators.
-  app.get('/ping', c => c.json({ status: 'OK' }, 200))
+  app.get('/ping', describeRoute({
+    tags: ['System'],
+    summary: 'Health check',
+    description: 'Unauthenticated liveness probe for Docker/orchestrators.',
+    responses: {
+      200: { description: 'The server is up', content: { 'application/json': { schema: resolver(z.object({ status: z.literal('OK') })) } } },
+    },
+  }), c => c.json({ status: 'OK' }, 200))
 
   // Wrap every request in an OpenTelemetry server span (method, route, status,
   // duration, ...). Outermost so the span is active for the rest of the chain —
@@ -87,7 +97,15 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   // protocol version, then check it against their minimum compatible version.
   // Authenticated so a bad API key still fails loudly at connect time, unlike the
   // unauthenticated /ping health check.
-  app.get('/handshake', peerAuth, c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
+  app.get('/handshake', describeRoute({
+    tags: ['System'],
+    summary: 'Peer handshake',
+    description: 'Identity and protocol version. Peers probe this at init and check the version against their minimum compatible version.',
+    security: [{ 'X-Api-Key': [] }],
+    responses: {
+      200: { description: 'Identity and protocol version', content: { 'application/json': { schema: resolver(z.object({ name: z.string(), version: z.string() })) } } },
+    },
+  }), peerAuth, c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
 
   // Peer API — other Jacks talk to us to search and download. Serves empty results
   // when there's no local source to read from.
@@ -100,6 +118,11 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   app.use('/torznab/*', arrAuth)
   app.route('/torznab', getTorznabRouter(torznabController))
   app.route('/torznab', getDownloadRouter(() => connManager.peers))
+
+  // Live OpenAPI spec for this app. Unauthenticated like /ping: it exposes
+  // route shapes only (the same ones documented on the public website), never
+  // config values or keys.
+  app.get('/openapi.json', openAPIRouteHandler(app, { documentation: peerDocumentation }))
 
   // Peer-facing app: error responses are opaque (see handle-error.ts).
   app.onError(handleError(envs.ENVIRONMENT))

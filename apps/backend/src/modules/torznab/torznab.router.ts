@@ -1,5 +1,6 @@
 import type { TorznabController, TorznabItem } from './torznab.controller'
 import { Hono } from 'hono'
+import { describeRoute } from 'hono-openapi'
 import { xml } from '../../helpers/xml'
 import { logger } from '../../logger'
 
@@ -124,7 +125,28 @@ export function buildErrorXml(code: number, description: string): Record<string,
 export function getTorznabRouter(controller: TorznabController) {
   const app = new Hono()
 
-  app.get('/api', async (c) => {
+  // Documented via `parameters` instead of a zod validator: the Torznab spec
+  // requires XML error envelopes, so validation stays hand-rolled in the handler.
+  app.get('/api', describeRoute({
+    tags: ['Torznab'],
+    summary: 'Torznab entrypoint',
+    description: 'Single Torznab endpoint dispatching on the `t` query param: `caps` (capabilities), `search` (catalog/RSS), `movie` (imdbid/tmdbid), and `tvsearch` (tvdbid + season/ep). Id searches fan out to every configured peer; text (`q`) searches return empty results by design.',
+    security: [{ apikey: [] }],
+    parameters: [
+      { name: 't', in: 'query', required: true, schema: { type: 'string', enum: ['caps', 'search', 'movie', 'tvsearch'] }, description: 'Torznab function to run' },
+      { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Free-text term. Non-empty terms return empty results; jack only searches by id.' },
+      { name: 'cat', in: 'query', schema: { type: 'string' }, description: 'Comma-separated Torznab category ids (2000 Movies, 5000 TV; subcategories roll up)' },
+      { name: 'imdbid', in: 'query', schema: { type: 'string' }, description: 'IMDb id for movie search' },
+      { name: 'tmdbid', in: 'query', schema: { type: 'string' }, description: 'TMDB id for movie search' },
+      { name: 'tvdbid', in: 'query', schema: { type: 'string' }, description: 'TVDB id for TV search' },
+      { name: 'season', in: 'query', schema: { type: 'string' }, description: 'Season number for TV search' },
+      { name: 'ep', in: 'query', schema: { type: 'string' }, description: 'Episode number for TV search' },
+    ],
+    responses: {
+      200: { description: 'Torznab XML: caps document or an RSS feed of releases', content: { 'application/xml': {} } },
+      400: { description: 'Torznab XML error envelope (missing or unknown `t`)', content: { 'application/xml': {} } },
+    },
+  }), async (c) => {
     const t = c.req.query('t')
 
     if (!t) {

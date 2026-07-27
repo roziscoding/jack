@@ -5,7 +5,10 @@ import type { DownloadsRepository } from './modules/downloads/downloads.reposito
 import type { DownloadsService } from './modules/downloads/downloads.service'
 import type { ImportWatcher } from './modules/downloads/import-watcher'
 import { Hono } from 'hono'
+import { describeRoute, openAPIRouteHandler, resolver } from 'hono-openapi'
 import { secureHeaders } from 'hono/secure-headers'
+import z from 'zod'
+import { managementDocumentation } from './lib/openapi'
 import { TmdbClient } from './lib/tmdb/client'
 import { handleError } from './middleware/handle-error'
 import { requireManagementKey } from './middleware/require-management-key'
@@ -38,12 +41,26 @@ export function getManagementApp(params: {
   const app = new Hono()
 
   app.use('*', secureHeaders())
-  // The entire surface is key-guarded; no route is reachable without it.
+
+  // Live OpenAPI spec for this app, registered ahead of the key guard: it
+  // exposes route shapes only (the same ones documented on the public website),
+  // never config values or keys.
+  app.get('/openapi.json', openAPIRouteHandler(app, { documentation: managementDocumentation }))
+
+  // The rest of the surface is key-guarded; no other route is reachable without it.
   app.use('*', requireManagementKey(params.managementKey))
 
   // Cheap key-guarded probe for the UI's BFF: reaching it 200 proves the key is
   // valid and the management API is up; a connection error proves it's disabled.
-  app.get('/ping', c => c.json({ ok: true }))
+  app.get('/ping', describeRoute({
+    tags: ['System'],
+    summary: 'Health check',
+    description: 'Key-guarded probe: a 200 proves the key is valid and the management API is up.',
+    security: [{ 'X-Management-Key': [] }],
+    responses: {
+      200: { description: 'The management API is up and the key is valid', content: { 'application/json': { schema: resolver(z.object({ ok: z.literal(true) })) } } },
+    },
+  }), c => c.json({ ok: true }))
 
   const configController = new ConfigController(params.connectors, params.configService)
   app.route('/config', getConfigRouter(configController))

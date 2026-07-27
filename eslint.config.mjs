@@ -1,4 +1,5 @@
 import antfu from '@antfu/eslint-config'
+import markdownLinks from 'eslint-plugin-markdown-links'
 
 export default antfu(
   {
@@ -14,6 +15,20 @@ export default antfu(
   },
   {
     ignores: ['packages/schemas/src/generated/**'],
+  },
+  {
+    // Docs prose is full of literal `*arr`, which the emphasis rule mangles when
+    // autofixing. Fragment checking is swapped for markdown-links', which knows
+    // VitePress's mdit-vue slugger (the official rule only speaks GitHub slugs).
+    files: ['website/**/*.md'],
+    plugins: {
+      'markdown-links': markdownLinks,
+    },
+    rules: {
+      'markdown/no-space-in-emphasis': 'off',
+      'markdown/no-missing-link-fragments': 'off',
+      'markdown-links/no-missing-fragments': ['error', { slugify: 'mdit-vue' }],
+    },
   },
   {
     // Force all span attributes through the redacting/serializing funnel in

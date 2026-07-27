@@ -27,5 +27,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "exclude": ["apps/ui"]
+  "exclude": ["apps/ui", "website"]
 }
