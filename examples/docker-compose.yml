@@ -54,8 +54,7 @@ services:
     # networks:
     #   - media
 
-  # Management console — a Nuxt BFF that proxies jack's management API. Published
-  # alongside the backend on every push to main. Open it at http://localhost:3000.
+  # Management console. Published alongside the backend on every push to main. Open it at http://localhost:3000.
   jack-ui:
     image: ghcr.io/roziscoding/jack-ui:main
     container_name: jack-ui

@@ -37,7 +37,7 @@ mise run clients   # regenerate packages/schemas/src/generated
 ```
 apps/backend            # the Hono server (Torznab, peer API, qBittorrent API)
 apps/backend/Dockerfile # backend production image (build context = repo root)
-apps/ui                 # the management console (Nuxt BFF)
+apps/ui                 # the management console (Nuxt App)
 apps/ui/Dockerfile      # management UI image (build context = repo root)
 packages/schemas        # generated Radarr/Sonarr API types
 examples/               # docker-compose.yml + config.jsonc template
