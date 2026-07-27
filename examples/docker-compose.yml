@@ -17,6 +17,11 @@ services:
       # X-Management-Key, so both read one variable and always match. To run jack
       # headless, drop the jack-ui service below and this line.
       JACK_MANAGEMENT_KEY: ${JACK_MANAGEMENT_KEY:?set JACK_MANAGEMENT_KEY in a .env file next to this compose (any long random string)}
+      # *arr API keys, forwarded from .env so config.jsonc can reference them
+      # as { "env": "RADARR_API_KEY" } instead of inlining the secret. Add one
+      # line per env-referenced secret; unused ones can stay empty.
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
     volumes:
       # App config. Drop your config.jsonc in a ./config dir next to this file
       # (start from the config.jsonc template in this examples/ folder).
