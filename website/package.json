@@ -1,0 +1,22 @@
+{
+  "name": "jack-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "generate:openapi": "NODE_ENV=test bun run scripts/generate-openapi.ts",
+    "build": "bun run generate:openapi && vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "mermaid": "11.16.0",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "2.0.17"
+  },
+  "dependencies": {
+    "vitepress-openapi": "0.2.2"
+  },
+  "patchedDependencies": {
+    "vitepress-openapi@0.2.2": "patches/vitepress-openapi@0.2.2.patch"
+  }
+}
