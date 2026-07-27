@@ -24,13 +24,13 @@ export const peerDocumentation: GenerateSpecOptions['documentation'] = {
         name: 'X-Api-Key',
         description: 'Peer API key issued by this instance\'s operator. Scoped to /handshake and /peer/*.',
       },
-      apikey: {
+      'apikey': {
         type: 'apiKey',
         in: 'query',
         name: 'apikey',
         description: 'Managed key jack auto-registered in Radarr/Sonarr. Scoped to /torznab/*. Also accepted as the X-Api-Key header.',
       },
-      SID: {
+      'SID': {
         type: 'apiKey',
         in: 'cookie',
         name: 'SID',

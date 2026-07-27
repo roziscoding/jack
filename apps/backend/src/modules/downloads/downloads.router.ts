@@ -14,16 +14,18 @@ function numericId(raw: string): number {
   return id
 }
 
-const downloadsDoc = (summary: string, description: string) => describeRoute({
-  tags: ['Downloads'],
-  summary,
-  description,
-  security: [{ 'X-Management-Key': [] }],
-  responses: {
-    200: { description: 'The updated download record', content: { 'application/json': {} } },
-    400: { description: 'Id is not a positive integer' },
-  },
-})
+function downloadsDoc(summary: string, description: string) {
+  return describeRoute({
+    tags: ['Downloads'],
+    summary,
+    description,
+    security: [{ 'X-Management-Key': [] }],
+    responses: {
+      200: { description: 'The updated download record', content: { 'application/json': {} } },
+      400: { description: 'Id is not a positive integer' },
+    },
+  })
+}
 
 export function getDownloadsManagementRouter(controller: DownloadsManagementController) {
   const app = new Hono()

@@ -70,8 +70,10 @@ same Docker network as jack, the default `http://jack:5225` (the container
 name) is correct. If they run elsewhere, use the host's IP or domain:
 
 ```jsonc
-"jack": {
-  "internalUrl": "http://jack:5225"
+{
+  "jack": {
+    "internalUrl": "http://jack:5225"
+  }
 }
 ```
 
@@ -82,8 +84,10 @@ default unless you have a reason not to — you'll mount a host folder here in
 step 4:
 
 ```jsonc
-"downloads": {
-  "completedPath": "/data/torrents/completed"
+{
+  "downloads": {
+    "completedPath": "/data/torrents/completed"
+  }
 }
 ```
 
@@ -94,20 +98,22 @@ from the environment — you'll put the actual values in `.env` in the next step
 and the compose file forwards them into the container:
 
 ```jsonc
-"servers": [
-  {
-    "name": "Main Radarr",
-    "type": "radarr",
-    "url": "http://radarr:7878",
-    "apiKey": { "env": "RADARR_API_KEY" }
-  },
-  {
-    "name": "Main Sonarr",
-    "type": "sonarr",
-    "url": "http://sonarr:8989",
-    "apiKey": { "env": "SONARR_API_KEY" }
-  }
-]
+{
+  "servers": [
+    {
+      "name": "Main Radarr",
+      "type": "radarr",
+      "url": "http://radarr:7878",
+      "apiKey": { "env": "RADARR_API_KEY" }
+    },
+    {
+      "name": "Main Sonarr",
+      "type": "sonarr",
+      "url": "http://sonarr:8989",
+      "apiKey": { "env": "SONARR_API_KEY" }
+    }
+  ]
+}
 ```
 
 By default each server is both a **source** (share its library with friends)
@@ -181,7 +187,9 @@ folder into jack **and** into Radarr/Sonarr at the same container path:
 # jack (already in the compose file)
 volumes:
   - ./data/torrents:/data/torrents
+```
 
+```yaml
 # radarr AND sonarr
 volumes:
   - ./data/torrents:/data/torrents

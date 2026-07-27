@@ -17,13 +17,15 @@ const requestBody = z.object({
   rootFolderPath: z.string().min(1),
 })
 
-const catalogDoc = (summary: string, description?: string) => describeRoute({
-  tags: ['Catalog'],
-  summary,
-  description,
-  security: [{ 'X-Management-Key': [] }],
-  responses: { 200: { description: 'Success', content: { 'application/json': {} } } },
-})
+function catalogDoc(summary: string, description?: string) {
+  return describeRoute({
+    tags: ['Catalog'],
+    summary,
+    description,
+    security: [{ 'X-Management-Key': [] }],
+    responses: { 200: { description: 'Success', content: { 'application/json': {} } } },
+  })
+}
 
 export function getCatalogRouter(controller: CatalogController) {
   const app = new Hono()

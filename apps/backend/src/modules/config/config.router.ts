@@ -6,13 +6,15 @@ import { RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 
 const idParam = z.object({ id: z.string().min(1) })
 
-const configDoc = (summary: string, description?: string, status = 200) => describeRoute({
-  tags: ['Config'],
-  summary,
-  description,
-  security: [{ 'X-Management-Key': [] }],
-  responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
-})
+function configDoc(summary: string, description?: string, status = 200) {
+  return describeRoute({
+    tags: ['Config'],
+    summary,
+    description,
+    security: [{ 'X-Management-Key': [] }],
+    responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
+  })
+}
 
 export function getConfigRouter(controller: ConfigController) {
   const app = new Hono()

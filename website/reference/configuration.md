@@ -271,9 +271,24 @@ given as a plain string, as a reference to an environment variable, or as a
 reference to a secret file, so secrets can stay out of the config file:
 
 ```jsonc
-{ "apiKey": "plain-string" }
-{ "apiKey": { "env": "RADARR_API_KEY" } }
-{ "apiKey": { "file": "/run/secrets/radarr_api_key" } }
+{
+  // plain string
+  "apiKey": "plain-string"
+}
+```
+
+```jsonc
+{
+  // environment variable reference
+  "apiKey": { "env": "RADARR_API_KEY" }
+}
+```
+
+```jsonc
+{
+  // secret file reference
+  "apiKey": { "file": "/run/secrets/radarr_api_key" }
+}
 ```
 
 All three forms are interchangeable everywhere a secret appears (`jack`,

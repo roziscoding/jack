@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { useSidebar } from 'vitepress-openapi'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import managementSpec from '../public/openapi/management.json' with { type: 'json' }

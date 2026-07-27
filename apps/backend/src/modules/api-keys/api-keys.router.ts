@@ -8,13 +8,15 @@ const idParam = z.object({
   id: z.coerce.number().int().positive(),
 })
 
-const apiKeysDoc = (summary: string, description?: string, status = 200) => describeRoute({
-  tags: ['API keys'],
-  summary,
-  description,
-  security: [{ 'X-Management-Key': [] }],
-  responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
-})
+function apiKeysDoc(summary: string, description?: string, status = 200) {
+  return describeRoute({
+    tags: ['API keys'],
+    summary,
+    description,
+    security: [{ 'X-Management-Key': [] }],
+    responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
+  })
+}
 
 export function getApiKeysRouter(controller: ApiKeysController) {
   const app = new Hono()
