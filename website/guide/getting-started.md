@@ -1,3 +1,7 @@
+---
+description: Install jack with Docker Compose, connect Radarr or Sonarr, configure the management UI, and prepare your instance for private media sharing.
+---
+
 # Getting started
 
 This guide takes you from nothing to a running jack instance: configured

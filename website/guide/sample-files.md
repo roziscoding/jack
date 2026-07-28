@@ -1,3 +1,7 @@
+---
+description: Copy ready-to-use Docker Compose, environment, JSONC configuration, and OpenTelemetry example files for a self-hosted jack installation.
+---
+
 # Sample files
 
 The example files jack ships with, rendered straight from the repo's

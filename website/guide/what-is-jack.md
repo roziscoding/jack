@@ -1,3 +1,7 @@
+---
+description: Understand how jack privately shares Radarr and Sonarr media libraries between friends without public trackers or a BitTorrent swarm.
+---
+
 # What is jack?
 
 **jack** lets you and your friends share media libraries with each other through

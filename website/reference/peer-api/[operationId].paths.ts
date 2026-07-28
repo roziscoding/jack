@@ -8,7 +8,8 @@ export default {
       .map(({ operationId, summary }) => ({
         params: {
           operationId,
-          pageTitle: `${summary} - jack peer API`,
+          pageTitle: `${summary} — Peer API`,
+          pageDescription: `API reference for the ${summary} operation in jack's peer API.`,
         },
       }))
   },

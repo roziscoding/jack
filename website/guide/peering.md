@@ -1,3 +1,7 @@
+---
+description: Connect jack instances securely, exchange scoped peer API keys, and share Radarr or Sonarr media libraries with trusted friends.
+---
+
 # API keys & peering
 
 jack authenticates each external surface by **key type**, so a credential only

@@ -1,3 +1,7 @@
+---
+description: Diagnose jack connectivity, Radarr or Sonarr registration, qBittorrent client checks, downloads, imports, permissions, and peer errors.
+---
+
 # Troubleshooting
 
 Registration runs on every startup and logs the *arr response body, so check

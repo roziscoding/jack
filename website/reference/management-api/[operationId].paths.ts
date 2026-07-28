@@ -8,7 +8,8 @@ export default {
       .map(({ operationId, summary }) => ({
         params: {
           operationId,
-          pageTitle: `${summary} - jack management API`,
+          pageTitle: `${summary} — Management API`,
+          pageDescription: `API reference for the ${summary} operation in jack's management API.`,
         },
       }))
   },

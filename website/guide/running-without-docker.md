@@ -1,3 +1,7 @@
+---
+description: Run and develop jack directly with Bun without Docker, including local commands, project layout, tests, and generated API clients.
+---
+
 # Running without Docker
 
 jack is a [Bun](https://bun.com) app, so all you need is a Bun install and a

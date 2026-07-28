@@ -1,3 +1,7 @@
+---
+description: Reference every jack JSONC configuration option for internal URLs, downloads, Radarr and Sonarr servers, peer connections, retries, and imports.
+---
+
 # Configuration
 
 jack reads a [JSONC](https://github.com/microsoft/node-jsonc-parser) file

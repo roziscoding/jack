@@ -1,3 +1,7 @@
+---
+description: Reference jack environment variables for ports, configuration paths, management authentication, logging, timeouts, and OpenTelemetry tracing.
+---
+
 # Environment variables
 
 All variables are optional — jack boots with sensible defaults for a Docker
