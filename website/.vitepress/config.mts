@@ -1,4 +1,3 @@
-import process from 'node:process'
 import { useSidebar } from 'vitepress-openapi'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import managementSpec from '../public/openapi/management.json' with { type: 'json' }
@@ -15,8 +14,6 @@ function apiSidebar(spec: any, linkPrefix: string) {
 }
 
 export default withMermaid({
-  // Set by the publish workflow (e.g. /jack/ for GitHub Pages); local dev serves from /.
-  base: process.env.DOCS_BASE || '/',
   title: 'jack',
   description: 'Share Radarr and Sonarr libraries directly with friends through a private, self-hosted peer-to-peer bridge.',
   lang: 'en-US',
