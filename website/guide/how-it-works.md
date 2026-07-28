@@ -1,3 +1,7 @@
+---
+description: Learn how jack connects Radarr and Sonarr through Torznab and qBittorrent-compatible APIs to search and transfer media between trusted peers.
+---
+
 # How it works
 
 There are two flows: **searching** for media (Torznab) and **downloading** it

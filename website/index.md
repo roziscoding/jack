@@ -1,5 +1,7 @@
 ---
 layout: home
+title: Private media sharing for Radarr and Sonarr
+description: Share Radarr and Sonarr libraries directly with friends through a private, self-hosted peer-to-peer bridge without public trackers or a BitTorrent swarm.
 
 hero:
   name: jack
@@ -8,7 +10,7 @@ hero:
   image:
     light: /logo-light.svg
     dark: /logo-dark.svg
-    alt: jack
+    alt: jack peer-to-peer media sharing logo
   actions:
     - theme: brand
       text: Get started

@@ -1,3 +1,7 @@
+---
+description: Manage jack servers, peers, API keys, downloads, catalog requests, and logs from the self-hosted web management console.
+---
+
 # Management UI
 
 jack ships with a web console — the **management UI** — so you can run your
