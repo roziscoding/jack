@@ -5,6 +5,8 @@ import peerSpec from '../public/openapi/peer.json' with { type: 'json' }
 
 const siteUrl = 'https://jack.roz.ninja'
 const socialImageUrl = `${siteUrl}/social-card.png`
+const indexPagePattern = /(^|\/)index\.md$/
+const markdownExtensionPattern = /\.md$/
 
 // One collapsible group per tag, linking to the per-operation pages.
 function apiSidebar(spec: any, linkPrefix: string) {
@@ -49,33 +51,33 @@ export default withMermaid({
     }
 
     const path = page
-      .replace(/(^|\/)index\.md$/, '$1')
-      .replace(/\.md$/, '')
+      .replace(indexPagePattern, '$1')
+      .replace(markdownExtensionPattern, '')
     const url = new URL(path, `${siteUrl}/`).href
     const isHome = page === 'index.md'
     const structuredData = isHome
       ? {
           '@context': 'https://schema.org',
           '@type': 'SoftwareApplication',
-          name: 'jack',
-          description,
-          url,
-          applicationCategory: 'MultimediaApplication',
-          operatingSystem: 'Docker',
-          isAccessibleForFree: true,
-          codeRepository: 'https://github.com/roziscoding/jack',
-          license: 'https://www.gnu.org/licenses/gpl-3.0.html',
+          'name': 'jack',
+          'description': description,
+          'url': url,
+          'applicationCategory': 'MultimediaApplication',
+          'operatingSystem': 'Docker',
+          'isAccessibleForFree': true,
+          'codeRepository': 'https://github.com/roziscoding/jack',
+          'license': 'https://www.gnu.org/licenses/gpl-3.0.html',
         }
       : {
           '@context': 'https://schema.org',
           '@type': 'TechArticle',
-          headline: pageData.title,
-          description,
-          url,
-          isPartOf: {
+          'headline': pageData.title,
+          'description': description,
+          'url': url,
+          'isPartOf': {
             '@type': 'WebSite',
-            name: 'jack documentation',
-            url: siteUrl,
+            'name': 'jack documentation',
+            'url': siteUrl,
           },
           ...(pageData.lastUpdated && {
             dateModified: new Date(pageData.lastUpdated).toISOString(),
