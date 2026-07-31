@@ -97,7 +97,7 @@ function startManagementServer() {
     apiKeysRepository,
     tmdbApiKey: config.jack.tmdbApiKey,
   })
-  const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch })
+  const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch, idleTimeout: 60 })
   logger.info({ port: instance.port }, 'Management API listening')
   return instance
 }
