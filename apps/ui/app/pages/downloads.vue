@@ -11,7 +11,9 @@ const toast = useToast()
 const { data, pending, error, refresh } = await useAsyncData('downloads', () =>
   request<{ downloads: DownloadItem[] }>('downloads'))
 
-const { REFRESH_OPTIONS, intervalMs, paused, secondsLeft, togglePaused } = useAutoRefresh(refresh)
+const { connected } = useManagementStream<{ downloads: DownloadItem[] }>('downloads/stream', (snapshot) => {
+  data.value = snapshot
+})
 
 const pendingActions = ref<Record<number, DownloadAction | undefined>>({})
 
@@ -122,13 +124,9 @@ const columns: TableColumn<DownloadItem>[] = [
     <template #header>
       <UDashboardNavbar title="Downloads">
         <template #right>
-          <RefreshControls
-            v-model:interval-ms="intervalMs"
-            :options="REFRESH_OPTIONS"
-            :paused="paused"
-            :seconds-left="secondsLeft"
-            @toggle="togglePaused"
-          />
+          <UBadge :color="connected ? 'success' : 'warning'" variant="subtle" icon="i-ph-broadcast">
+            {{ connected ? 'Live' : 'Reconnecting…' }}
+          </UBadge>
         </template>
       </UDashboardNavbar>
     </template>

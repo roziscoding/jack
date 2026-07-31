@@ -23,6 +23,7 @@ export class ConfigService {
   // Serialized write queue: one async mutex every mutation chains onto, so file
   // read-modify-write + map mutation never interleave between concurrent calls.
   private queue: Promise<unknown> = Promise.resolve()
+  private readonly subscribers = new Set<() => void>()
 
   constructor(params: { path: string, raw: RawConfig, connectorManager: ConnectorManager, downloadsRepository?: DownloadsRepository }) {
     this.path = params.path
@@ -45,10 +46,27 @@ export class ConfigService {
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = this.queue.then(task, task)
+    const notified = run.finally(() => this.notifyChanged())
     // Swallow this task's result/error on the chain so a rejection doesn't poison
     // the next enqueued task; the original promise still rejects to the caller.
-    this.queue = run.then(() => {}, () => {})
-    return run
+    this.queue = notified.then(() => {}, () => {})
+    return notified
+  }
+
+  subscribe(subscriber: () => void): () => void {
+    this.subscribers.add(subscriber)
+    return () => this.subscribers.delete(subscriber)
+  }
+
+  private notifyChanged(): void {
+    for (const subscriber of this.subscribers) {
+      try {
+        subscriber()
+      }
+      catch {
+        // Observers must not affect config persistence or rollback semantics.
+      }
+    }
   }
 
   // Rollback-safe persist: write the CANDIDATE raw to disk first; the caller only

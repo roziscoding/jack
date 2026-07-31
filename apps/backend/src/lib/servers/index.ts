@@ -42,6 +42,8 @@ async function initializeConnector(connector: ServerConnector, { rethrow = false
 export class ConnectorManager {
   private readonly _serverMap: Map<string, ArrServerConnector> = new Map()
   private readonly _peerMap: Map<string, PeerConnector> = new Map()
+  private readonly subscribers = new Set<() => void>()
+  private readonly connectorUnsubscribers = new Map<string, () => void>()
   private _destinationIds: string[] = []
   private _sourceIds: string[] = []
 
@@ -52,6 +54,7 @@ export class ConnectorManager {
       const id = generateId(serverConfig.url)
       const connector = getServerConnector(serverConfig)
       this._serverMap.set(id, connector)
+      this.track(connector)
       if (connector.canDestination) {
         this._destinationIds.push(connector.id)
       }
@@ -66,6 +69,7 @@ export class ConnectorManager {
       const id = generateId(peerConfig.url)
       const connector = new PeerConnector(peerConfig)
       this._peerMap.set(id, connector)
+      this.track(connector)
     }
 
     logger.debug(`${this._peerMap.size} peers loaded`)
@@ -73,6 +77,32 @@ export class ConnectorManager {
 
   private getConnector(id: string): ServerConnector | undefined {
     return this._serverMap.get(id) ?? this._peerMap.get(id)
+  }
+
+  private track(connector: ServerConnector): void {
+    this.connectorUnsubscribers.get(connector.id)?.()
+    this.connectorUnsubscribers.set(connector.id, connector.subscribe(() => this.notifyChanged()))
+  }
+
+  private untrack(id: string): void {
+    this.connectorUnsubscribers.get(id)?.()
+    this.connectorUnsubscribers.delete(id)
+  }
+
+  private notifyChanged(): void {
+    for (const subscriber of this.subscribers) {
+      try {
+        subscriber()
+      }
+      catch {
+        // One management observer must not break connector operations or peers.
+      }
+    }
+  }
+
+  public subscribe(subscriber: () => void): () => void {
+    this.subscribers.add(subscriber)
+    return () => this.subscribers.delete(subscriber)
   }
 
   public get servers() {
@@ -123,6 +153,7 @@ export class ConnectorManager {
     const prevSourceIds = [...this._sourceIds]
 
     this._serverMap.set(connector.id, connector)
+    this.track(connector)
 
     // Reconcile: drop any prior entry for this id, then re-add per current caps.
     this._destinationIds = this._destinationIds.filter(id => id !== connector.id)
@@ -136,12 +167,18 @@ export class ConnectorManager {
       await initializeConnector(connector, { rethrow: rethrowInitError })
     }
     catch (err) {
-      if (previous)
+      if (previous) {
         this._serverMap.set(connector.id, previous)
-      else
+      }
+      else {
         this._serverMap.delete(connector.id)
+        this.untrack(connector.id)
+      }
       this._destinationIds = prevDestinationIds
       this._sourceIds = prevSourceIds
+      if (previous)
+        this.track(previous)
+      this.notifyChanged()
       const message = err instanceof Error ? err.message : String(err)
       throw new ConnectorInitializationError(`Could not connect to server "${connector.name}": ${message}`, err)
     }
@@ -151,6 +188,7 @@ export class ConnectorManager {
     const connector = new PeerConnector(config)
     const previous = this._peerMap.get(connector.id)
     this._peerMap.set(connector.id, connector)
+    this.track(connector)
 
     try {
       await initializeConnector(connector, { rethrow: rethrowInitError })
@@ -158,10 +196,16 @@ export class ConnectorManager {
     catch (err) {
       // Restore the prior map state: re-instate a connector this update replaced, or
       // drop a freshly-added one, so a failed init leaves the live map untouched.
-      if (previous)
+      if (previous) {
         this._peerMap.set(connector.id, previous)
-      else
+      }
+      else {
         this._peerMap.delete(connector.id)
+        this.untrack(connector.id)
+      }
+      if (previous)
+        this.track(previous)
+      this.notifyChanged()
       const message = err instanceof Error ? err.message : String(err)
       throw new ConnectorInitializationError(`Could not connect to peer "${connector.name}": ${message}`, err)
     }

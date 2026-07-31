@@ -92,7 +92,25 @@ function toRecord(row: DownloadRow): DownloadRecord {
 }
 
 export class DownloadsRepository {
+  private readonly subscribers = new Set<() => void>()
+
   constructor(private readonly db: AppDatabase) {}
+
+  subscribe(subscriber: () => void): () => void {
+    this.subscribers.add(subscriber)
+    return () => this.subscribers.delete(subscriber)
+  }
+
+  private notifyChanged(): void {
+    for (const subscriber of this.subscribers) {
+      try {
+        subscriber()
+      }
+      catch {
+        // Observers must never make a committed database mutation look failed.
+      }
+    }
+  }
 
   create(input: CreateDownloadInput): DownloadRecord {
     const timestamp = nowIso()
@@ -121,6 +139,7 @@ export class DownloadsRepository {
     }
 
     const row = this.db.insert(downloads).values(values).returning().get()
+    this.notifyChanged()
     return toRecord(row)
   }
 
@@ -140,6 +159,7 @@ export class DownloadsRepository {
       .set({ expectedBytes, expectedBytesSource: source, expectedBytesMismatch: mismatch, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   updateProgress(id: number, downloadedBytes: number): void {
@@ -147,6 +167,7 @@ export class DownloadsRepository {
       .set({ downloadedBytes, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   // Download finished and the file is in completedPath, handed to *arr to import.
@@ -166,6 +187,7 @@ export class DownloadsRepository {
       })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   // *arr finished importing the file into the library — terminal success. The row
@@ -175,6 +197,7 @@ export class DownloadsRepository {
       .set({ status: 'imported', lastOperation: 'import', operationFailed: false, error: null, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   setManualImportCommand(id: number, commandId: number): void {
@@ -182,6 +205,7 @@ export class DownloadsRepository {
       .set({ manualImportCommandId: commandId, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   markImportRetryStarted(id: number): void {
@@ -196,6 +220,7 @@ export class DownloadsRepository {
       })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   markFailed(id: number, error: string, operation: DownloadOperation = 'transfer'): void {
@@ -203,6 +228,7 @@ export class DownloadsRepository {
       .set({ status: 'failed', error, lastOperation: operation, operationFailed: true, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   incrementAttempts(id: number): number {
@@ -211,6 +237,7 @@ export class DownloadsRepository {
       .where(eq(downloads.id, id))
       .returning()
       .get()
+    this.notifyChanged()
     return row?.attempts ?? 0
   }
 
@@ -219,6 +246,7 @@ export class DownloadsRepository {
       .set({ status: 'downloading', lastOperation: 'transfer', operationFailed: false, error: null, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   markResumeReset(id: number): void {
@@ -226,6 +254,7 @@ export class DownloadsRepository {
       .set({ downloadedBytes: 0, error: 'resume validation failed; restarted from byte 0', updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   setQbCategory(id: number, qbCategory: string): void {
@@ -233,10 +262,12 @@ export class DownloadsRepository {
       .set({ qbCategory, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
+    this.notifyChanged()
   }
 
   delete(id: number): void {
     this.db.delete(downloads).where(eq(downloads.id, id)).run()
+    this.notifyChanged()
   }
 
   /** Manual ON UPDATE CASCADE: move every download row from one peer id to another. */
@@ -245,6 +276,7 @@ export class DownloadsRepository {
       .set({ peerId: newPeerId, updatedAt: nowIso() })
       .where(eq(downloads.peerId, oldPeerId))
       .run()
+    this.notifyChanged()
   }
 
   /** Rows in a given status (uses the status index). */
@@ -278,6 +310,9 @@ export class DownloadsRepository {
         .where(eq(downloads.id, row.id))
         .run()
     }
+
+    if (staleRows.length > 0)
+      this.notifyChanged()
 
     return staleRows.length
   }
