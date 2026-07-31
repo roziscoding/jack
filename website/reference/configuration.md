@@ -73,6 +73,11 @@ Needed to **consume** (download) from peers — jack only registers itself as a
 qBittorrent download client when this block is present. Everything except
 `completedPath` is an optional tuning knob with a sensible default.
 
+Every key here is also editable from the management UI (Settings → Downloads).
+Clearing a field there removes the key from the file, so the default below
+applies again. Only `unlinkImportedFiles` takes effect immediately; the rest are
+read at startup, so restart jack after changing them.
+
 ### `downloads.completedPath`
 
 **Type:** `string` · **Required**\

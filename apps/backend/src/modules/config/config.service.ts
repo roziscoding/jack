@@ -305,13 +305,21 @@ export class ConfigService {
    * parse as a full DownloadsConfig — a file with no downloads block therefore
    * requires `completedPath` in the very first patch, or this rejects with a 400.
    *
+   * A `null` value drops that key from the file, so the schema default applies again —
+   * this is what the UI's empty field means. `undefined` (absent) leaves the stored
+   * value alone.
+   *
    * Only `unlinkImportedFiles` takes effect immediately (the import watcher reads it
    * per import); the rest are captured at boot and land on the next restart.
    */
   async updateDownloads(input: unknown): Promise<void> {
     const patch = RawDownloadsConfig.parse(input)
     return this.enqueue(async () => {
-      const merged = { ...(this.raw.downloads ?? {}), ...patch }
+      const merged: Record<string, unknown> = { ...(this.raw.downloads ?? {}), ...patch }
+      for (const [key, value] of Object.entries(merged)) {
+        if (value === null)
+          delete merged[key]
+      }
       // Validate the merged block, but persist `merged` — writing the parsed value
       // would bake every default into the file.
       DownloadsConfig.parse(merged)
