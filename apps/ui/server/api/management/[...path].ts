@@ -27,17 +27,21 @@ export default defineEventHandler(async (event) => {
   }
 
   let res: Response
+  const upstreamAbort = new AbortController()
+  event.node.res.once('close', () => upstreamAbort.abort())
   try {
-    res = await fetch(target, { method, headers, body })
+    res = await fetch(target, { method, headers, body, signal: upstreamAbort.signal })
   }
   catch {
     throw createError({ statusCode: 503, statusMessage: 'management API is unreachable' })
   }
 
   setResponseStatus(event, res.status)
-  const contentType = res.headers.get('content-type')
-  if (contentType)
-    setResponseHeader(event, 'content-type', contentType)
+  for (const header of ['content-type', 'cache-control', 'x-accel-buffering']) {
+    const value = res.headers.get(header)
+    if (value)
+      setResponseHeader(event, header, value)
+  }
 
   return res.body
 })

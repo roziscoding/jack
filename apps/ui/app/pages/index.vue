@@ -3,10 +3,12 @@ import type { Overview } from '~/types/management'
 
 const { request } = useManagement()
 
-const { data: overview, pending, error, refresh } = await useAsyncData('overview', () =>
+const { data: overview, pending, error } = await useAsyncData('overview', () =>
   request<Overview>('overview'))
 
-const { REFRESH_OPTIONS, intervalMs, paused, secondsLeft, togglePaused } = useAutoRefresh(refresh)
+const { connected } = useManagementStream<Overview>('overview/stream', (snapshot) => {
+  overview.value = snapshot
+})
 
 // Peer colors from the shared settings store (single source, consistent across views).
 const { settings } = useSettings()
@@ -28,13 +30,9 @@ function serverRole(server: { source: boolean, destination: boolean }) {
     <template #header>
       <UDashboardNavbar title="Dashboard">
         <template #right>
-          <RefreshControls
-            v-model:interval-ms="intervalMs"
-            :options="REFRESH_OPTIONS"
-            :paused="paused"
-            :seconds-left="secondsLeft"
-            @toggle="togglePaused"
-          />
+          <UBadge :color="connected ? 'success' : 'warning'" variant="subtle" icon="i-ph-broadcast">
+            {{ connected ? 'Live' : 'Reconnecting…' }}
+          </UBadge>
         </template>
       </UDashboardNavbar>
     </template>

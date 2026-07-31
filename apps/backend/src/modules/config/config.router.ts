@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
 import { RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
+import { streamSnapshots } from '../../lib/sse'
 
 const idParam = z.object({ id: z.string().min(1) })
 
@@ -23,6 +24,13 @@ export function getConfigRouter(controller: ConfigController) {
   app.get('/peers', configDoc('List configured peers'), c => c.json(controller.listPeers()))
   app.get('/servers', configDoc('List configured servers'), c => c.json(controller.listServers()))
   app.get('/jack', configDoc('Get the jack block'), c => c.json(controller.getJack()))
+  app.get('/stream', describeRoute({
+    tags: ['Config'],
+    summary: 'Stream connector config',
+    description: 'Server-Sent Events stream with an initial connector snapshot and immediate updates when connector state changes.',
+    security: [{ 'X-Management-Key': [] }],
+    responses: { 200: { description: 'Live connector snapshots', content: { 'text/event-stream': {} } } },
+  }), c => streamSnapshots(c, () => controller.listConfig(), subscriber => controller.subscribe(subscriber)))
 
   // Mutation routes only exist when a ConfigService is wired in. Without one, these
   // paths are simply unregistered → 404 (rather than a 500 from an unconfigured call).

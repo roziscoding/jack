@@ -34,6 +34,8 @@ function truncateBody(body: string) {
 }
 
 export abstract class ServerConnector {
+  private readonly subscribers = new Set<() => void>()
+
   public readonly id: string
   public readonly name: string
   public readonly type: ConnectorType
@@ -78,6 +80,22 @@ export abstract class ServerConnector {
     return this._initializationError
   }
 
+  subscribe(subscriber: () => void): () => void {
+    this.subscribers.add(subscriber)
+    return () => this.subscribers.delete(subscriber)
+  }
+
+  private notifyChanged(): void {
+    for (const subscriber of this.subscribers) {
+      try {
+        subscriber()
+      }
+      catch {
+        // Observers must not affect connector state transitions.
+      }
+    }
+  }
+
   private get authHeaders() {
     const authHeader = this.authHeader
     return {
@@ -91,10 +109,12 @@ export abstract class ServerConnector {
 
   public disable() {
     this._enabled = false
+    this.notifyChanged()
   }
 
   public enable() {
     this._enabled = true
+    this.notifyChanged()
   }
 
   protected get authHeaderValue(): string {
@@ -214,6 +234,7 @@ export abstract class ServerConnector {
     // Keep an always-present handler so a rejected retry that nobody awaits
     // doesn't surface as an unhandled promise rejection.
     this._initialization.promise.catch(() => {})
+    this.notifyChanged()
 
     withSpan('server.init', {
       'connector.name': this.name,
@@ -230,11 +251,13 @@ export abstract class ServerConnector {
         this._isInitialized = true
         this._initState = 'initialized'
         this._initialization.resolve()
+        this.notifyChanged()
       })
       .catch((err: unknown) => {
         this._initializationError = err instanceof Error ? err.message : String(err)
         this._initState = 'failed'
         this._initialization.reject(err)
+        this.notifyChanged()
       })
   }
 

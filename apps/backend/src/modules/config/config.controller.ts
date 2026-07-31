@@ -33,9 +33,20 @@ function stringifyPeer(c: PeerConnector) {
 
 export class ConfigController {
   constructor(
-    private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
+    private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[], subscribe?: (subscriber: () => void) => () => void },
     private readonly configService?: ConfigService,
   ) {}
+
+  subscribe(subscriber: () => void): () => void {
+    const unsubscribers = [
+      this.connectors.subscribe?.(subscriber),
+      this.configService?.subscribe(subscriber),
+    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
+    return () => {
+      for (const unsubscribe of unsubscribers)
+        unsubscribe()
+    }
+  }
 
   // Merge the persisted, refs-intact `apiKey`/`headers` onto a serialized connector
   // so an edit form can prefill them. Refs (`{env}`/`{file}`) come straight from the

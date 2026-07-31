@@ -30,7 +30,7 @@ export function getManagementApp(params: {
   environment: string
   managementKey: string
   // The live manager (its `servers`/`peers` getters are read per request).
-  connectors: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }
+  connectors: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'], subscribe?: ConnectorManager['subscribe'] }
   configService?: ConfigService
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService

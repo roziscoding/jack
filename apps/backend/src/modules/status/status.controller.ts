@@ -36,9 +36,24 @@ export function enrichDownload(d: DownloadRecord) {
 
 export class StatusController {
   constructor(
-    private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
+    private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[], subscribe?: (subscriber: () => void) => () => void },
     private readonly downloads?: DownloadsRepository,
   ) {}
+
+  subscribeOverview(subscriber: () => void): () => void {
+    const unsubscribers = [
+      this.connectors.subscribe?.(subscriber),
+      this.downloads?.subscribe(subscriber),
+    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
+    return () => {
+      for (const unsubscribe of unsubscribers)
+        unsubscribe()
+    }
+  }
+
+  subscribeDownloads(subscriber: () => void): () => void {
+    return this.downloads?.subscribe(subscriber) ?? (() => {})
+  }
 
   /** Whether download-backed endpoints are available (a repository was injected). */
   get hasDownloads() {

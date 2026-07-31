@@ -44,6 +44,18 @@ function makeApp() {
   return { app, downloadsRepository, peer }
 }
 
+async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string): Promise<string> {
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (let i = 0; i < 50 && !buffer.includes(expected); i++) {
+    const { value, done } = await reader.read()
+    if (done)
+      break
+    buffer += decoder.decode(value, { stream: true })
+  }
+  return buffer
+}
+
 describe('Management status endpoints', () => {
   test('GET /ping returns 200 with a valid key', async () => {
     const { app } = makeApp()
@@ -142,5 +154,92 @@ describe('Management status endpoints', () => {
     const body = await res.json() as { downloads: Array<{ progress: number, totalBytes: number }> }
     expect(body.downloads[0]?.totalBytes).toBe(100)
     expect(body.downloads[0]?.progress).toBeCloseTo(0.25)
+  })
+
+  test('GET /downloads/stream pushes a new snapshot when download state changes', async () => {
+    const { app, downloadsRepository } = makeApp()
+    const ac = new AbortController()
+    const res = await app.request('/downloads/stream', { headers: KEY, signal: ac.signal })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/event-stream')
+    const reader = res.body!.getReader() as unknown as ReadableStreamDefaultReader<Uint8Array>
+
+    try {
+      const initial = await readUntil(reader, '"downloads":[]')
+      expect(initial).toContain('"downloads":[]')
+
+      downloadsRepository.create({
+        torrentFilename: 'live.torrent',
+        peerId: 'p',
+        peerName: 'Friend Jack',
+        itemId: 'movie:2',
+        filename: 'live.mkv',
+        destPath: '/tmp/live.mkv',
+        partPath: '/tmp/live.mkv.part',
+        releaseSize: 100,
+        release: { id: 'r2', title: 'live', filename: 'live.mkv', category: 2000, size: 100 } as any,
+      })
+
+      const update = await readUntil(reader, 'live.mkv')
+      expect(update).toContain('live.mkv')
+    }
+    finally {
+      await reader.cancel().catch(() => {})
+      ac.abort()
+    }
+  })
+
+  test('GET /config/stream pushes a new snapshot when connector state changes', async () => {
+    const manager = new ConnectorManager([], [{ url: 'http://peer.test:3000', apiKey: 'peer-key', name: 'Friend Jack', headers: {} }])
+    const peer = manager.peers[0]!
+    const app = getManagementApp({ environment: 'test', managementKey: 'mgmt-secret', connectors: manager })
+    const ac = new AbortController()
+    const res = await app.request('/config/stream', { headers: KEY, signal: ac.signal })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/event-stream')
+    const reader = res.body!.getReader() as unknown as ReadableStreamDefaultReader<Uint8Array>
+
+    try {
+      const initial = await readUntil(reader, 'Friend Jack')
+      expect(initial).toContain('Friend Jack')
+
+      manager.removeConnector(peer.id)
+
+      const update = await readUntil(reader, '"peers":[]')
+      expect(update).toContain('"peers":[]')
+    }
+    finally {
+      await reader.cancel().catch(() => {})
+      ac.abort()
+    }
+  })
+
+  test('GET /config/stream restores the final snapshot after a connector add rolls back', async () => {
+    const manager = new ConnectorManager([], [])
+    const app = getManagementApp({ environment: 'test', managementKey: 'mgmt-secret', connectors: manager })
+    const ac = new AbortController()
+    const res = await app.request('/config/stream', { headers: KEY, signal: ac.signal })
+    const reader = res.body!.getReader() as unknown as ReadableStreamDefaultReader<Uint8Array>
+
+    try {
+      expect(await readUntil(reader, '"peers":[]')).toContain('"peers":[]')
+
+      await expect(manager.addPeerConnector({
+        url: 'http://127.0.0.1:1',
+        apiKey: 'peer-key',
+        name: 'Unavailable peer',
+        headers: {},
+      }, { rethrowInitError: true })).rejects.toThrow()
+
+      const final = await readUntil(reader, '"peers":[]')
+      expect(final).toContain('"peers":[]')
+      expect(manager.peers).toEqual([])
+    }
+    finally {
+      await reader.cancel().catch(() => {})
+      ac.abort()
+    }
   })
 })
