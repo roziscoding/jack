@@ -1,5 +1,6 @@
 type SnapshotSubscriber = (snapshot: unknown) => void
 type ConnectionSubscriber = (connected: boolean) => void
+type AuthorizationCheck = () => Promise<void>
 
 interface SharedManagementStream {
   source: EventSource
@@ -9,8 +10,15 @@ interface SharedManagementStream {
 }
 
 const streams = new Map<string, SharedManagementStream>()
+let authorizationCheck: Promise<void> | undefined
 
-function openStream(path: string): SharedManagementStream {
+function verifyAuthorization(check: AuthorizationCheck) {
+  authorizationCheck ??= check()
+    .catch(() => {})
+    .finally(() => authorizationCheck = undefined)
+}
+
+function openStream(path: string, checkAuthorization: AuthorizationCheck): SharedManagementStream {
   const existing = streams.get(path)
   if (existing)
     return existing
@@ -47,20 +55,26 @@ function openStream(path: string): SharedManagementStream {
       }
     }
   }
-  source.onerror = () => setConnected(false)
+  source.onerror = () => {
+    setConnected(false)
+    verifyAuthorization(checkAuthorization)
+  }
   streams.set(path, stream)
   return stream
 }
 
 /** Share one management SSE connection per path while components are subscribed. */
 export function useManagementStream<T>(path: string, onSnapshot: (snapshot: T) => void) {
+  const { request } = useManagement()
   const connected = ref(false)
   let stream: SharedManagementStream | undefined
   const snapshotSubscriber: SnapshotSubscriber = snapshot => onSnapshot(snapshot as T)
   const connectionSubscriber: ConnectionSubscriber = value => connected.value = value
 
   onMounted(() => {
-    stream = openStream(path)
+    stream = openStream(path, async () => {
+      await request('ping')
+    })
     stream.snapshotSubscribers.add(snapshotSubscriber)
     stream.connectionSubscribers.add(connectionSubscriber)
     connected.value = stream.connected
