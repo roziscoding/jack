@@ -557,6 +557,77 @@ describe('ImportWatcher imported-file cleanup', () => {
     expect(repo.get(row.id)?.status).toBe('imported')
   })
 
+  // Two rows can share a destination: the in-flight duplicate guard only covers active
+  // transfers, so a re-grab that lands while the first row is still import_queued gets
+  // its own row on the same path. Whichever imports last has to do the cleanup —
+  // otherwise both defer to each other and the file outlives both rows.
+  test('defers cleanup to the last of two rows sharing a destination', async () => {
+    const repo = makeRepo()
+    const first = await queuedRowWithFile(repo, { name: 'shared.mkv' })
+    const second = repo.create({
+      torrentFilename: 't2.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath: first.destPath,
+      partPath: first.partPath,
+      releaseSize: release.size,
+      release,
+      qbSourceServer: 'My Radarr',
+      sourceServerId: 'radarr-1',
+    })
+    repo.markImportQueued(second.id)
+
+    // Only the first row's hash is in *arr history to begin with, so it imports alone.
+    const importedHashes = [HASH]
+    const server = {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(importedHashes.map(h => h.toLowerCase())),
+    } as any
+    const watcher = cleanupWatcher(repo, [server], () => true)
+
+    await watcher.tick()
+
+    // Both rows flip on the same hash, so drive them one at a time by re-reading state.
+    const imported = [first, second].filter(row => repo.get(row.id)?.status === 'imported')
+    const stillQueued = [first, second].filter(row => repo.get(row.id)?.status === 'import_queued')
+    expect(imported).toHaveLength(2)
+    expect(stillQueued).toHaveLength(0)
+    // The row that imported second saw an already-imported sibling and cleaned up.
+    expect(await Bun.file(first.destPath).exists()).toBe(false)
+  })
+
+  test('keeps the file while a row sharing the destination is still awaiting import', async () => {
+    const repo = makeRepo()
+    const importing = await queuedRowWithFile(repo, { name: 'shared.mkv' })
+    // A second row on the same path that *arr has not imported — it still needs the file.
+    const waiting = repo.create({
+      torrentFilename: 't2.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend',
+      itemId: 'movie:2',
+      filename: release.filename,
+      destPath: importing.destPath,
+      partPath: importing.partPath,
+      releaseSize: release.size,
+      release,
+      qbSourceServer: 'Other Radarr',
+      sourceServerId: 'radarr-2',
+    })
+    repo.markImportQueued(waiting.id)
+
+    // Only radarr-1 is connected, so only `importing` can flip to imported this tick.
+    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+
+    expect(await watcher.tick()).toBe(1)
+    expect(repo.get(importing.id)?.status).toBe('imported')
+    expect(repo.get(waiting.id)?.status).toBe('import_queued')
+    expect(await Bun.file(importing.destPath).exists()).toBe(true)
+  })
+
   test('never unlinks a path outside completedPath', async () => {
     const repo = makeRepo()
     const outside = await mkdtemp(join(tmpdir(), 'jack-outside-'))
