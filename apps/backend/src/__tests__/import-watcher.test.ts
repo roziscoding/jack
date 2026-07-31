@@ -1,8 +1,10 @@
 import type { ArrServerConnector, ManualImportParams } from '../lib/servers/arr/base'
 import type { DownloadsRepository } from '../modules/downloads/downloads.repository'
-import { dirname } from 'node:path'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { runMigrations } from '../database/connection'
 import * as schema from '../database/schema'
@@ -412,5 +414,172 @@ describe('ImportWatcher tracked manual imports', () => {
     await watcher.tick()
 
     expect(repo.get(row.id)).toMatchObject({ status: 'failed', error: 'episode ids could not be resolved' })
+  })
+})
+
+// `downloads.unlinkImportedFiles`: once *arr confirms the import, jack's own copy in
+// completedPath is dead weight (*arr hardlinked or copied it into the library), so the
+// watcher drops jack's link. Only ever on a confirmed import — never on a queued,
+// failed, or still-pending row.
+describe('ImportWatcher imported-file cleanup', () => {
+  let completedPath: string
+
+  beforeEach(async () => {
+    completedPath = await mkdtemp(join(tmpdir(), 'jack-unlink-'))
+  })
+
+  afterEach(async () => {
+    await rm(completedPath, { recursive: true, force: true })
+  })
+
+  // A queued row whose destPath is a real file inside the temp completedPath.
+  async function queuedRowWithFile(repo: DownloadsRepository, opts: { name?: string, mode?: 'jack_manual' } = {}) {
+    const destPath = join(completedPath, opts.name ?? 'x.mkv')
+    await Bun.write(destPath, 'payload')
+    const row = repo.create({
+      torrentFilename: 't.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath,
+      partPath: `${destPath}.part`,
+      releaseSize: release.size,
+      release,
+      qbSourceServer: 'My Radarr',
+      sourceServerId: 'radarr-1',
+      ...(opts.mode === 'jack_manual'
+        ? { importMode: 'jack_manual' as const, importTarget: { kind: 'movie' as const, movieId: 42 } }
+        : {}),
+    })
+    repo.markImportQueued(row.id)
+    return row
+  }
+
+  function cleanupWatcher(repo: DownloadsRepository, servers: ImportWatcherServer[], enabled: () => boolean) {
+    return new ImportWatcher(repo, { servers: servers as unknown as ArrServerConnector[] }, 1000, undefined, undefined, {
+      enabled,
+      completedPath,
+    })
+  }
+
+  test('unlinks the file once *arr history confirms the import', async () => {
+    const repo = makeRepo()
+    const row = await queuedRowWithFile(repo)
+    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+
+    expect(await watcher.tick()).toBe(1)
+    expect(repo.get(row.id)?.status).toBe('imported')
+    expect(await Bun.file(row.destPath).exists()).toBe(false)
+  })
+
+  test('unlinks the file once a tracked manual import command completes', async () => {
+    const repo = makeRepo()
+    const row = await queuedRowWithFile(repo, { mode: 'jack_manual' })
+    const server: ImportWatcherServer = {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(),
+      manualImport: async () => 44,
+      manualImportCommandStatus: async () => ({ state: 'completed' }),
+    }
+    const watcher = cleanupWatcher(repo, [server], () => true)
+
+    // First tick pushes the manual import, second sees the command completed.
+    await watcher.tick()
+    expect(await Bun.file(row.destPath).exists()).toBe(true)
+    await watcher.tick()
+
+    expect(repo.get(row.id)?.status).toBe('imported')
+    expect(await Bun.file(row.destPath).exists()).toBe(false)
+  })
+
+  test('keeps the file while the row is still queued, and when the import fails', async () => {
+    const repo = makeRepo()
+    const queued = await queuedRowWithFile(repo, { name: 'queued.mkv', mode: 'jack_manual' })
+    const failing = await queuedRowWithFile(repo, { name: 'failing.mkv', mode: 'jack_manual' })
+    const server: ImportWatcherServer = {
+      id: 'radarr-1',
+      name: 'My Radarr',
+      isInitialized: true,
+      recentlyImportedDownloadIds: async () => new Set(),
+      manualImport: async params => (params.paths[0] === failing.destPath ? 46 : 45),
+      manualImportCommandStatus: async commandId =>
+        (commandId === 46 ? { state: 'failed', error: 'arr rejected it' } : { state: 'pending' }),
+    }
+    const watcher = cleanupWatcher(repo, [server], () => true)
+
+    await watcher.tick()
+    await watcher.tick()
+
+    expect(repo.get(queued.id)?.status).toBe('import_queued')
+    expect(repo.get(failing.id)?.status).toBe('failed')
+    expect(await Bun.file(queued.destPath).exists()).toBe(true)
+    expect(await Bun.file(failing.destPath).exists()).toBe(true)
+  })
+
+  test('keeps the file when the option is off', async () => {
+    const repo = makeRepo()
+    const row = await queuedRowWithFile(repo)
+    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => false)
+
+    expect(await watcher.tick()).toBe(1)
+    expect(repo.get(row.id)?.status).toBe('imported')
+    expect(await Bun.file(row.destPath).exists()).toBe(true)
+  })
+
+  test('reads the option per import, so toggling it applies without a restart', async () => {
+    const repo = makeRepo()
+    const kept = await queuedRowWithFile(repo, { name: 'kept.mkv' })
+    let enabled = false
+    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => enabled)
+
+    await watcher.tick()
+    expect(await Bun.file(kept.destPath).exists()).toBe(true)
+
+    enabled = true
+    const unlinked = await queuedRowWithFile(repo, { name: 'unlinked.mkv' })
+    await watcher.tick()
+
+    expect(await Bun.file(unlinked.destPath).exists()).toBe(false)
+  })
+
+  test('leaves the row imported when the unlink fails', async () => {
+    const repo = makeRepo()
+    const row = await queuedRowWithFile(repo)
+    // A directory where the file is expected: unlink(2) fails with EISDIR/EPERM.
+    await rm(row.destPath)
+    await mkdir(row.destPath)
+    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+
+    expect(await watcher.tick()).toBe(1)
+    expect(repo.get(row.id)?.status).toBe('imported')
+  })
+
+  test('never unlinks a path outside completedPath', async () => {
+    const repo = makeRepo()
+    const outside = await mkdtemp(join(tmpdir(), 'jack-outside-'))
+    const destPath = join(outside, 'x.mkv')
+    await Bun.write(destPath, 'payload')
+    const row = repo.create({
+      torrentFilename: 't.torrent',
+      peerId: 'peer-1',
+      peerName: 'Friend',
+      itemId: 'movie:1',
+      filename: release.filename,
+      destPath,
+      partPath: `${destPath}.part`,
+      releaseSize: release.size,
+      release,
+      qbSourceServer: 'My Radarr',
+      sourceServerId: 'radarr-1',
+    })
+    repo.markImportQueued(row.id)
+    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+
+    expect(await watcher.tick()).toBe(1)
+    expect(await Bun.file(destPath).exists()).toBe(true)
+    await rm(outside, { recursive: true, force: true })
   })
 })

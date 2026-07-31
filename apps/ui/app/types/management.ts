@@ -154,6 +154,23 @@ export interface JackConfig {
   tmdbApiKey?: SecretRef | null
 }
 
+// config.downloads, exactly as persisted (null when the block is absent — downloads
+// are not configured). Every field is optional: a PATCH is merged onto the stored
+// block, so the UI only sends what it edits.
+export interface DownloadsConfig {
+  completedPath?: string
+  maxConcurrentDownloads?: number
+  maxDownloadAttempts?: number
+  retryBaseDelayMs?: number
+  retryMaxDelayMs?: number
+  idleTimeoutMs?: number
+  importPollIntervalMs?: number
+  maxManualImportAttempts?: number
+  manualImportBackoffBaseMs?: number
+  manualImportBackoffMaxMs?: number
+  unlinkImportedFiles?: boolean
+}
+
 export interface ApiKey {
   id: number
   name: string | null

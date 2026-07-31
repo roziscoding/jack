@@ -79,6 +79,11 @@ export class ConfigController {
     return this.configService?.getRawJack() ?? null
   }
 
+  /** Persisted downloads block for an edit form, or null when unset / read-only. */
+  getDownloads() {
+    return this.configService?.getRawDownloads() ?? null
+  }
+
   /** Whether mutation endpoints are available (a ConfigService was injected). */
   get canMutate() {
     return this.configService !== undefined
@@ -127,5 +132,9 @@ export class ConfigController {
 
   updateJack(input: unknown) {
     return this.mutate(s => s.updateJack(input))
+  }
+
+  updateDownloads(input: unknown) {
+    return this.mutate(s => s.updateDownloads(input))
   }
 }

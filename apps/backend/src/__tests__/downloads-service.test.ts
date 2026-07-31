@@ -43,6 +43,7 @@ function downloadsConfig(overrides: Partial<Record<string, number>> = {}) {
     maxManualImportAttempts: 6,
     manualImportBackoffBaseMs: 60_000,
     manualImportBackoffMaxMs: 1_800_000,
+    unlinkImportedFiles: false,
     ...overrides,
   }
 }

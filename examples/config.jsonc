@@ -28,7 +28,12 @@
     "maxConcurrentDownloads": 3,
     "maxDownloadAttempts": 13,
     "retryBaseDelayMs": 1000,
-    "retryMaxDelayMs": 1800000
+    "retryMaxDelayMs": 1800000,
+    // Once your *arr confirms it imported a download, drop jack's copy from
+    // completedPath (a plain unlink: if *arr hardlinked the file, the library
+    // keeps it; if it copied, only jack's copy goes). Toggleable from the
+    // management UI, and the only key here that applies without a restart.
+    "unlinkImportedFiles": false
   },
 
   // Your Radarr/Sonarr servers. apiKey is the *arr API key: exactly 32 hex

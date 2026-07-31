@@ -189,9 +189,33 @@ export const DownloadsConfig = z.object({
   maxManualImportAttempts: z.number().int().min(1).default(6),
   manualImportBackoffBaseMs: z.number().int().min(0).default(60_000),
   manualImportBackoffMaxMs: z.number().int().min(0).default(1_800_000),
+  // Once *arr has imported a download, jack's copy in completedPath is dead weight:
+  // *arr either hardlinked it into the library (so the data lives on through the
+  // library's link) or copied it. Enabling this unlinks jack's directory entry —
+  // never a recursive delete — right after a row flips to `imported`.
+  unlinkImportedFiles: z.boolean().default(false),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>
+
+// Raw downloads for persistence: a PATCH body merged onto the stored block, so every
+// field is optional and the merged result is validated through DownloadsConfig before
+// it reaches the file (see ConfigService.updateDownloads).
+export const RawDownloadsConfig = z.object({
+  completedPath: z.string().min(1).optional(),
+  maxConcurrentDownloads: z.number().int().min(1).optional(),
+  maxDownloadAttempts: z.number().int().min(1).optional(),
+  retryBaseDelayMs: z.number().int().min(0).optional(),
+  retryMaxDelayMs: z.number().int().min(0).optional(),
+  idleTimeoutMs: z.number().int().min(1000).optional(),
+  importPollIntervalMs: z.number().int().min(1000).optional(),
+  maxManualImportAttempts: z.number().int().min(1).optional(),
+  manualImportBackoffBaseMs: z.number().int().min(0).optional(),
+  manualImportBackoffMaxMs: z.number().int().min(0).optional(),
+  unlinkImportedFiles: z.boolean().optional(),
+})
+
+export type RawDownloadsConfig = z.infer<typeof RawDownloadsConfig>
 
 export const AppConfig = z.object({
   version: z.number(),

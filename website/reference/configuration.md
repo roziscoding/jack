@@ -31,6 +31,7 @@ it alone.)
 | [`downloads.maxManualImportAttempts`](#downloads-maxmanualimportattempts) | Retries before an import fails |
 | [`downloads.manualImportBackoffBaseMs`](#downloads-manualimportbackoffbasems) | Import retry backoff base |
 | [`downloads.manualImportBackoffMaxMs`](#downloads-manualimportbackoffmaxms) | Import retry backoff cap |
+| [`downloads.unlinkImportedFiles`](#downloads-unlinkimportedfiles) | Drop jack's copy after *arr imports |
 | [`servers[].name`](#servers-name) | Display name |
 | [`servers[].type`](#servers-type) | Radarr or Sonarr |
 | [`servers[].url`](#servers-url) | *arr base URL |
@@ -158,6 +159,34 @@ Base delay for the manual-import retry backoff.
 **Default:** `1800000`
 
 Upper bound for the manual-import retry backoff. The default is 30 minutes.
+
+### `downloads.unlinkImportedFiles`
+
+**Type:** `boolean`\
+**Default:** `false`
+
+Remove jack's copy of a download from `completedPath` once the *arr that grabbed
+it confirms the import. jack has no use for the file after that — it is never
+re-served or re-imported.
+
+jack calls `unlink` on that one file and nothing else, so what actually happens
+depends on how your *arr imports:
+
+- **Hardlink** (Radarr/Sonarr's default when the download and library folders
+  share a filesystem) — the library's link keeps the data alive; only jack's
+  extra directory entry disappears.
+- **Copy or move** — the library already has its own bytes, so removing jack's
+  copy just frees the space.
+
+The unlink only ever runs on an import jack has confirmed: either the
+destination *arr reports the download in its import history, or the manual
+import command jack pushed reports `completed`. Downloads that are queued,
+still importing, or failed keep their file, and a file that another download row
+still references is left alone. If the unlink fails, the download stays
+`imported` and the failure is logged.
+
+Editable from the management UI (Settings → Downloads) and applies immediately —
+unlike the other keys in this block, it does not need a restart.
 
 ## `servers`
 

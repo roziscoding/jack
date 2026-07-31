@@ -69,11 +69,18 @@ logger.info({
 
 // Detect *arr imports of finished downloads and flip them import_queued → imported.
 // Construct this before the management app so failed imports can be retried there.
-const importWatcher = config.downloads
-  ? new ImportWatcher(downloadsRepository, connectorManager, config.downloads.importPollIntervalMs, {
-      maxAttempts: config.downloads.maxManualImportAttempts,
-      backoffBaseMs: config.downloads.manualImportBackoffBaseMs,
-      backoffMaxMs: config.downloads.manualImportBackoffMaxMs,
+const downloadsConfig = config.downloads
+const importWatcher = downloadsConfig
+  ? new ImportWatcher(downloadsRepository, connectorManager, downloadsConfig.importPollIntervalMs, {
+      maxAttempts: downloadsConfig.maxManualImportAttempts,
+      backoffBaseMs: downloadsConfig.manualImportBackoffBaseMs,
+      backoffMaxMs: downloadsConfig.manualImportBackoffMaxMs,
+    }, undefined, {
+      // Read per import, from the file when the management API can rewrite it, so
+      // toggling it in the UI applies without a restart. completedPath still comes
+      // from the boot config — it's the root every unlink is confined to.
+      enabled: () => configService?.getRawDownloads()?.unlinkImportedFiles ?? downloadsConfig.unlinkImportedFiles,
+      completedPath: downloadsConfig.completedPath,
     })
   : undefined
 
