@@ -75,6 +75,10 @@ function validate(s: State): FormError[] {
   return []
 }
 
+// Every control is disabled for the duration of this call. The refresh below re-seeds
+// the form from the server's answer, which would otherwise silently discard anything
+// typed while the request was in flight — and reset the baseline with it, so the lost
+// edit wouldn't even leave the form dirty.
 async function save() {
   saving.value = true
   saveError.value = null
@@ -179,11 +183,12 @@ const importOpen = ref(false)
           description="Where jack writes finished downloads. Mount it into Radarr/Sonarr at this same path so they can import from it."
           required
         >
-          <UInput v-model="state.completedPath" placeholder="/data/torrents/completed" class="w-full font-mono" />
+          <UInput v-model="state.completedPath" :disabled="saving" placeholder="/data/torrents/completed" class="w-full font-mono" />
         </UFormField>
 
         <ConfigNumberField
           v-model="state.maxConcurrentDownloads"
+          :disabled="saving"
           name="maxConcurrentDownloads"
           label="Simultaneous transfers"
           description="How many peer downloads run at once."
@@ -198,7 +203,7 @@ const importOpen = ref(false)
           label="Unlink imported files"
           description="Once Radarr/Sonarr confirms it imported a download, remove jack's copy from the completed folder. If your *arr hardlinks, the library keeps the file and only jack's extra link goes away; if it copies, the copy is untouched. Only ever runs on a confirmed import — never on a queued or failed one."
         >
-          <USwitch v-model="state.unlinkImportedFiles" />
+          <USwitch v-model="state.unlinkImportedFiles" :disabled="saving" />
         </UFormField>
       </UCard>
 
@@ -225,6 +230,7 @@ const importOpen = ref(false)
             </p>
             <ConfigNumberField
               v-model="state.maxDownloadAttempts"
+              :disabled="saving"
               name="maxDownloadAttempts"
               label="Attempts before giving up"
               description="How many times a failing download is retried before it's marked failed."
@@ -233,6 +239,7 @@ const importOpen = ref(false)
             />
             <ConfigNumberField
               v-model="state.idleTimeoutMs"
+              :disabled="saving"
               name="idleTimeoutMs"
               label="Stall timeout"
               description="How long a transfer may receive no data before jack treats it as stalled and retries."
@@ -242,6 +249,7 @@ const importOpen = ref(false)
             />
             <ConfigNumberField
               v-model="state.retryBaseDelayMs"
+              :disabled="saving"
               name="retryBaseDelayMs"
               label="First retry delay"
               description="Starting point for the backoff between retries. Each further attempt waits longer."
@@ -250,6 +258,7 @@ const importOpen = ref(false)
             />
             <ConfigNumberField
               v-model="state.retryMaxDelayMs"
+              :disabled="saving"
               name="retryMaxDelayMs"
               label="Longest retry delay"
               description="Ceiling for that backoff."
@@ -282,6 +291,7 @@ const importOpen = ref(false)
             </p>
             <ConfigNumberField
               v-model="state.importPollIntervalMs"
+              :disabled="saving"
               name="importPollIntervalMs"
               label="Import check interval"
               description="How often jack reads each *arr's import history."
@@ -291,6 +301,7 @@ const importOpen = ref(false)
             />
             <ConfigNumberField
               v-model="state.maxManualImportAttempts"
+              :disabled="saving"
               name="maxManualImportAttempts"
               label="Import attempts before giving up"
               description="How many times jack pushes an import that *arr keeps rejecting before marking the download failed."
@@ -299,6 +310,7 @@ const importOpen = ref(false)
             />
             <ConfigNumberField
               v-model="state.manualImportBackoffBaseMs"
+              :disabled="saving"
               name="manualImportBackoffBaseMs"
               label="First import retry delay"
               description="Starting point for the backoff between those attempts."
@@ -307,6 +319,7 @@ const importOpen = ref(false)
             />
             <ConfigNumberField
               v-model="state.manualImportBackoffMaxMs"
+              :disabled="saving"
               name="manualImportBackoffMaxMs"
               label="Longest import retry delay"
               description="Ceiling for that backoff."
@@ -334,7 +347,7 @@ const importOpen = ref(false)
         <p class="mr-auto text-xs text-muted">
           Clear a field to use jack's default.
         </p>
-        <UButton v-if="dirty" label="Revert" color="neutral" variant="ghost" @click="revert" />
+        <UButton v-if="dirty" label="Revert" color="neutral" variant="ghost" :disabled="saving" @click="revert" />
         <UButton type="submit" :disabled="!dirty" :loading="saving" :label="saving ? 'Saving…' : 'Save changes'" />
       </div>
     </UForm>
