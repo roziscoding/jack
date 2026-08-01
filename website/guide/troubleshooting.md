@@ -1,5 +1,5 @@
 ---
-description: Diagnose jack connectivity, Radarr or Sonarr registration, qBittorrent client checks, downloads, imports, permissions, and peer errors.
+description: Diagnose jack connectivity, Radarr or Sonarr registration, qBittorrent client checks, downloads, imports, permissions, management UI live updates, and peer errors.
 ---
 
 # Troubleshooting
@@ -125,6 +125,28 @@ depends_on:
 
 (This needs `healthcheck` blocks on those services — the linuxserver.io images
 ship with them.)
+
+## Management UI stuck on "Reconnecting…"
+
+The Overview and Downloads pages show a **Live** badge while their
+[event stream](/guide/management-ui#live-updates) is connected. If it sits on
+**Reconnecting…** — or flips to it every few seconds — the stream is being
+closed or buffered before it reaches the browser. The pages still load; they
+just stop updating on their own.
+
+Three usual causes:
+
+- **A reverse proxy is buffering the response.** SSE only works if the proxy
+  streams bytes through. jack sends `X-Accel-Buffering: no` and the UI's BFF
+  forwards it, which nginx honours; for others turn buffering off explicitly
+  (`proxy_buffering off;` on nginx, `flush_interval = -1` on Traefik, Caddy's
+  `reverse_proxy` streams by default).
+- **The proxy's idle timeout is too short.** Streams are idle between changes,
+  with only a `ping` every 15 seconds. Give the UI route a read/idle timeout
+  well above that — 60 seconds or more.
+- **The management API is down or unreachable.** The BFF answers `503` when it
+  can't reach jack. Check `docker compose ps` and the backend logs for
+  `Management API listening`.
 
 ## Seeing what jack is doing
 
