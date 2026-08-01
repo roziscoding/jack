@@ -586,3 +586,75 @@ describe('Management API jack config', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('Management API downloads config', () => {
+  // Seed a config file that already carries a downloads block, so the partial-patch
+  // behaviour (merge onto what's stored) has something to merge onto.
+  async function withDownloadsBlock(app: ReturnType<typeof mgmtApp>, path: string) {
+    const res = await app.request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completedPath: '/downloads', maxConcurrentDownloads: 5 }),
+    })
+    expect(res.status).toBe(200)
+    return path
+  }
+
+  test('GET /config/downloads returns null when no downloads block is configured', async () => {
+    const { app } = await makeMutableApp()
+    const res = await app.request('/config/downloads', { headers: KEY })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toBeNull()
+  })
+
+  test('PATCH merges into the stored block instead of replacing it', async () => {
+    const { app, path } = await makeMutableApp()
+    await withDownloadsBlock(app, path)
+
+    const res = await app.request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unlinkImportedFiles: true }),
+    })
+    expect(res.status).toBe(200)
+
+    // The unrelated knobs survive, and only what was set is written — defaults are
+    // never baked into the file.
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { downloads: Record<string, unknown> }
+    expect(onDisk.downloads).toEqual({ completedPath: '/downloads', maxConcurrentDownloads: 5, unlinkImportedFiles: true })
+
+    const get = await app.request('/config/downloads', { headers: KEY })
+    expect(await get.json()).toMatchObject({ unlinkImportedFiles: true, maxConcurrentDownloads: 5 })
+  })
+
+  test('PATCH rejects a first patch that leaves the merged block without completedPath', async () => {
+    const { app } = await makeMutableApp()
+    const res = await app.request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unlinkImportedFiles: true }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('PATCH with a non-boolean unlinkImportedFiles returns 400', async () => {
+    const { app, path } = await makeMutableApp()
+    await withDownloadsBlock(app, path)
+
+    const res = await app.request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unlinkImportedFiles: 'yes' }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('PATCH /config/downloads is unregistered (404) without a ConfigService', async () => {
+    const res = await mgmtApp().request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unlinkImportedFiles: true }),
+    })
+    expect(res.status).toBe(404)
+  })
+})

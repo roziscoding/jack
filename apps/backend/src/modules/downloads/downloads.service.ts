@@ -4,13 +4,13 @@ import type { ManualImportTarget } from '../../lib/servers/arr/base'
 import type { PeerDownloadProgressEvent } from '../../lib/servers/peer'
 import type { DownloadOperationCoordinator } from './download-operation-coordinator'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
-import { unlink } from 'node:fs/promises'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { retry } from '../../lib/retry'
 import { Semaphore } from '../../lib/semaphore'
 import { logger } from '../../logger'
+import { unlinkDownloadArtifact } from './artifact-cleanup'
 import { coordinatorFor } from './download-operation-coordinator'
 import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
@@ -325,25 +325,11 @@ export class DownloadsService {
       if (current.status === 'downloading')
         await this.cancel(id)
 
-      const root = resolve(this.config.completedPath)
-      for (const artifact of [record.partPath, record.destPath]) {
-        const resolved = resolve(artifact)
-        const fromRoot = relative(root, resolved)
-        const isSafe = fromRoot !== '' && !fromRoot.startsWith('..') && !isAbsolute(fromRoot)
-        // Re-read ownership immediately before each unlink. A sibling that began
-        // before the path reservation was installed must keep the shared file.
-        const live = repo.get(id)
-        const stillOwned = live != null && [resolve(live.partPath), resolve(live.destPath)].includes(resolved)
-        const siblingOwns = repo.list().some(row => row.id !== id
-          && [resolve(row.destPath), resolve(row.partPath)].includes(resolved))
-        if (isSafe && stillOwned && !siblingOwns) {
-          await unlink(resolved).catch((err: unknown) => {
-            if (err instanceof Error && 'code' in err && err.code === 'ENOENT')
-              return
-            throw err
-          })
-        }
-      }
+      // unlinkDownloadArtifact re-reads ownership immediately before each unlink. A
+      // sibling that began before the path reservation was installed must keep the
+      // shared file.
+      for (const artifact of [record.partPath, record.destPath])
+        await unlinkDownloadArtifact(repo, id, artifact, this.config.completedPath)
       repo.delete(id)
     }
     if (this.coordinator)

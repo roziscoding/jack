@@ -4,7 +4,7 @@ import type { ConnectorManager } from '../../lib/servers'
 import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
-import { JackConfig, PeerConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
+import { DownloadsConfig, JackConfig, PeerConfig, RawDownloadsConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
@@ -106,6 +106,19 @@ export class ConfigService {
     if (!jack)
       return null
     return RawJackConfig.parse(jack)
+  }
+
+  /**
+   * The persisted `downloads` block, or null when the file has none (downloads are
+   * disabled). Read straight from the file — no secrets live in this block — so the
+   * management UI and the import watcher both see the current values, not the ones
+   * captured at boot.
+   */
+  getRawDownloads(): RawDownloadsConfig | null {
+    const downloads = this.raw.downloads
+    if (!downloads)
+      return null
+    return RawDownloadsConfig.parse(downloads)
   }
 
   private indexById(entries: RawEntry[], id: string): number {
@@ -280,6 +293,29 @@ export class ConfigService {
     const rawJack = RawJackConfig.parse(input)
     return this.enqueue(async () => {
       const next = { ...this.raw, jack: rawJack } as RawConfig
+      await this.persist(next)
+      this.raw = next
+    })
+  }
+
+  // ── Downloads ──────────────────────────────────────────────────────────────
+  /**
+   * Patch the `downloads` block: the body is merged onto what's stored (so a UI that
+   * knows about one toggle can't drop the other knobs), and the merged result must
+   * parse as a full DownloadsConfig — a file with no downloads block therefore
+   * requires `completedPath` in the very first patch, or this rejects with a 400.
+   *
+   * Only `unlinkImportedFiles` takes effect immediately (the import watcher reads it
+   * per import); the rest are captured at boot and land on the next restart.
+   */
+  async updateDownloads(input: unknown): Promise<void> {
+    const patch = RawDownloadsConfig.parse(input)
+    return this.enqueue(async () => {
+      const merged = { ...(this.raw.downloads ?? {}), ...patch }
+      // Validate the merged block, but persist `merged` — writing the parsed value
+      // would bake every default into the file.
+      DownloadsConfig.parse(merged)
+      const next = { ...this.raw, downloads: merged } as RawConfig
       await this.persist(next)
       this.raw = next
     })

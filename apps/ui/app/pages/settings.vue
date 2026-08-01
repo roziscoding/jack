@@ -216,6 +216,10 @@ async function confirmRevoke() {
 
         <USeparator />
 
+        <DownloadsSection />
+
+        <USeparator />
+
         <PeersSection />
 
         <USeparator />

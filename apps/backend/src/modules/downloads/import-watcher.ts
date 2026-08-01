@@ -7,6 +7,7 @@ import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { PermanentManualImportError } from '../../lib/servers/arr/base'
 import { logger } from '../../logger'
 import { deriveHash } from '../qbittorrent/qbittorrent.mapper'
+import { unlinkDownloadArtifact } from './artifact-cleanup'
 import { coordinatorFor } from './download-operation-coordinator'
 
 /**
@@ -31,6 +32,16 @@ const DEFAULT_RETRY_POLICY: ManualImportRetryPolicy = {
   backoffMaxMs: 1_800_000,
 }
 
+/**
+ * Post-import cleanup of jack's own copy in `completedPath`. `enabled` is read per
+ * import (not captured at boot) so toggling `downloads.unlinkImportedFiles` from the
+ * management API takes effect without a restart.
+ */
+export interface ImportedFileCleanup {
+  enabled: () => boolean
+  completedPath: string
+}
+
 export class ImportWatcher {
   private timer?: ReturnType<typeof setInterval>
   // Per-row manual-import trigger failures, so a persistently failing trigger (e.g.
@@ -48,8 +59,33 @@ export class ImportWatcher {
     private readonly intervalMs: number,
     private readonly retryPolicy: ManualImportRetryPolicy = DEFAULT_RETRY_POLICY,
     coordinator?: DownloadOperationCoordinator,
+    // Omitted → imported files are always kept.
+    private readonly importedFileCleanup?: ImportedFileCleanup,
   ) {
     this.coordinator = coordinator ?? coordinatorFor(repository)
+  }
+
+  /**
+   * Drop jack's copy of a just-imported download when the operator asked for it.
+   * Radarr/Sonarr owns the file from here on (hardlinked or copied into the
+   * library), so this only frees jack's directory entry — see `unlinkDownloadArtifact`.
+   *
+   * Runs inside the caller's per-row exclusive section (never takes the lock
+   * itself) and never throws: the import already succeeded, so a cleanup failure
+   * is logged and the row stays `imported`.
+   */
+  private async cleanUpImportedFile(row: DownloadRecord): Promise<void> {
+    if (!this.importedFileCleanup?.enabled())
+      return
+    try {
+      const unlinked = await unlinkDownloadArtifact(this.repository, row.id, row.destPath, this.importedFileCleanup.completedPath)
+      if (unlinked)
+        logger.info({ id: row.id, filename: row.filename, path: row.destPath }, 'Unlinked imported file')
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.warn({ id: row.id, path: row.destPath, error: message }, 'Could not unlink imported file')
+    }
   }
 
   private connectorFor(row: DownloadRecord): ArrServerConnector | undefined {
@@ -175,6 +211,7 @@ export class ImportWatcher {
         if (importedIds.has(hash)) {
           this.repository.markImported(row.id)
           logger.info({ id: row.id, filename: row.filename, server: connector.name }, 'Download imported by *arr')
+          await this.cleanUpImportedFile(row)
           return 1
         }
 
@@ -187,6 +224,7 @@ export class ImportWatcher {
             if (status.state === 'completed') {
               this.repository.markImported(row.id)
               logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId: row.manualImportCommandId }, 'Manual import command completed')
+              await this.cleanUpImportedFile(row)
               return 1
             }
             if (status.state === 'failed') {

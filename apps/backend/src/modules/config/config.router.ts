@@ -2,7 +2,7 @@ import type { ConfigController } from './config.controller'
 import { Hono } from 'hono'
 import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
-import { RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
+import { RawDownloadsConfig, RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 import { streamSnapshots } from '../../lib/sse'
 
 const idParam = z.object({ id: z.string().min(1) })
@@ -24,6 +24,7 @@ export function getConfigRouter(controller: ConfigController) {
   app.get('/peers', configDoc('List configured peers'), c => c.json(controller.listPeers()))
   app.get('/servers', configDoc('List configured servers'), c => c.json(controller.listServers()))
   app.get('/jack', configDoc('Get the jack block'), c => c.json(controller.getJack()))
+  app.get('/downloads', configDoc('Get the downloads block', 'The persisted downloads config, or null when downloads are not configured.'), c => c.json(controller.getDownloads()))
   app.get('/stream', describeRoute({
     tags: ['Config'],
     summary: 'Stream connector config',
@@ -67,6 +68,12 @@ export function getConfigRouter(controller: ConfigController) {
     // persists; internalUrl is required, apiKey optional (RawJackConfig).
     app.patch('/jack', configDoc('Update the jack block', 'Persists the new values; they take effect on next boot (no connectivity check).'), zValidator('json', RawJackConfig), async (c) => {
       return c.json(await controller.updateJack(c.req.valid('json')))
+    })
+
+    // Partial patch: the body is merged onto the stored downloads block. Every knob
+    // but `unlinkImportedFiles` is captured at boot, so those land on next restart.
+    app.patch('/downloads', configDoc('Update the downloads block', 'Merges the given fields into the stored downloads config. `unlinkImportedFiles` applies immediately; the other values take effect on next boot.'), zValidator('json', RawDownloadsConfig), async (c) => {
+      return c.json(await controller.updateDownloads(c.req.valid('json')))
     })
   }
 
