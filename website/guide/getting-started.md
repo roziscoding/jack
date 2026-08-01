@@ -95,6 +95,32 @@ step 4:
 }
 ```
 
+Worth deciding now: **jack's copy of a download outlives the import.** Radarr
+and Sonarr read the finished file out of this folder and write your library
+copy, but nothing cleans up jack's — so the folder grows with every grab. Add
+`unlinkImportedFiles` to have jack drop its copy once the import is confirmed:
+
+```jsonc
+{
+  "downloads": {
+    "completedPath": "/data/torrents/completed",
+    "unlinkImportedFiles": true
+  }
+}
+```
+
+It's off by default because it deletes files, and it's a plain `unlink` of that
+one file — if your *arr hardlinked into the library, the library keeps the data;
+if it copied, you get the space back. You can also flip it later from the
+management UI without a restart. See
+[After the import](/guide/how-it-works#after-the-import) for the full picture,
+and [`unlinkImportedFiles`](/reference/configuration#downloads-unlinkimportedfiles)
+for the exact guarantees.
+
+Every other key in this block is an optional tuning knob with a sensible
+default — see [`downloads`](/reference/configuration#downloads). All of them are
+editable later from the management UI, so you don't have to get them right here.
+
 ### `servers`
 
 One entry per Radarr/Sonarr. Set each server's URL, and reference the API keys

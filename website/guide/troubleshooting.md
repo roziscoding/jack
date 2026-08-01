@@ -126,6 +126,28 @@ depends_on:
 (This needs `healthcheck` blocks on those services — the linuxserver.io images
 ship with them.)
 
+## The completed folder keeps growing
+
+Everything imports fine, but `downloads.completedPath` never shrinks — every
+title you've ever grabbed is still sitting there.
+
+That's the default behaviour, not a bug. Importing doesn't consume the file:
+Radarr/Sonarr read it and write your library copy, and jack's copy stays put.
+Whether that costs you real space depends on your *arr — a hardlinked import
+shares bytes with the library, a copied one doesn't — but either way the folder
+fills up.
+
+**Fix:** turn on
+[`downloads.unlinkImportedFiles`](/reference/configuration#downloads-unlinkimportedfiles),
+in `config.jsonc` or from **Settings → Downloads** in the management UI. It
+applies immediately, with no restart. jack then unlinks its copy as each import
+is confirmed — safely: only on a confirmed import, only that one file, never
+your library. Details in [After the import](/guide/how-it-works#after-the-import).
+
+This only affects downloads imported **after** you enable it. Files already in
+the folder are yours to clear out — deleting the download rows from the
+management UI's Downloads page removes their files too.
+
 ## Management UI stuck on "Reconnecting…"
 
 The Overview and Downloads pages show a **Live** badge while their
