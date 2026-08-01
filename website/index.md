@@ -34,5 +34,5 @@ features:
     details: No trackers, no swarm — files transfer over plain, authenticated HTTP.
   - icon: 🖥️
     title: Web management console
-    details: Manage servers, peers, API keys, and downloads without hand-editing config files.
+    details: Manage servers, peers, API keys, and downloads without hand-editing config files — transfers and connector state update live.
 ---

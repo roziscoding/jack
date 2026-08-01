@@ -1,5 +1,5 @@
 ---
-description: Learn how jack connects Radarr and Sonarr through Torznab and qBittorrent-compatible APIs to search and transfer media between trusted peers.
+description: Learn how jack connects Radarr and Sonarr through Torznab and qBittorrent-compatible APIs to search, transfer, and import media between trusted peers, and what happens to downloaded files afterwards.
 ---
 
 # How it works
@@ -64,6 +64,8 @@ sequenceDiagram
     ARR->>JACK: GET /api/v2/torrents/info (poll progress)
     JACK-->>ARR: completed → content_path = finished file
     Note over ARR: scans completed folder, imports into library
+    JACK->>ARR: poll history — did the import land?
+    Note over JACK: confirmed → optionally unlink jack's copy
 ```
 
 1. You grab a release. Your *arr's download client is the **qBittorrent**
@@ -78,6 +80,45 @@ sequenceDiagram
 5. *arr polls jack's `/api/v2/torrents/info` for progress; once jack reports
    the torrent complete, *arr scans the completed folder and imports the file
    into your library, renamed and tracked.
+6. jack watches that *arr's history until the import is confirmed, then — if
+   you've turned it on — removes its own copy from the completed folder. See
+   [After the import](#after-the-import) below.
+
+### After the import
+
+Importing doesn't consume the file in `completedPath`. Radarr and Sonarr read
+it and write your library copy; jack's copy stays where it was, and jack has no
+further use for it — a finished download is never re-served to peers or
+re-imported.
+
+That leaves you with two on-disk outcomes, and which one you get is decided by
+your *arr, not by jack:
+
+- **Your *arr hardlinked** (its default when the completed folder and the
+  library live on the same filesystem) — the library entry and jack's copy are
+  two names for the same bytes. Nothing is duplicated, but the completed folder
+  keeps filling with entries you'll never look at.
+- **Your *arr copied or moved** (different filesystems, or hardlinks disabled) —
+  the library now holds its own bytes, and jack's copy is a genuine second copy
+  of every file you've ever grabbed. Left alone, `completedPath` grows without
+  bound.
+
+[`downloads.unlinkImportedFiles`](/reference/configuration#downloads-unlinkimportedfiles)
+is the switch for this. Turn it on and jack unlinks its copy as soon as the
+import is confirmed: in the hardlink case that just drops the redundant
+directory entry and your library is untouched, and in the copy case it frees the
+space. It's **off by default**, so an instance you set up and forget will
+accumulate.
+
+The unlink is deliberately narrow. It runs only on an import jack has confirmed
+— the destination *arr reports the download in its history, or the manual import
+jack pushed reports `completed` — so a queued, in-progress, or failed import
+keeps its file, and so does a file another download still needs. jack removes
+that one file and nothing else; it never touches your library.
+
+Flip it from **Settings → Downloads** in the [management
+UI](/guide/management-ui) or set it in `config.jsonc`. It's the one key in the
+`downloads` block that applies without a restart.
 
 ## 3. Serving — being a peer to others
 

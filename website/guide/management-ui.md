@@ -1,5 +1,5 @@
 ---
-description: Manage jack servers, peers, API keys, downloads, catalog requests, and logs from the self-hosted web management console.
+description: Manage jack servers, peers, API keys, downloads, catalog requests, and logs from the self-hosted web management console, with live updates over Server-Sent Events.
 ---
 
 # Management UI
@@ -11,11 +11,11 @@ instance without hand-editing `config.jsonc`. With the
 operate jack day to day:
 
 - **Overview** — your configured servers and peers, and whether each one
-  initialized cleanly.
+  initialized cleanly, with transfer activity updating live.
 - **Catalog** — browse everything your peers share, and request titles into
   your library.
 - **Downloads** — inspect, cancel, retry, and delete in-flight or finished
-  grabs.
+  grabs, updating live as they progress.
 - **Peers** and **Servers** — add, edit, and remove your friends and your
   Radarr/Sonarr connectors.
 - **Settings → Downloads** — the whole
@@ -27,6 +27,28 @@ operate jack day to day:
 
 Don't want it? Delete the `jack-ui` service and the backend's
 `JACK_MANAGEMENT_KEY` line to run jack headless.
+
+## Settings → Downloads
+
+The whole [`downloads`](/reference/configuration#downloads) block is editable
+here, so there's no reason to hand-edit `config.jsonc` for it:
+
+- **Completed folder**, **simultaneous transfers**, and the
+  **[drop imported files](/reference/configuration#downloads-unlinkimportedfiles)**
+  switch — the settings you actually choose — sit at the top.
+- **Transfer retries** and **import watcher** tuning are collapsed below, each
+  labelled with how many of its values you've moved off jack's defaults.
+
+Every field's placeholder is jack's default, and **clearing a field means "use
+the default"** — jack drops the key from the config file rather than storing a
+blank. `completedPath` is the exception: it has no default, so it can't be
+cleared. If your config has no `downloads` block at all, the page offers to set
+one up.
+
+One **Save** covers the form and only lights up once something changed;
+**Revert** discards your edits. `unlinkImportedFiles` takes effect the moment
+you save — **every other key here is read at startup, so restart jack** to apply
+it.
 
 ## Access control
 
@@ -59,6 +81,39 @@ separate listener the UI never touches.
 
 See [`apps/ui/README.md`](https://github.com/roziscoding/jack/blob/main/apps/ui/README.md)
 for the full UI configuration reference.
+
+## Live updates
+
+The UI doesn't poll. Overview, Downloads, and Settings each hold a
+[Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
+stream open through the BFF, and jack pushes a fresh snapshot the moment
+something changes — a transfer's progress, a connector's state, a peer or server
+you just edited. There is no refresh interval to tune and no manual refresh
+button.
+
+The streams are plain `GET` endpoints on the management API:
+
+| Stream | What it pushes |
+| --- | --- |
+| `/overview/stream` | Connector overview + download state |
+| `/downloads/stream` | Every persisted download change |
+| `/config/stream` | Peer and server config changes |
+
+Each sends its current snapshot immediately on connect, then a full snapshot per
+change — no deltas to reassemble — plus a `ping` event every 15 seconds so idle
+proxies don't drop the connection. The Logs page tails `/logs/stream`, which
+works the same way except each event is a single log line rather than a
+snapshot.
+
+The browser reconnects on its own if a stream drops; Overview and Downloads show
+a **Live** badge that flips to **Reconnecting…** while it's down.
+
+**Behind a reverse proxy:** SSE needs response buffering **off** and an idle
+timeout **longer than 15 seconds** on whatever sits in front of the UI. jack
+sends `X-Accel-Buffering: no` (nginx and compatible proxies honour it) and the
+BFF forwards that header, but proxies that buffer regardless — or cut idle
+connections early — will leave the UI stuck on **Reconnecting…**. See
+[Troubleshooting](/guide/troubleshooting#management-ui-stuck-on-reconnecting).
 
 ## Management API
 
