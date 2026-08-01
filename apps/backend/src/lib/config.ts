@@ -201,18 +201,23 @@ export type DownloadsConfig = z.infer<typeof DownloadsConfig>
 // Raw downloads for persistence: a PATCH body merged onto the stored block, so every
 // field is optional and the merged result is validated through DownloadsConfig before
 // it reaches the file (see ConfigService.updateDownloads).
+//
+// `null` on a tuning knob means "drop this key from the file" — the value goes back to
+// the schema default above, which is how the UI offers "clear a field to use the
+// default". `completedPath` is the one key with no default, so it is not nullable:
+// a downloads block without it cannot be validated.
 export const RawDownloadsConfig = z.object({
   completedPath: z.string().min(1).optional(),
-  maxConcurrentDownloads: z.number().int().min(1).optional(),
-  maxDownloadAttempts: z.number().int().min(1).optional(),
-  retryBaseDelayMs: z.number().int().min(0).optional(),
-  retryMaxDelayMs: z.number().int().min(0).optional(),
-  idleTimeoutMs: z.number().int().min(1000).optional(),
-  importPollIntervalMs: z.number().int().min(1000).optional(),
-  maxManualImportAttempts: z.number().int().min(1).optional(),
-  manualImportBackoffBaseMs: z.number().int().min(0).optional(),
-  manualImportBackoffMaxMs: z.number().int().min(0).optional(),
-  unlinkImportedFiles: z.boolean().optional(),
+  maxConcurrentDownloads: z.number().int().min(1).nullish(),
+  maxDownloadAttempts: z.number().int().min(1).nullish(),
+  retryBaseDelayMs: z.number().int().min(0).nullish(),
+  retryMaxDelayMs: z.number().int().min(0).nullish(),
+  idleTimeoutMs: z.number().int().min(1000).nullish(),
+  importPollIntervalMs: z.number().int().min(1000).nullish(),
+  maxManualImportAttempts: z.number().int().min(1).nullish(),
+  manualImportBackoffBaseMs: z.number().int().min(0).nullish(),
+  manualImportBackoffMaxMs: z.number().int().min(0).nullish(),
+  unlinkImportedFiles: z.boolean().nullish(),
 })
 
 export type RawDownloadsConfig = z.infer<typeof RawDownloadsConfig>

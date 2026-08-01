@@ -18,9 +18,10 @@ operate jack day to day:
   grabs.
 - **Peers** and **Servers** — add, edit, and remove your friends and your
   Radarr/Sonarr connectors.
-- **Settings → Downloads** — toggle
-  [`unlinkImportedFiles`](/reference/configuration#downloads-unlinkimportedfiles)
-  to drop jack's copy of a download once your *arr confirms the import.
+- **Settings → Downloads** — the whole
+  [`downloads`](/reference/configuration#downloads) block: where finished files
+  land, how many transfers run at once, whether jack drops its copy after an
+  import, and the retry and import-watcher tuning.
 - **API keys** — issue and revoke the keys you hand to peers.
 - **Logs** — live-tail the backend's logs.
 

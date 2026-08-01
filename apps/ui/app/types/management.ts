@@ -171,6 +171,13 @@ export interface DownloadsConfig {
   unlinkImportedFiles?: boolean
 }
 
+// PATCH body for config.downloads. Absent leaves the stored value alone; `null` drops
+// the key from the file so jack's default applies again (how the UI clears a field).
+// `completedPath` has no default, so it can't be cleared.
+export type DownloadsConfigPatch
+  = & { completedPath?: string }
+    & { [K in Exclude<keyof DownloadsConfig, 'completedPath'>]?: DownloadsConfig[K] | null }
+
 export interface ApiKey {
   id: number
   name: string | null

@@ -35,6 +35,28 @@ export function formatAgo(iso: string | null | undefined): string {
   return `${Math.floor(hours / 24)}d`
 }
 
+// Reads a millisecond config value back in human terms ("1800000" → "30 min").
+// Settings surfaces the raw ms — that's what the config file holds — and pairs it
+// with this so the number means something at a glance.
+export function formatDurationMs(ms: number | null | undefined): string {
+  if (ms == null || Number.isNaN(ms))
+    return ''
+  if (ms === 0)
+    return 'no delay'
+  // Round first, then drop a trailing ".0" — otherwise 59_999 ms reads "60.0 s".
+  const trim = (n: number) => {
+    const rounded = Math.round(n * 10) / 10
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  }
+  if (ms < 1000)
+    return `${ms} ms`
+  if (ms < 60_000)
+    return `${trim(ms / 1000)} s`
+  if (ms < 3_600_000)
+    return `${trim(ms / 60_000)} min`
+  return `${trim(ms / 3_600_000)} h`
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso)
     return '—'

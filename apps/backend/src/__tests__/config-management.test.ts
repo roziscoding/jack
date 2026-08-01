@@ -627,6 +627,37 @@ describe('Management API downloads config', () => {
     expect(await get.json()).toMatchObject({ unlinkImportedFiles: true, maxConcurrentDownloads: 5 })
   })
 
+  test('PATCH with null drops the key so the schema default applies again', async () => {
+    const { app, path } = await makeMutableApp()
+    await withDownloadsBlock(app, path)
+
+    const res = await app.request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maxConcurrentDownloads: null }),
+    })
+    expect(res.status).toBe(200)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { downloads: Record<string, unknown> }
+    expect(onDisk.downloads).toEqual({ completedPath: '/downloads' })
+    expect('maxConcurrentDownloads' in onDisk.downloads).toBe(false)
+  })
+
+  test('PATCH rejects clearing completedPath, which has no default to fall back to', async () => {
+    const { app, path } = await makeMutableApp()
+    await withDownloadsBlock(app, path)
+
+    const res = await app.request('/config/downloads', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completedPath: null }),
+    })
+    expect(res.status).toBe(400)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { downloads: Record<string, unknown> }
+    expect(onDisk.downloads.completedPath).toBe('/downloads')
+  })
+
   test('PATCH rejects a first patch that leaves the merged block without completedPath', async () => {
     const { app } = await makeMutableApp()
     const res = await app.request('/config/downloads', {
