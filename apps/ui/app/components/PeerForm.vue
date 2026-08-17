@@ -3,13 +3,13 @@ import type { FormError } from '@nuxt/ui'
 import type { PeerInput, PeerItem, SecretRef } from '~/types/management'
 
 const props = defineProps<{
-  initial?: PeerItem | null
+  initial?: PeerItem | PeerInput | null
   submitting?: boolean
   error?: string | null
 }>()
 const emit = defineEmits<{ submit: [PeerInput, boolean], cancel: [] }>()
 
-const editing = computed(() => Boolean(props.initial))
+const editing = computed(() => Boolean(props.initial && 'id' in props.initial))
 
 const state = reactive({
   name: props.initial?.name ?? '',

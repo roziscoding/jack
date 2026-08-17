@@ -4,7 +4,7 @@ import type { ConnectorManager } from '../../lib/servers'
 import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
-import { DownloadsConfig, JackConfig, PeerConfig, RawDownloadsConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
+import { DownloadsConfig, ExternalJackConfig, JackConfig, PeerConfig, RawDownloadsConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
@@ -106,6 +106,14 @@ export class ConfigService {
     if (!jack)
       return null
     return RawJackConfig.parse(jack)
+  }
+
+  /** Resolve the saved external access profile only when a quick link needs it. */
+  getResolvedExternalJack(): ExternalJackConfig | null {
+    const external = this.raw.jack?.external
+    if (!external)
+      return null
+    return ExternalJackConfig.parse(external)
   }
 
   /**

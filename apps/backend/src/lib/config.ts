@@ -149,6 +149,71 @@ export const RawPeerConfig = z.object({
 
 export type RawPeerConfig = z.infer<typeof RawPeerConfig>
 
+const RESERVED_EXTERNAL_HEADERS = new Set([
+  'x-api-key',
+  'host',
+  'content-length',
+  'connection',
+  'transfer-encoding',
+])
+const DANGEROUS_EXTERNAL_HEADER_NAMES = new Set(['__proto__', 'prototype', 'constructor'])
+const HTTP_HEADER_LINE_BREAK = /[\r\n]/
+
+const ExternalHeaderName = z.string()
+  .trim()
+  .min(1)
+  .regex(/^[!#$%&'*+\-.^`|~\w]+$/, 'Invalid HTTP header name')
+  .refine(name => !DANGEROUS_EXTERNAL_HEADER_NAMES.has(name.toLowerCase()), 'Dangerous HTTP header name')
+  .refine(name => !RESERVED_EXTERNAL_HEADERS.has(name.toLowerCase()), 'Reserved HTTP header')
+
+const ExternalHeaderValue = z.string()
+  .min(1)
+  .refine(value => !HTTP_HEADER_LINE_BREAK.test(value), 'HTTP header values cannot contain line breaks')
+
+const ExternalJackUrl = z.url().refine((value) => {
+  const url = new URL(value)
+  return (url.protocol === 'http:' || url.protocol === 'https:')
+    && !url.username
+    && !url.password
+}, 'External URL must use HTTP or HTTPS and cannot contain userinfo credentials')
+
+// Inspect raw keys before z.record builds its output object. In particular,
+// assigning `__proto__` onto a normal object can otherwise mutate its prototype
+// instead of surviving as an own key for the key schema to validate.
+const ExternalHeadersObject = z.unknown().superRefine((headers, ctx) => {
+  if (typeof headers !== 'object' || headers === null || Array.isArray(headers))
+    return
+  const normalizedNames = new Set<string>()
+  for (const name of Object.keys(headers)) {
+    const normalizedName = name.toLowerCase()
+    if (DANGEROUS_EXTERNAL_HEADER_NAMES.has(normalizedName))
+      ctx.addIssue({ code: 'custom', message: 'Dangerous HTTP header name' })
+    if (normalizedNames.has(normalizedName))
+      ctx.addIssue({ code: 'custom', message: 'Duplicate HTTP header name' })
+    normalizedNames.add(normalizedName)
+  }
+})
+
+const ResolvedExternalHeaders = ExternalHeadersObject.pipe(z.record(ExternalHeaderName, ConfigSecret(ExternalHeaderValue)))
+  .refine(headers => Object.keys(headers).length <= 100, 'At most 100 external headers are allowed')
+
+const RawExternalHeaders = ExternalHeadersObject.pipe(z.record(ExternalHeaderName, RawConfigSecret))
+  .refine(headers => Object.keys(headers).length <= 100, 'At most 100 external headers are allowed')
+
+export const ExternalJackConfig = z.object({
+  url: ExternalJackUrl,
+  headers: ResolvedExternalHeaders.default({}),
+})
+
+export type ExternalJackConfig = z.infer<typeof ExternalJackConfig>
+
+export const RawExternalJackConfig = z.object({
+  url: ExternalJackUrl,
+  headers: RawExternalHeaders.optional(),
+})
+
+export type RawExternalJackConfig = z.infer<typeof RawExternalJackConfig>
+
 export const JackConfig = z.object({
   internalUrl: z.url(),
   // The single "Main API key" (deprecated). Optional: a jack block can carry
@@ -157,6 +222,9 @@ export const JackConfig = z.object({
   apiKey: ConfigSecret().optional(),
   // Optional TMDB v3 API key for enriching peer catalogs with artwork/metadata.
   tmdbApiKey: ConfigSecret().optional(),
+  // How another Jack reaches this instance. Header secrets resolve only when a
+  // quick link is generated; raw refs remain intact in the persisted config.
+  external: ExternalJackConfig.optional(),
 })
 
 export type JackConfig = z.infer<typeof JackConfig>
@@ -167,6 +235,7 @@ export const RawJackConfig = z.object({
   internalUrl: z.url(),
   apiKey: RawConfigSecret.optional(),
   tmdbApiKey: RawConfigSecret.optional(),
+  external: RawExternalJackConfig.optional(),
 })
 
 export type RawJackConfig = z.infer<typeof RawJackConfig>

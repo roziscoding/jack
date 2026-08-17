@@ -24,6 +24,8 @@ const { data: tmdbStatus } = await useAsyncData('tmdb-status', () =>
 const jackSubmitting = ref(false)
 const jackError = ref<string | null>(null)
 const jackSaved = ref(false)
+const jackFormRevision = ref(0)
+const showQuickLink = ref(false)
 
 async function saveJack(input: JackConfig) {
   jackSubmitting.value = true
@@ -32,6 +34,7 @@ async function saveJack(input: JackConfig) {
   try {
     await request('config/jack', { method: 'PATCH', body: input })
     await refreshJack()
+    jackFormRevision.value++
     // jack values are captured at boot, so the change lands on next restart.
     jackSaved.value = true
   }
@@ -173,6 +176,15 @@ async function confirmRevoke() {
           title="Jack"
           description="How this instance presents itself to your *arr apps. Changes apply after a restart."
         >
+          <template #aside>
+            <UButton
+              label="Generate quick link"
+              icon="i-ph-link"
+              :disabled="!jack?.external?.url"
+              :title="jack?.external?.url ? 'Generate a credential-bearing quick link' : 'Save an external URL first'"
+              @click="() => { showQuickLink = true }"
+            />
+          </template>
           <UAlert v-if="jackLoadError" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the Jack config." />
 
           <p v-else-if="jackPending" class="flex items-center gap-2 text-sm text-muted">
@@ -181,10 +193,10 @@ async function confirmRevoke() {
           </p>
 
           <UCard v-else variant="subtle" :ui="{ body: 'space-y-4' }">
-            <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed
-                 their once-initialized local state from the resolved data. -->
+            <!-- Re-key after a successful refresh so the form and nested secret
+                 editors seed their local state from the latest refs-intact config. -->
             <JackConfigForm
-              :key="jack?.internalUrl ?? 'empty'"
+              :key="jackFormRevision"
               :initial="jack"
               :submitting="jackSubmitting"
               :error="jackError"
@@ -327,6 +339,13 @@ async function confirmRevoke() {
       />
     </template>
   </UModal>
+
+  <QuickLinkGenerateModal
+    v-if="jack?.external?.url"
+    v-model:open="showQuickLink"
+    :external-url="jack.external.url"
+    @generated="refresh"
+  />
 
   <UModal v-model:open="createdOpen" title="API key created" :ui="{ footer: 'justify-end' }">
     <template #body>

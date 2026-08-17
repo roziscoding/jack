@@ -23,6 +23,8 @@ import { getDownloadsManagementRouter } from './modules/downloads/downloads.rout
 import { logHub } from './modules/logging/log-store'
 import { LogsController } from './modules/logging/logs.controller'
 import { getLogsRouter } from './modules/logging/logs.router'
+import { QuickLinksController } from './modules/quick-links/quick-links.controller'
+import { getQuickLinksRouter } from './modules/quick-links/quick-links.router'
 import { StatusController } from './modules/status/status.controller'
 import { getStatusRouter } from './modules/status/status.router'
 
@@ -85,6 +87,9 @@ export function getManagementApp(params: {
   if (params.apiKeysRepository) {
     const apiKeysController = new ApiKeysController(params.apiKeysRepository)
     app.route('/api-keys', getApiKeysRouter(apiKeysController))
+
+    if (params.configService)
+      app.route('/quick-links', getQuickLinksRouter(new QuickLinksController(params.configService, apiKeysController)))
   }
 
   // The management API is key-guarded and serves the admin UI, so it exposes

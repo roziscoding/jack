@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import z from 'zod'
-import { ConfigSecret, migrateConfig, MIGRATIONS } from '../lib/config'
+import { ConfigSecret, ExternalJackConfig, migrateConfig, MIGRATIONS, RawExternalJackConfig } from '../lib/config'
 
 const HEX_KEY = '0123456789abcdef0123456789abcdef'
 
@@ -91,6 +91,95 @@ describe('configSecret', () => {
     const secret = ConfigSecret(z.hex().min(32).max(32))
     expect(secret.parse({ file: hexFile })).toBe(HEX_KEY)
     expect(secret.safeParse({ file: secretFile }).success).toBe(false)
+  })
+})
+
+describe('external Jack config', () => {
+  const savedEnv = { ...process.env }
+
+  beforeEach(() => {
+    process.env.CF_ACCESS_ID = 'resolved-client-id'
+  })
+
+  afterEach(() => {
+    process.env = { ...savedEnv }
+  })
+
+  test('resolves ConfigSecret headers for quick-link generation', () => {
+    expect(ExternalJackConfig.parse({
+      url: 'https://jack.example.com',
+      headers: {
+        'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
+        'CF-Access-Client-Secret': 'literal-secret',
+      },
+    })).toEqual({
+      url: 'https://jack.example.com',
+      headers: {
+        'CF-Access-Client-Id': 'resolved-client-id',
+        'CF-Access-Client-Secret': 'literal-secret',
+      },
+    })
+  })
+
+  test('preserves ConfigSecret refs in the raw schema', () => {
+    expect(RawExternalJackConfig.parse({
+      url: 'https://jack.example.com',
+      headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
+      ignored: true,
+    })).toEqual({
+      url: 'https://jack.example.com',
+      headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
+    })
+  })
+
+  test.each(['X-Api-Key', 'Host', 'Content-Length', 'Connection', 'Transfer-Encoding'])(
+    'rejects the reserved header %s',
+    (header) => {
+      expect(RawExternalJackConfig.safeParse({
+        url: 'https://jack.example.com',
+        headers: { [header]: 'unsafe' },
+      }).success).toBe(false)
+    },
+  )
+
+  test('rejects non-HTTP external URLs', () => {
+    expect(RawExternalJackConfig.safeParse({ url: 'file:///etc/passwd' }).success).toBe(false)
+  })
+
+  test.each([
+    'https://user@jack.example.com',
+    'https://user:password@jack.example.com',
+  ])('rejects external URLs containing userinfo credentials: %s', (url) => {
+    expect(ExternalJackConfig.safeParse({ url }).success).toBe(false)
+    expect(RawExternalJackConfig.safeParse({ url }).success).toBe(false)
+  })
+
+  test('rejects external header values containing line breaks', () => {
+    expect(ExternalJackConfig.safeParse({
+      url: 'https://jack.example.com',
+      headers: { Authorization: 'safe\r\nInjected: value' },
+    }).success).toBe(false)
+  })
+
+  test.each(['constructor', 'prototype', '__proto__'])(
+    'rejects the dangerous external header name %s',
+    (header) => {
+      const headers = Object.create(null) as Record<string, string>
+      headers[header] = 'value'
+      expect(ExternalJackConfig.safeParse({ url: 'https://jack.example.com', headers }).success).toBe(false)
+    },
+  )
+
+  test('rejects more headers than the quick-link decoder accepts', () => {
+    const headers = Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`X-Test-${index}`, 'value']))
+    expect(ExternalJackConfig.safeParse({ url: 'https://jack.example.com', headers }).success).toBe(false)
+    expect(RawExternalJackConfig.safeParse({ url: 'https://jack.example.com', headers }).success).toBe(false)
+  })
+
+  test('rejects case-insensitive duplicate external header names', () => {
+    const headers = { Authorization: 'first', authorization: 'second' }
+    expect(ExternalJackConfig.safeParse({ url: 'https://jack.example.com', headers }).success).toBe(false)
+    expect(RawExternalJackConfig.safeParse({ url: 'https://jack.example.com', headers }).success).toBe(false)
   })
 })
 

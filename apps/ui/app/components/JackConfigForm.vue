@@ -15,13 +15,28 @@ const state = reactive({
   internalUrl: props.initial?.internalUrl ?? '',
   apiKey: (props.initial?.apiKey ?? null) as SecretRef | null,
   tmdbApiKey: (props.initial?.tmdbApiKey ?? null) as SecretRef | null,
+  externalUrl: props.initial?.external?.url ?? '',
+  externalHeaders: { ...(props.initial?.external?.headers ?? {}) } as Record<string, SecretRef>,
 })
 
 // internalUrl is the only required field; the Main API key is optional/clearable.
 function validate(s: typeof state): FormError[] {
+  const errors: FormError[] = []
   if (!s.internalUrl.trim())
-    return [{ name: 'internalUrl', message: 'Enter the internal URL.' }]
-  return []
+    errors.push({ name: 'internalUrl', message: 'Enter the internal URL.' })
+  if (!s.externalUrl.trim() && Object.keys(s.externalHeaders).length)
+    errors.push({ name: 'externalUrl', message: 'Enter the external URL for these headers.' })
+  if (s.externalUrl.trim()) {
+    try {
+      const url = new URL(s.externalUrl)
+      if (!['http:', 'https:'].includes(url.protocol))
+        errors.push({ name: 'externalUrl', message: 'Use an HTTP or HTTPS URL.' })
+    }
+    catch {
+      errors.push({ name: 'externalUrl', message: 'Enter a valid external URL.' })
+    }
+  }
+  return errors
 }
 
 function onSubmit() {
@@ -31,6 +46,12 @@ function onSubmit() {
     input.apiKey = state.apiKey
   if (state.tmdbApiKey)
     input.tmdbApiKey = state.tmdbApiKey
+  if (state.externalUrl.trim()) {
+    input.external = {
+      url: state.externalUrl.trim(),
+      ...(Object.keys(state.externalHeaders).length ? { headers: state.externalHeaders } : {}),
+    }
+  }
   emit('submit', input)
 }
 </script>
@@ -57,6 +78,24 @@ function onSubmit() {
       <SecretInput v-model="state.tmdbApiKey" :editing="editing" />
       <template #help>
         <span>Enables artwork and metadata when browsing peer catalogs. Applies after a restart.</span>
+      </template>
+    </UFormField>
+
+    <USeparator label="External access" />
+
+    <UFormField
+      name="externalUrl"
+      label="External URL"
+      hint="Optional"
+      description="The URL another Jack should use to reach this instance. Required before generating a quick link."
+    >
+      <UInput v-model="state.externalUrl" placeholder="https://jack.example.com" class="w-full" />
+    </UFormField>
+
+    <UFormField label="External headers" hint="Optional">
+      <HeadersEditor v-model="state.externalHeaders" />
+      <template #help>
+        <span>Proxy credentials such as Cloudflare Access headers. Prefer environment or file refs over literal values.</span>
       </template>
     </UFormField>
 
