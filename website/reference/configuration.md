@@ -112,8 +112,8 @@ Cloudflare Access service tokens and the like. They're copied into the quick
 link so your friend doesn't have to configure them by hand, landing in their
 config as [`peers[].headers`](#peers-headers).
 
-Values are resolved **only when a link is generated**, so `env` and `file`
-references stay as references in your config file. Reserved headers
+Values are resolved when the profile is saved and when a link is generated,
+while `env` and `file` references remain references in your config file. Reserved headers
 (`X-Api-Key`, `Host`, `Content-Length`, `Connection`, `Transfer-Encoding`),
 duplicate names, and values with line breaks are rejected; at most 100 headers.
 
