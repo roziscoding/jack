@@ -7,11 +7,11 @@ description: Connect jack instances securely, exchange scoped peer API keys, and
 jack authenticates each external surface by **key type**, so a credential only
 works where it's meant to (`/ping` is the only unauthenticated route):
 
-- **Peer API keys.** Issued per peer from the management UI's *API keys* section
-  (or the management API, or implicitly when you generate a
-  [quick link](/guide/quick-links)) — named, revocable, and optionally expiring.
-  Scoped to the **peer API** (`/handshake`, `/peer/*`): a peer key **cannot**
-  query your Torznab indexer or act as your download client.
+- **Peer API keys.** Issued per peer from the management UI's ***API keys***
+  section, from the management API, or implicitly when you generate a
+  [quick link](/guide/quick-links). They are named, revocable, and optionally
+  expiring. Scoped to the **peer API** (`/handshake`, `/peer/*`): a peer key
+  **cannot** query your Torznab indexer or act as your download client.
 - **Managed keys.** jack mints these automatically and registers them in your
   Radarr/Sonarr when it auto-registers as their indexer + download client.
   Scoped to the ***arr surface** (`/torznab`, the qBittorrent API); you never
@@ -26,13 +26,26 @@ So keys flow in two directions:
 
 ## Sharing with friends (peering)
 
-Peering is symmetric — you each run jack and exchange two things: a URL where
-the other instance can reach your peer API and a **peer API key**. This public
-or LAN-reachable peer URL is independent of `jack.internalUrl`, which is the
+Peering is symmetric. You each run jack and exchange a URL where the other
+instance can reach your peer API, plus a **peer API key**. This public or
+LAN-reachable peer URL is independent of `jack.internalUrl`, which is the
 address your own Radarr/Sonarr use to reach jack.
 
+### With a quick link
+
+The easiest way to do that exchange is a [quick link](/guide/quick-links):
+generate one in the management UI and send it to your friend, who pastes it into
+theirs. The link carries your peer URL, a peer API key issued on the spot, and
+any proxy headers needed to reach you, so neither of you types a credential by
+hand.
+
+### By hand
+
+You can also exchange the two values yourself, which is what a quick link
+automates:
+
 - **You give a friend** your reachable peer URL plus a peer API key you issue
-  them (management UI → *API keys*). They add you under `peers` in *their*
+  them (management UI, ***API keys***). They add you under `peers` in *their*
   config:
 
   ```jsonc
@@ -45,18 +58,13 @@ address your own Radarr/Sonarr use to reach jack.
 
 - **They give you** theirs, and you add them the same way in your config.
 
-After that, each side's Radarr/Sonarr can find and pull media the other has.
-
-::: tip Skip the copy-paste
-[Quick links](/guide/quick-links) package the URL, a freshly issued key, and any
-proxy headers into one string your friend pastes into their management UI. Same
-peering, fewer things to get wrong.
-:::
+Either way, each side's Radarr/Sonarr can then find and pull media the other
+has.
 
 ::: tip One key per peer
-Issue a **separate key per peer**. Each is scoped to the peer API — it can't
-reach your indexer or download client — and can be revoked individually without
-disrupting your other peers.
+Issue a **separate key per peer**. Each one is scoped to the peer API, so it
+can't reach your indexer or download client, and each can be revoked
+individually without disrupting your other peers.
 :::
 
 ::: warning Use HTTPS for peer URLs

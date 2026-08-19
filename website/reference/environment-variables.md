@@ -4,7 +4,7 @@ description: Reference jack environment variables for ports, configuration paths
 
 # Environment variables
 
-All variables are optional — jack boots with sensible defaults for a Docker
+All variables are optional; jack boots with sensible defaults for a Docker
 setup. They configure the backend process; for the management UI's own
 variables, see [`apps/ui/README.md`](https://github.com/roziscoding/jack/blob/main/apps/ui/README.md).
 
@@ -79,7 +79,7 @@ headless.
 **Type:** `integer`\
 **Default:** `5226`
 
-Port for the management API listener — separate from `PORT` so the peer-facing
+Port for the management API listener, separate from `PORT` so the peer-facing
 port never exposes management. Only used when a management key is set.
 
 ## Logging
@@ -89,8 +89,8 @@ port never exposes management. Only used when a management key is set.
 **Type:** `"trace" | "debug" | "info" | "warn" | "error" | "fatal"`\
 **Default:** `"info"`
 
-Minimum level to log. `trace` also logs every HTTP request — method, path,
-response status, and duration — as it completes.
+Minimum level to log. `trace` also logs every HTTP request as it completes,
+with method, path, response status, and duration.
 
 ### `ENABLE_LOGS`
 

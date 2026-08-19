@@ -10,8 +10,8 @@ the file doesn't exist, jack writes a default one on first boot. Copy
 [`examples/config.jsonc`](https://github.com/roziscoding/jack/blob/main/examples/config.jsonc)
 as a starting point.
 
-The `jack` block is required. `downloads`, `servers`, and `peers` are optional —
-configure only what you need for what you're doing. (A top-level `version`
+The `jack` block is required. `downloads`, `servers`, and `peers` are optional,
+so configure only what you need for what you're doing. (A top-level `version`
 number also appears in the file; jack manages it for config migrations, so leave
 it alone.)
 
@@ -57,11 +57,11 @@ This instance's identity. Required.
 **Type:** `string` · **Required**\
 **Format:** URL
 
-URL your own *arr apps use to reach jack — the address jack registers for its
+URL your own *arr apps use to reach jack, and the address jack registers for its
 Torznab indexer and qBittorrent download client. Must be resolvable **from the
 Radarr/Sonarr side**: on a shared Docker network use the container name
-(`http://jack:5225`); otherwise the host IP/domain. Peers never use this URL —
-they use whatever you hand them (see [API keys & peering](/guide/peering)).
+(`http://jack:5225`); otherwise the host IP/domain. Peers never use this URL.
+They use whatever you hand them (see [API keys & peering](/guide/peering)).
 
 ### `jack.tmdbApiKey`
 
@@ -74,12 +74,12 @@ with artwork and metadata.
 
 **Type:** `object`
 
-How *another* jack reaches this instance — the profile jack encodes into the
+How *another* jack reaches this instance, and the profile jack encodes into the
 [quick links](/guide/quick-links) you generate. Optional: without it, peering
 still works, you just hand out the URL and key by hand.
 
-Edit it from the management UI (**Settings → Quick linking**), which writes this
-block through its own endpoints so the rest of `jack` is left untouched.
+Edit it from the management UI (***Settings -> Quick linking***), which writes
+this block through its own endpoints so the rest of `jack` is left untouched.
 
 ### `jack.external.instanceName`
 
@@ -96,7 +96,7 @@ body instead.
 **Type:** `string` · **Required**\
 **Format:** `http`/`https` URL, no embedded `user:password@` credentials
 
-The URL a peer should use to reach this instance — what ends up in the `url`
+The URL a peer should use to reach this instance, and what ends up in the `url`
 field of every quick link you generate. Distinct from
 [`jack.internalUrl`](#jack-internalurl), which is for your own *arr apps. Use
 `https://`: the peer's API key travels in a request header.
@@ -104,26 +104,28 @@ field of every quick link you generate. Distinct from
 ### `jack.external.headers`
 
 **Type:** `object`\
-**Content:** header name → [`ConfigSecret`](#configsecret) value\
+**Content:** header name -> [`ConfigSecret`](#configsecret) value\
 **Default:** `{}`
 
-Extra headers a peer must send to get through whatever sits in front of you —
-Cloudflare Access service tokens and the like. They're copied into the quick
-link so your friend doesn't have to configure them by hand, landing in their
-config as [`peers[].headers`](#peers-headers).
+Extra headers a peer must send to get through whatever sits in front of you,
+such as Cloudflare Access service tokens. They're copied into the quick link so
+your friend doesn't have to configure them by hand, landing in their config as
+[`peers[].headers`](#peers-headers).
 
 Values are resolved when the profile is saved and when a link is generated,
-while `env` and `file` references remain references in your config file. Reserved headers
-(`X-Api-Key`, `Host`, `Content-Length`, `Connection`, `Transfer-Encoding`),
-duplicate names, and values with line breaks are rejected; at most 100 headers.
+while `env` and `file` references remain references in your config file.
+Reserved headers (`X-Api-Key`, `Host`, `Content-Length`, `Connection`,
+`Transfer-Encoding`), duplicate names, and values with line breaks are rejected;
+at most 100 headers.
 
 ## `downloads`
 
-Needed to **consume** (download) from peers — jack only registers itself as a
-qBittorrent download client when this block is present. Everything except
+Needed to **consume** (download) from peers, since jack only registers itself as
+a qBittorrent download client when this block is present. Everything except
 `completedPath` is an optional tuning knob with a sensible default.
 
-Every key here is also editable from the management UI (Settings → Downloads).
+Every key here is also editable from the management UI
+(***Settings -> Downloads***).
 Clearing a field there removes the key from the file, so the default below
 applies again. Only `unlinkImportedFiles` takes effect immediately; the rest are
 read at startup, so restart jack after changing them.
@@ -135,8 +137,8 @@ read at startup, so restart jack after changing them.
 
 Where jack writes finished downloads. The path is inside jack's container; jack
 creates it if missing. It must also be mounted into your **Radarr and Sonarr**
-containers at the **same path** — *arr resolves it in its own filesystem to
-import finished files (see the callout in
+containers at the **same path**, because *arr resolves it in its own filesystem
+to import finished files (see the callout in
 [Getting started](/guide/getting-started)).
 
 ### `downloads.maxConcurrentDownloads`
@@ -196,8 +198,8 @@ which finished downloads were imported.
 **Default:** `6`
 
 When a manual import trigger keeps failing (e.g. *arr returns 500 because the
-title's library folder is missing), jack backs off between attempts and gives
-up — marking the download failed — after this many attempts.
+title's library folder is missing), jack backs off between attempts and marks
+the download failed after this many attempts.
 
 ### `downloads.manualImportBackoffBaseMs`
 
@@ -221,16 +223,16 @@ Upper bound for the manual-import retry backoff. The default is 30 minutes.
 **Default:** `false`
 
 Remove jack's copy of a download from `completedPath` once the *arr that grabbed
-it confirms the import. jack has no use for the file after that — it is never
-re-served or re-imported.
+it confirms the import. jack has no use for the file after that, since it is
+never re-served or re-imported.
 
 jack calls `unlink` on that one file and nothing else, so what actually happens
 depends on how your *arr imports:
 
 - **Hardlink** (Radarr/Sonarr's default when the download and library folders
-  share a filesystem) — the library's link keeps the data alive; only jack's
+  share a filesystem): the library's link keeps the data alive, and only jack's
   extra directory entry disappears.
-- **Copy or move** — the library already has its own bytes, so removing jack's
+- **Copy or move**: the library already has its own bytes, so removing jack's
   copy just frees the space.
 
 The unlink only ever runs on an import jack has confirmed: either the
@@ -240,8 +242,8 @@ still importing, or failed keep their file, and a file that another download row
 still references is left alone. If the unlink fails, the download stays
 `imported` and the failure is logged.
 
-Editable from the management UI (Settings → Downloads) and applies immediately —
-unlike the other keys in this block, it does not need a restart.
+Editable from the management UI (***Settings -> Downloads***) and applies
+immediately. Unlike the other keys in this block, it does not need a restart.
 
 ## `servers`
 
@@ -272,12 +274,12 @@ Base URL of the *arr server, reachable from jack.
 **Type:** [`ConfigSecret`](#configsecret) · **Required**\
 **Format:** resolves to exactly 32 hexadecimal characters
 
-The Radarr/Sonarr API key (Settings → General).
+The Radarr/Sonarr API key (***Settings -> General***).
 
 ### `servers[].headers`
 
 **Type:** `object`\
-**Content:** header name → [`ConfigSecret`](#configsecret) value\
+**Content:** header name -> [`ConfigSecret`](#configsecret) value\
 **Default:** `{}`
 
 Extra HTTP headers sent to this server, for reverse proxies or access layers
@@ -307,8 +309,8 @@ into it.
 Controls the indexer/download-client registration jack performs in destination
 servers on startup.
 
-- **`enable`** — set `false` to register jack in that *arr yourself.
-- **`priority`** — indexer priority in *arr (lower = preferred). The
+- **`enable`**: set `false` to register jack in that *arr yourself.
+- **`priority`**: indexer priority in *arr (lower = preferred). The
   qBittorrent download client is always registered at *arr's lowest priority
   (50): *arr's general client pool only round-robins among the best-priority
   group, so torrents grabbed from your other indexers never get routed to
@@ -318,7 +320,7 @@ servers on startup.
 
 ## `peers`
 
-Other jack instances (friends) you consume from. Sources only — sharing back is
+Other jack instances (friends) you consume from. Sources only; sharing back is
 configured on *their* side.
 
 ### `peers[].name`
@@ -332,7 +334,7 @@ Display name, used in logs, health output, and search results.
 **Type:** `string` · **Required**\
 **Format:** URL
 
-The reachable peer URL your friend gave you. Use `https://` — the API key
+The reachable peer URL your friend gave you. Use `https://`, since the API key
 travels in a request header, and jack logs a startup warning for `http://`
 peers.
 
@@ -346,10 +348,10 @@ The peer API key that friend issued *you* (see
 ### `peers[].headers`
 
 **Type:** `object`\
-**Content:** header name → [`ConfigSecret`](#configsecret) value\
+**Content:** header name -> [`ConfigSecret`](#configsecret) value\
 **Default:** `{}`
 
-Extra HTTP headers sent to this peer — same semantics as
+Extra HTTP headers sent to this peer, with the same semantics as
 [`servers[].headers`](#servers-headers), e.g. Cloudflare Access service tokens.
 
 ## `ConfigSecret`

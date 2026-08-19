@@ -26,8 +26,8 @@ The standard deployment: the jack backend plus the management UI.
 
 ## `config.jsonc`
 
-The configuration template — see the
-[configuration reference](/reference/configuration) for every key.
+The configuration template. The
+[configuration reference](/reference/configuration) documents every key.
 
 <<< ../../examples/config.jsonc{jsonc}
 
