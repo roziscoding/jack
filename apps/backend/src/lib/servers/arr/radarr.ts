@@ -200,9 +200,13 @@ export class RadarrServerConnector extends ArrServerConnector {
       throw new BadRequestError(`Radarr cannot import a "${params.target.kind}" target`)
     const { movieId } = params.target
 
+    // No movieId here: Radarr's controller short-circuits on it and lists the files
+    // already in the movie's library folder, ignoring `folder` entirely (and blowing
+    // up with DirectoryNotFoundException when that folder doesn't exist yet, which is
+    // always the case before a first import). The movieId belongs on the command
+    // payload below, which is what actually maps the files to the movie.
     const candidates = await this.arrGet<ManualImportCandidate[]>('/api/v3/manualimport', {
       folder: params.folder,
-      movieId: String(movieId),
       filterExistingFiles: 'false',
     })
     const wanted = new Set(params.paths)

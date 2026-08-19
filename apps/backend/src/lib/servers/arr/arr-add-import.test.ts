@@ -135,13 +135,17 @@ describe('RadarrServerConnector.add', () => {
 })
 
 describe('RadarrServerConnector.manualImport', () => {
-  test('imports only the file matching params.paths, carrying movieId/downloadId/quality/languages', async () => {
+  test('discovers candidates without movieId and imports only the file matching params.paths', async () => {
     let commandBody: unknown = null
+    const manualImportUrls: string[] = []
     server.use(
-      http.get(`${RADARR_URL}/api/v3/manualimport`, () => HttpResponse.json([
-        { path: '/downloads/Movie.mkv', quality: { quality: { id: 7 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP' },
-        { path: '/downloads/Other.mkv', quality: { quality: { id: 3 } }, languages: [{ id: 2, name: 'French' }], releaseGroup: 'X' },
-      ])),
+      http.get(`${RADARR_URL}/api/v3/manualimport`, ({ request }) => {
+        manualImportUrls.push(request.url)
+        return HttpResponse.json([
+          { path: '/downloads/Movie.mkv', quality: { quality: { id: 7 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP' },
+          { path: '/downloads/Other.mkv', quality: { quality: { id: 3 } }, languages: [{ id: 2, name: 'French' }], releaseGroup: 'X' },
+        ])
+      }),
       http.post(`${RADARR_URL}/api/v3/command`, async ({ request }) => {
         commandBody = await request.json()
         return HttpResponse.json({ id: 1 })
@@ -157,6 +161,12 @@ describe('RadarrServerConnector.manualImport', () => {
     })
 
     const body = CommandBody.parse(commandBody)
+    const manualImportQuery = new URL(manualImportUrls[0]!).searchParams
+    // Radarr ignores `folder` when movieId is set, scanning the (not yet existing)
+    // library folder instead of the download folder.
+    expect(manualImportQuery.get('movieId')).toBeNull()
+    expect(manualImportQuery.get('folder')).toBe('/downloads')
+    expect(manualImportQuery.get('filterExistingFiles')).toBe('false')
     expect(commandId).toBe(1)
     expect(body.name).toBe('ManualImport')
     expect(body.importMode).toBe('move')
