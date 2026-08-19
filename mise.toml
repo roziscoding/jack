@@ -6,6 +6,5 @@ APP_CONFIG_PATH = "./config.jsonc"
 
 [settings]
 color_theme = "catppuccin"
-task_output = "quiet"
 
 npm.package_manager = "bun"
