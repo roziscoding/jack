@@ -4,17 +4,16 @@ description: Share a jack instance with a friend by generating a single quick li
 
 # Quick links
 
-Peering by hand means copying three things into your friend's config: your peer
-URL, an API key you issued them, and — if you sit behind an authenticating proxy
-— whatever headers that proxy demands. A **quick link** bundles all of it into
-one string you paste into a chat window:
+A quick link is one string carrying everything a friend needs to add you as a
+peer: your peer URL, an API key issued for them, and any headers your proxy
+requires.
 
 ```
-jack-link:v1:eyJ2IjoxLCJ0eXBlIjoicGVlciIsIm5hbWUiOiJSb3rigJlzIEphY2siLCJ1cmwiOi…
+jack-link:v1:eyJ2IjoxLCJ0eXBlIjoicGVlciIsIm5hbWUiOiJSb3oncyBKYWNrIiwidXJsIjoi...
 ```
 
-The friend pastes it into their management UI, reviews the decoded fields, and
-saves the peer. No key typed by hand, no URL typo, no forgotten header.
+They paste it into their management UI, review the decoded fields, and save the
+peer.
 
 ::: danger A quick link is a credential
 The link **contains a working API key in plain text**. Anyone who gets it can
@@ -24,100 +23,107 @@ a channel you trust and never paste one into a public issue, gist, or forum.
 
 ## Set up quick linking
 
-Generating links needs one thing configured first: how another jack reaches
-*this* instance. That lives in the `jack.external` block, editable from
-**Settings → Quick linking** in the [management UI](/guide/management-ui):
+Generating links requires a `jack.external` profile, editable under
+***Settings -> Quick linking*** in the [management UI](/guide/management-ui):
 
-- **Instance name** — the peer name suggested to whoever imports your link
-  (they can change it before saving).
-- **External URL** — the URL a peer should use to reach you, e.g.
-  `https://jack.example.com`. This is *not* [`jack.internalUrl`](/reference/configuration#jack-internalurl),
-  which is the address your own Radarr/Sonarr use. HTTP and HTTPS only, and no
-  `user:password@` credentials embedded in the URL.
-- **External headers** — optional headers a peer must send to get through your
+- **Instance name**: the peer name suggested to whoever imports your link. They
+  can change it before saving.
+- **External URL**: the URL a peer uses to reach you, e.g.
+  `https://jack.example.com`. HTTP and HTTPS only, with no `user:password@`
+  credentials embedded.
+- **External headers**: optional headers a peer must send to get through your
   proxy, such as Cloudflare Access service tokens. Each value is a
   [`ConfigSecret`](/reference/configuration#configsecret), so prefer an `env` or
   `file` reference over a literal.
 
-Save it once; the profile is reused for every link you generate. See
-[`jack.external`](/reference/configuration#jack-external) for the full schema.
+Every link you generate reuses the saved profile. Full schema:
+[`jack.external`](/reference/configuration#jack-external).
 
 ::: tip Use HTTPS
-The API key in a quick link — and in every request the peer later makes — is
-carried in a header. An `http://` external URL exposes it to anything on the
-path, and jack warns at startup about peers configured over plain HTTP.
+The API key in a quick link, and in every request the peer later makes, travels
+in a header. An `http://` external URL exposes it to anything on the path, and
+jack warns at startup about peers configured over plain HTTP.
+:::
+
+::: warning Internal and external URLs are not the same
+[`jack.internalUrl`](/reference/configuration#jack-internalurl) is the address
+your own Radarr/Sonarr use to reach jack. Putting it in the external URL hands
+peers an address that only resolves on your side.
 :::
 
 ## Generate a link
 
-**Settings → Quick linking → Generate quick link** asks for:
+***Settings -> Quick linking -> Generate quick link*** asks for:
 
-- **Suggested peer name** — how you'll show up in your friend's peer list,
-  prefilled from your instance name.
-- **Key name** and an optional **description** — how *you'll* identify this
-  credential later, so you know which link to revoke.
+- **Suggested peer name**: prefilled from your instance name, this is how you
+  show up in your friend's peer list.
+- **Key name** and an optional **description**: how you identify this credential
+  later when you need to revoke it.
 
-On submit, jack resolves your external profile, **issues a brand-new peer API
-key**, and returns the encoded link.
+On submit, jack resolves the external profile, **issues a new peer API key**,
+and returns the encoded link.
 
-The plaintext link is shown **once**, in that dialog. Close it and the key is
-gone from the UI — the same one-time reveal as any other
-[peer API key](/guide/peering). Copy it before you close, and generate a fresh
-link if you lose it.
+The plaintext link appears **once**, in that dialog. Closing it discards the key
+from the UI, the same one-time reveal as any other
+[peer API key](/guide/peering). Copy it before closing; if you lose it, generate
+a fresh link.
 
 ::: tip One link per friend
-Every generated link carries its own key, so revoking one friend's access —
-**Settings → API keys**, find the key by the name you gave it, revoke — leaves
+Every generated link carries its own key, so revoking one friend's access leaves
 everyone else connected. Never reuse one link for two people.
 :::
 
 ## Import a link
 
-On the receiving side: **Settings → Quick linking → Add via quick link**, paste,
-and hit **Review peer**. jack decodes the link and opens the normal *Add peer*
-form with the name, URL, key, and headers filled in. Nothing is saved until you
-review the fields and submit, so you can rename the peer or check where the URL
-actually points first.
+***Settings -> Quick linking -> Add via quick link*** takes the pasted link and
+opens the normal ***Add peer*** form with the name, URL, key, and headers
+filled in.
+Nothing is saved until you submit, so you can rename the peer or check where
+the URL points first.
 
-A link that fails to decode is rejected outright — bad prefix, corrupt payload,
-a non-HTTP URL, or a header the format doesn't allow. jack won't half-import it.
+A link that fails any of the [format checks](#link-format) is rejected outright,
+instead of half-filling the form.
 
 ## Revoking access
 
-A quick link is only as live as the key inside it. Revoke that key in
-**Settings → API keys** and the link stops working immediately, for whoever
-holds it. That's the whole reason each link gets its own key: the name and
-description you set at generation time are how you find the right one later.
+Revoke the key under ***Settings -> API keys*** and the link stops working
+immediately. Find it by the name you gave it at generation time.
 
-Removing the `jack.external` block (**Remove configuration** in the Quick
-linking section) only stops you from generating *new* links — links already out
+Removing the `jack.external` block (***Remove configuration*** in the
+***Quick linking*** section) only stops you from generating *new* links. Links already out
 there keep working until their keys are revoked.
 
-## What's inside a link
+## Link format
 
-A quick link is the prefix `jack-link:v1:` followed by a base64url-encoded JSON
-object:
+The prefix `jack-link:v1:` followed by a base64url-encoded JSON object:
 
 ```json
 {
   "v": 1,
   "type": "peer",
-  "name": "Roz’s Jack",
+  "name": "Roz's Jack",
   "url": "https://jack.example.com",
   "apiKey": "<the freshly issued peer API key>",
-  "headers": { "CF-Access-Client-Id": "…" }
+  "headers": { "CF-Access-Client-Id": "..." }
 }
 ```
 
-It is **encoded, not encrypted** — anyone can decode it, which is exactly why
-it's treated as a secret. Decoding is strict: the version and type must match,
-the URL must be `http`/`https` without embedded credentials, and header names
-are validated against the same rules the config uses (no `X-Api-Key`, no `Host`,
-no duplicates, no line breaks).
+There is no encryption. Anyone holding the link can read the key out of it.
 
-Programmatically, `POST /quick-links` on the
-[management API](/reference/management-api) does the same thing as the button —
-resolve the profile, mint a key, return the link once. If the external profile
-is missing or one of its secret references can't be resolved, the request fails
-**before** a key is issued, so a broken profile never leaves an orphaned
-credential behind.
+Decoding is strict:
+
+- `v` and `type` must match the values above.
+- `url` must be `http`/`https`, with no embedded credentials.
+- `headers` are validated against the same rules the config uses:
+  - reserved names are rejected: `X-Api-Key`, `Host`, `Content-Length`,
+    `Connection`, and `Transfer-Encoding`.
+  - names must be valid HTTP header tokens.
+  - no name may repeat.
+  - values must be non-empty.
+  - values may not contain line breaks.
+
+To generate a link outside the UI, call
+[`POST /quick-links`](/reference/management-api/postQuickLinks) on the
+management API. A missing external profile, or one
+with a secret reference that cannot be resolved, fails the request before any
+key is issued, so a broken profile leaves no orphaned credential.
