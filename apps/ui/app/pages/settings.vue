@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { BadgeProps } from '@nuxt/ui'
-import type { ApiKey, ApiKeyInput, CreatedApiKey, JackConfig } from '~/types/management'
+import type { ApiKey, ApiKeyInput, CreatedApiKey, ExternalJackConfig, JackConfig, PeerInput } from '~/types/management'
 
 const { request, extractError } = useManagement()
 const version = useRuntimeConfig().public.appVersion
@@ -24,6 +24,16 @@ const { data: tmdbStatus } = await useAsyncData('tmdb-status', () =>
 const jackSubmitting = ref(false)
 const jackError = ref<string | null>(null)
 const jackSaved = ref(false)
+const jackFormRevision = ref(0)
+const showQuickLink = ref(false)
+const showQuickLinkImport = ref(false)
+const quickLinkSubmitting = ref(false)
+const quickLinkError = ref<string | null>(null)
+const quickLinkSaved = ref(false)
+const quickLinkFormRevision = ref(0)
+const showRemoveQuickLinking = ref(false)
+const removingQuickLinking = ref(false)
+const peersSection = ref<{ reviewImported: (peer: PeerInput) => void } | null>(null)
 
 async function saveJack(input: JackConfig) {
   jackSubmitting.value = true
@@ -32,6 +42,7 @@ async function saveJack(input: JackConfig) {
   try {
     await request('config/jack', { method: 'PATCH', body: input })
     await refreshJack()
+    jackFormRevision.value++
     // jack values are captured at boot, so the change lands on next restart.
     jackSaved.value = true
   }
@@ -41,6 +52,50 @@ async function saveJack(input: JackConfig) {
   finally {
     jackSubmitting.value = false
   }
+}
+
+async function saveQuickLinking(external: ExternalJackConfig) {
+  if (!jack.value) {
+    quickLinkError.value = 'Configure Jack before setting up quick linking.'
+    return
+  }
+  quickLinkSubmitting.value = true
+  quickLinkError.value = null
+  quickLinkSaved.value = false
+  try {
+    await request('config/jack/external', { method: 'PATCH', body: external })
+    await refreshJack()
+    quickLinkFormRevision.value++
+    quickLinkSaved.value = true
+  }
+  catch (err) {
+    quickLinkError.value = extractError(err, 'Could not save the quick-linking configuration.')
+  }
+  finally {
+    quickLinkSubmitting.value = false
+  }
+}
+
+async function removeQuickLinking() {
+  removingQuickLinking.value = true
+  quickLinkError.value = null
+  quickLinkSaved.value = false
+  try {
+    await request('config/jack/external', { method: 'DELETE' })
+    await refreshJack()
+    quickLinkFormRevision.value++
+    showRemoveQuickLinking.value = false
+  }
+  catch (err) {
+    quickLinkError.value = extractError(err, 'Could not remove the quick-linking configuration.')
+  }
+  finally {
+    removingQuickLinking.value = false
+  }
+}
+
+function reviewQuickLink(peer: PeerInput) {
+  peersSection.value?.reviewImported(peer)
 }
 
 const showForm = ref(false)
@@ -181,10 +236,10 @@ async function confirmRevoke() {
           </p>
 
           <UCard v-else variant="subtle" :ui="{ body: 'space-y-4' }">
-            <!-- Re-key on the loaded internalUrl so the form (and SecretInput) seed
-                 their once-initialized local state from the resolved data. -->
+            <!-- Re-key after a successful refresh so the form and nested secret
+                 editors seed their local state from the latest refs-intact config. -->
             <JackConfigForm
-              :key="jack?.internalUrl ?? 'empty'"
+              :key="jackFormRevision"
               :initial="jack"
               :submitting="jackSubmitting"
               :error="jackError"
@@ -216,11 +271,27 @@ async function confirmRevoke() {
 
         <USeparator />
 
+        <QuickLinkingSection
+          v-if="!jackPending && !jackLoadError"
+          :key="quickLinkFormRevision"
+          :available="Boolean(jack)"
+          :initial="jack?.external"
+          :submitting="quickLinkSubmitting"
+          :error="quickLinkError"
+          :saved="quickLinkSaved"
+          @submit="saveQuickLinking"
+          @generate="() => { showQuickLink = true }"
+          @import="() => { showQuickLinkImport = true }"
+          @remove="() => { showRemoveQuickLinking = true }"
+        />
+
+        <USeparator />
+
         <DownloadsSection />
 
         <USeparator />
 
-        <PeersSection />
+        <PeersSection ref="peersSection" />
 
         <USeparator />
 
@@ -327,6 +398,28 @@ async function confirmRevoke() {
       />
     </template>
   </UModal>
+
+  <QuickLinkImportModal v-model:open="showQuickLinkImport" @imported="reviewQuickLink" />
+
+  <UModal v-model:open="showRemoveQuickLinking" title="Remove quick-linking configuration" :ui="{ footer: 'justify-end' }">
+    <template #body>
+      <p class="text-sm text-default">
+        Remove the external instance name, URL, and headers? Existing generated API keys remain active until revoked.
+      </p>
+      <UAlert v-if="quickLinkError" class="mt-3" color="error" variant="soft" icon="i-ph-warning" :title="quickLinkError" />
+    </template>
+    <template #footer="{ close }">
+      <UButton label="Cancel" color="neutral" variant="ghost" @click="close" />
+      <UButton label="Remove" color="error" :loading="removingQuickLinking" @click="removeQuickLinking" />
+    </template>
+  </UModal>
+
+  <QuickLinkGenerateModal
+    v-if="jack?.external?.url"
+    v-model:open="showQuickLink"
+    :instance-name="jack.external.instanceName ?? ''"
+    @generated="refresh"
+  />
 
   <UModal v-model:open="createdOpen" title="API key created" :ui="{ footer: 'justify-end' }">
     <template #body>

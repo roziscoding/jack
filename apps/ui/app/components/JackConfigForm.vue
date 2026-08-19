@@ -19,9 +19,10 @@ const state = reactive({
 
 // internalUrl is the only required field; the Main API key is optional/clearable.
 function validate(s: typeof state): FormError[] {
+  const errors: FormError[] = []
   if (!s.internalUrl.trim())
-    return [{ name: 'internalUrl', message: 'Enter the internal URL.' }]
-  return []
+    errors.push({ name: 'internalUrl', message: 'Enter the internal URL.' })
+  return errors
 }
 
 function onSubmit() {

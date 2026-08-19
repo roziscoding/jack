@@ -4,7 +4,8 @@ import type { ConnectorManager } from '../../lib/servers'
 import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
-import { DownloadsConfig, JackConfig, PeerConfig, RawDownloadsConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
+import { DownloadsConfig, ExternalJackConfig, JackConfig, PeerConfig, RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
+import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { generateId } from '../../lib/servers/base'
@@ -106,6 +107,14 @@ export class ConfigService {
     if (!jack)
       return null
     return RawJackConfig.parse(jack)
+  }
+
+  /** Resolve the saved external access profile only when a quick link needs it. */
+  getResolvedExternalJack(): ExternalJackConfig | null {
+    const external = this.raw.jack?.external
+    if (!external)
+      return null
+    return ExternalJackConfig.parse(external)
   }
 
   /**
@@ -292,7 +301,34 @@ export class ConfigService {
     JackConfig.parse(input)
     const rawJack = RawJackConfig.parse(input)
     return this.enqueue(async () => {
-      const next = { ...this.raw, jack: rawJack } as RawConfig
+      const merged = {
+        ...rawJack,
+        ...(!Object.hasOwn(rawJack, 'external') && this.raw.jack?.external
+          ? { external: this.raw.jack.external }
+          : {}),
+      }
+      JackConfig.parse(merged)
+      const next = { ...this.raw, jack: RawJackConfig.parse(merged) } as RawConfig
+      await this.persist(next)
+      this.raw = next
+    })
+  }
+
+  /** Atomically replace or remove only jack.external, preserving every sibling field. */
+  async updateJackExternal(input: unknown): Promise<void> {
+    const rawExternal = input === null ? null : RawExternalJackConfig.parse(input)
+    if (rawExternal)
+      ExternalJackConfig.parse(rawExternal)
+
+    return this.enqueue(async () => {
+      const current = this.raw.jack
+      if (!current)
+        throw new BadRequestError('Configure Jack before setting up quick linking')
+
+      const { external: _external, ...jackWithoutExternal } = current
+      const merged = rawExternal ? { ...jackWithoutExternal, external: rawExternal } : jackWithoutExternal
+      JackConfig.parse(merged)
+      const next = { ...this.raw, jack: RawJackConfig.parse(merged) } as RawConfig
       await this.persist(next)
       this.raw = next
     })

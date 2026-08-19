@@ -146,12 +146,18 @@ export interface ServerInput {
   autoregister?: { enable?: boolean, priority?: number }
 }
 
-// config.jack: internalUrl + the optional, deprecated single "Main API key".
-// apiKey mirrors the backend RawConfigSecret ref (or null/absent when unset).
+// config.jack: internalUrl + optional secrets and the external access profile.
+export interface ExternalJackConfig {
+  instanceName?: string
+  url: string
+  headers?: Record<string, SecretRef>
+}
+
 export interface JackConfig {
   internalUrl: string
   apiKey?: SecretRef | null
   tmdbApiKey?: SecretRef | null
+  external?: ExternalJackConfig
 }
 
 // config.downloads, exactly as persisted (null when the block is absent — downloads
@@ -196,6 +202,18 @@ export interface ApiKeyInput {
   name?: string | null
   description?: string | null
   expiresAt?: string | null
+}
+
+export interface QuickLinkInput {
+  peerName: string
+  keyName: string
+  keyDescription?: string | null
+  expiresAt?: string | null
+}
+
+export interface CreatedQuickLink {
+  link: string
+  key: ApiKey
 }
 
 // One NDJSON log line as served by GET /logs and the /logs/stream SSE. `time` is

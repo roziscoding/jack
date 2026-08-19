@@ -7,8 +7,17 @@ const { settings, pending, error, reload } = useSettings()
 
 const showForm = ref(false)
 const editTarget = ref<PeerItem | null>(null)
+const importedInput = ref<PeerInput | null>(null)
+const formRevision = ref(0)
+const formInitial = computed(() => editTarget.value ?? importedInput.value)
 const submitting = ref(false)
 const formError = ref<string | null>(null)
+watch(showForm, (isOpen) => {
+  if (!isOpen) {
+    importedInput.value = null
+    formError.value = null
+  }
+})
 
 const confirmTarget = ref<PeerItem | null>(null)
 const deleting = ref(false)
@@ -50,13 +59,29 @@ function closeConfirm() {
 
 function openAdd() {
   editTarget.value = null
+  importedInput.value = null
   formError.value = null
+  formRevision.value++
   showForm.value = true
 }
 function openEdit(peer: PeerItem) {
   editTarget.value = peer
+  importedInput.value = null
   formError.value = null
+  formRevision.value++
   showForm.value = true
+}
+function reviewImported(peer: PeerInput) {
+  editTarget.value = null
+  importedInput.value = peer
+  formError.value = null
+  formRevision.value++
+  showForm.value = true
+}
+defineExpose({ reviewImported })
+function closeForm() {
+  showForm.value = false
+  importedInput.value = null
 }
 
 async function submit(input: PeerInput, force = false) {
@@ -70,7 +95,7 @@ async function submit(input: PeerInput, force = false) {
       await request(`config/peers/${editTarget.value.id}`, { method: 'PATCH', body: input, query })
     else
       await request('config/peers', { method: 'POST', body: input, query })
-    showForm.value = false
+    closeForm()
     await reload()
   }
   catch (err) {
@@ -154,11 +179,12 @@ async function confirmDelete() {
   <UModal v-model:open="showForm" :title="editTarget ? 'Edit peer' : 'Add peer'">
     <template #body>
       <PeerForm
-        :initial="editTarget"
+        :key="formRevision"
+        :initial="formInitial"
         :submitting="submitting"
         :error="formError"
         @submit="submit"
-        @cancel="showForm = false"
+        @cancel="closeForm"
       />
     </template>
   </UModal>

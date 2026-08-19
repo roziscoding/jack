@@ -1,4 +1,5 @@
 import type { Envs } from '../lib/envs'
+import { Buffer } from 'node:buffer'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -138,11 +139,12 @@ async function makeMutableApp(managementKey = 'mgmt-secret') {
   database.exec('pragma foreign_keys = ON')
   const db = drizzle({ client: database, schema })
   runMigrations(db)
+  const authRepos = makeAuthRepos(db)
   const downloadsRepository = new DownloadsRepository(db)
   const configService = await ConfigService.fromFile({ path, connectorManager, downloadsRepository })
-  const app = getManagementApp({ environment: 'test', managementKey, connectors: connectorManager, configService })
-  const mainApp = getApp(makeEnvs(managementKey), config, connectorManager, { downloadsRepository, ...makeAuthRepos(db) })
-  return { app, mainApp, path, connectorManager, downloadsRepository, database }
+  const app = getManagementApp({ environment: 'test', managementKey, connectors: connectorManager, configService, apiKeysRepository: authRepos.apiKeysRepository })
+  const mainApp = getApp(makeEnvs(managementKey), config, connectorManager, { downloadsRepository, ...authRepos })
+  return { app, mainApp, path, connectorManager, downloadsRepository, database, configService, apiKeysRepository: authRepos.apiKeysRepository }
 }
 
 const KEY = { 'X-Management-Key': 'mgmt-secret' } as const
@@ -548,6 +550,50 @@ describe('Management API jack config', () => {
     expect(await get.json()).toEqual({ internalUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } })
   })
 
+  test('PATCH preserves external header refs while the service resolves them on demand', async () => {
+    process.env.CF_ACCESS_ID = 'resolved-client-id'
+    const { app, path, configService } = await makeMutableApp()
+
+    const patch = await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: {
+          instanceName: 'Roz’s Jack',
+          url: 'https://jack.example.com',
+          headers: {
+            'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
+            'CF-Access-Client-Secret': 'literal-secret',
+          },
+          ignored: true,
+        },
+      }),
+    })
+    expect(patch.status).toBe(200)
+
+    const onDisk = jsonc.parse(await Bun.file(path).text()) as { jack: { external: unknown } }
+    expect(onDisk.jack.external).toEqual({
+      instanceName: 'Roz’s Jack',
+      url: 'https://jack.example.com',
+      headers: {
+        'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
+        'CF-Access-Client-Secret': 'literal-secret',
+      },
+    })
+
+    const get = await app.request('/config/jack', { headers: KEY })
+    expect((await get.json() as any).external.headers['CF-Access-Client-Id']).toEqual({ env: 'CF_ACCESS_ID' })
+    expect(configService.getResolvedExternalJack()).toEqual({
+      instanceName: 'Roz’s Jack',
+      url: 'https://jack.example.com',
+      headers: {
+        'CF-Access-Client-Id': 'resolved-client-id',
+        'CF-Access-Client-Secret': 'literal-secret',
+      },
+    })
+  })
+
   test('PATCH with no apiKey persists a jack block without one (optional)', async () => {
     const { app, path } = await makeMutableApp()
 
@@ -583,6 +629,186 @@ describe('Management API jack config', () => {
       headers: { ...KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ internalUrl: 'http://jack.test:5225' }),
     })
+    expect(res.status).toBe(404)
+  })
+
+  test('PATCH /config/jack/external updates only external config during a concurrent Jack save', async () => {
+    const { app } = await makeMutableApp()
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: { instanceName: 'Old name', url: 'https://old.example.com' },
+      }),
+    })
+
+    const [jackPatch, externalPatch] = await Promise.all([
+      app.request('/config/jack', {
+        method: 'PATCH',
+        headers: { ...KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internalUrl: 'http://jack-new.test:5225' }),
+      }),
+      app.request('/config/jack/external', {
+        method: 'PATCH',
+        headers: { ...KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName: 'Roz’s Jack', url: 'https://jack.example.com' }),
+      }),
+    ])
+
+    expect(jackPatch.status).toBe(200)
+    expect(externalPatch.status).toBe(200)
+    const get = await app.request('/config/jack', { headers: KEY })
+    expect(await get.json()).toMatchObject({
+      internalUrl: 'http://jack-new.test:5225',
+      external: { instanceName: 'Roz’s Jack', url: 'https://jack.example.com' },
+    })
+  })
+
+  test('DELETE /config/jack/external removes external config only', async () => {
+    const { app } = await makeMutableApp()
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: { instanceName: 'Roz’s Jack', url: 'https://jack.example.com' },
+      }),
+    })
+
+    const remove = await app.request('/config/jack/external', {
+      method: 'DELETE',
+      headers: KEY,
+    })
+    expect(remove.status).toBe(200)
+
+    const get = await app.request('/config/jack', { headers: KEY })
+    const body = await get.json() as Record<string, unknown>
+    expect(body.internalUrl).toBe('http://jack.test:5225')
+    expect(body.external).toBeUndefined()
+  })
+})
+
+describe('Management API quick links', () => {
+  test('POST /quick-links returns a ready-to-share link with resolved headers and a fresh key', async () => {
+    process.env.CF_ACCESS_ID = 'resolved-client-id'
+    const { app, apiKeysRepository } = await makeMutableApp()
+
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: {
+          instanceName: 'Roz’s Jack',
+          url: 'https://jack.example.com',
+          headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
+        },
+      }),
+    })
+
+    const res = await app.request('/quick-links', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        peerName: 'Roz’s Jack',
+        keyName: 'Friend access',
+        keyDescription: 'Shared with a friend',
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    expect(res.headers.get('Cache-Control')).toBe('no-store')
+    const body = await res.json() as { link: string, key: Record<string, unknown> }
+    expect(body.link.startsWith('jack-link:v1:')).toBe(true)
+    expect(body.key).not.toHaveProperty('key')
+    expect(body.key).toMatchObject({ name: 'Friend access', description: 'Shared with a friend' })
+
+    const encoded = body.link.slice('jack-link:v1:'.length)
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+      v: number
+      type: string
+      name: string
+      url: string
+      apiKey: string
+      headers: Record<string, string>
+    }
+    expect(payload).toEqual({
+      v: 1,
+      type: 'peer',
+      name: 'Roz’s Jack',
+      url: 'https://jack.example.com',
+      apiKey: expect.any(String),
+      headers: { 'CF-Access-Client-Id': 'resolved-client-id' },
+    })
+    expect(apiKeysRepository.resolve(payload.apiKey).status).toBe('ok')
+  })
+
+  test('does not create an API key when the external profile is missing', async () => {
+    const { app, apiKeysRepository } = await makeMutableApp()
+    const res = await app.request('/quick-links', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerName: 'Friend Jack', keyName: 'Friend access' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(apiKeysRepository.list()).toHaveLength(0)
+  })
+
+  test('does not create an API key when an external secret can no longer resolve', async () => {
+    process.env.TEMP_EXTERNAL_HEADER = 'available-while-saving'
+    const { app, apiKeysRepository } = await makeMutableApp()
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: {
+          url: 'https://jack.example.com',
+          headers: { Authorization: { env: 'TEMP_EXTERNAL_HEADER' } },
+        },
+      }),
+    })
+    delete process.env.TEMP_EXTERNAL_HEADER
+
+    const res = await app.request('/quick-links', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerName: 'Friend Jack', keyName: 'Friend access' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(apiKeysRepository.list()).toHaveLength(0)
+  })
+
+  test('revokes the fresh API key when the generated link exceeds the import limit', async () => {
+    const { app, apiKeysRepository } = await makeMutableApp()
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: {
+          url: 'https://jack.example.com',
+          headers: { Authorization: 'x'.repeat(30_000) },
+        },
+      }),
+    })
+
+    const res = await app.request('/quick-links', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerName: 'Friend Jack', keyName: 'Friend access' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(apiKeysRepository.list()).toHaveLength(0)
+  })
+
+  test('the public app never exposes /quick-links', async () => {
+    const { mainApp } = await makeMutableApp()
+    const res = await mainApp.request('/quick-links', { method: 'POST', headers: { 'x-api-key': 'test-api-key' } })
     expect(res.status).toBe(404)
   })
 })
