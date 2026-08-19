@@ -148,6 +148,7 @@ export interface ServerInput {
 
 // config.jack: internalUrl + optional secrets and the external access profile.
 export interface ExternalJackConfig {
+  instanceName?: string
   url: string
   headers?: Record<string, SecretRef>
 }
@@ -204,8 +205,9 @@ export interface ApiKeyInput {
 }
 
 export interface QuickLinkInput {
-  name: string
-  description?: string | null
+  peerName: string
+  keyName: string
+  keyDescription?: string | null
   expiresAt?: string | null
 }
 

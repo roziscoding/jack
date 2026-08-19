@@ -201,6 +201,7 @@ const RawExternalHeaders = ExternalHeadersObject.pipe(z.record(ExternalHeaderNam
   .refine(headers => Object.keys(headers).length <= 100, 'At most 100 external headers are allowed')
 
 export const ExternalJackConfig = z.object({
+  instanceName: z.string().trim().min(1).max(100).optional(),
   url: ExternalJackUrl,
   headers: ResolvedExternalHeaders.default({}),
 })
@@ -208,6 +209,7 @@ export const ExternalJackConfig = z.object({
 export type ExternalJackConfig = z.infer<typeof ExternalJackConfig>
 
 export const RawExternalJackConfig = z.object({
+  instanceName: z.string().trim().min(1).max(100).optional(),
   url: ExternalJackUrl,
   headers: RawExternalHeaders.optional(),
 })

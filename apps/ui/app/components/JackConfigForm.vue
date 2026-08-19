@@ -15,6 +15,7 @@ const state = reactive({
   internalUrl: props.initial?.internalUrl ?? '',
   apiKey: (props.initial?.apiKey ?? null) as SecretRef | null,
   tmdbApiKey: (props.initial?.tmdbApiKey ?? null) as SecretRef | null,
+  externalInstanceName: props.initial?.external?.instanceName ?? '',
   externalUrl: props.initial?.external?.url ?? '',
   externalHeaders: { ...(props.initial?.external?.headers ?? {}) } as Record<string, SecretRef>,
 })
@@ -26,7 +27,11 @@ function validate(s: typeof state): FormError[] {
     errors.push({ name: 'internalUrl', message: 'Enter the internal URL.' })
   if (!s.externalUrl.trim() && Object.keys(s.externalHeaders).length)
     errors.push({ name: 'externalUrl', message: 'Enter the external URL for these headers.' })
+  if (!s.externalUrl.trim() && s.externalInstanceName.trim())
+    errors.push({ name: 'externalUrl', message: 'Enter the external URL for this instance.' })
   if (s.externalUrl.trim()) {
+    if (!s.externalInstanceName.trim())
+      errors.push({ name: 'externalInstanceName', message: 'Enter the instance name shared with peers.' })
     try {
       const url = new URL(s.externalUrl)
       if (!['http:', 'https:'].includes(url.protocol))
@@ -48,6 +53,7 @@ function onSubmit() {
     input.tmdbApiKey = state.tmdbApiKey
   if (state.externalUrl.trim()) {
     input.external = {
+      instanceName: state.externalInstanceName.trim(),
       url: state.externalUrl.trim(),
       ...(Object.keys(state.externalHeaders).length ? { headers: state.externalHeaders } : {}),
     }
@@ -82,6 +88,15 @@ function onSubmit() {
     </UFormField>
 
     <USeparator label="External access" />
+
+    <UFormField
+      name="externalInstanceName"
+      label="Instance name"
+      hint="Optional until external access is configured"
+      description="Suggested peer name shown to people who import one of this instance’s quick links."
+    >
+      <UInput v-model="state.externalInstanceName" placeholder="Roz’s Jack" :maxlength="100" class="w-full" />
+    </UFormField>
 
     <UFormField
       name="externalUrl"

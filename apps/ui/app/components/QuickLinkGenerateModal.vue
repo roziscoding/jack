@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { FormError } from '@nuxt/ui'
 import type { CreatedQuickLink, QuickLinkInput } from '~/types/management'
+import { suggestQuickLinkKeyName } from '~/utils/quick-link'
 
-const props = defineProps<{ externalUrl: string }>()
+const props = defineProps<{ instanceName: string }>()
 const emit = defineEmits<{ generated: [] }>()
 const open = defineModel<boolean>('open', { required: true })
 const { request, extractError } = useManagement()
@@ -11,7 +12,7 @@ const generated = ref<CreatedQuickLink | null>(null)
 const generating = ref(false)
 const copied = ref(false)
 const error = ref<string | null>(null)
-const state = reactive({ name: '', description: '' })
+const state = reactive({ peerName: '', keyName: '', keyDescription: '' })
 const modalOpen = computed({
   get: () => open.value,
   set: (value) => {
@@ -21,22 +22,14 @@ const modalOpen = computed({
   },
 })
 
-function suggestedName(): string {
-  try {
-    return new URL(props.externalUrl).hostname
-  }
-  catch {
-    return 'My Jack'
-  }
-}
-
 function reset() {
   generated.value = null
   generating.value = false
   copied.value = false
   error.value = null
-  state.name = suggestedName()
-  state.description = ''
+  state.peerName = props.instanceName
+  state.keyName = suggestQuickLinkKeyName(props.instanceName)
+  state.keyDescription = ''
 }
 
 watch(open, (isOpen) => {
@@ -47,7 +40,12 @@ watch(open, (isOpen) => {
 })
 
 function validate(s: typeof state): FormError[] {
-  return s.name.trim() ? [] : [{ name: 'name', message: 'Give this shared connection a name.' }]
+  const errors: FormError[] = []
+  if (!s.peerName.trim())
+    errors.push({ name: 'peerName', message: 'Give this Jack instance a name.' })
+  if (!s.keyName.trim())
+    errors.push({ name: 'keyName', message: 'Give the generated API key a name.' })
+  return errors
 }
 
 async function generate() {
@@ -57,8 +55,9 @@ async function generate() {
   error.value = null
   try {
     const input: QuickLinkInput = {
-      name: state.name.trim(),
-      description: state.description.trim() || null,
+      peerName: state.peerName.trim(),
+      keyName: state.keyName.trim(),
+      keyDescription: state.keyDescription.trim() || null,
       expiresAt: null,
     }
     generated.value = await request<CreatedQuickLink>('quick-links', { method: 'POST', body: input })
@@ -107,15 +106,18 @@ function close() {
 
         <UForm v-if="!generated" :state="state" :validate="validate" class="space-y-4" @submit="generate">
           <UFormField
-            name="name"
+            name="peerName"
             label="Suggested peer name"
             description="Your friend can review and change this before adding the peer."
             required
           >
-            <UInput v-model="state.name" :maxlength="100" class="w-full" />
+            <UInput v-model="state.peerName" :maxlength="100" class="w-full" />
           </UFormField>
-          <UFormField name="description" label="Key description" hint="Optional">
-            <UTextarea v-model="state.description" :maxlength="500" :rows="2" placeholder="Who this link is for" class="w-full" />
+          <UFormField name="keyName" label="Key name" description="Used to identify and revoke this credential later." required>
+            <UInput v-model="state.keyName" :maxlength="100" placeholder="Friend access" class="w-full" />
+          </UFormField>
+          <UFormField name="keyDescription" label="Key description" hint="Optional">
+            <UTextarea v-model="state.keyDescription" :maxlength="500" :rows="2" placeholder="Who this link is for" class="w-full" />
           </UFormField>
           <UAlert v-if="error" color="error" variant="soft" icon="i-ph-warning" :title="error" />
           <div class="flex justify-end gap-2 pt-2">

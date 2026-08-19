@@ -560,6 +560,7 @@ describe('Management API jack config', () => {
       body: JSON.stringify({
         internalUrl: 'http://jack.test:5225',
         external: {
+          instanceName: 'Roz’s Jack',
           url: 'https://jack.example.com',
           headers: {
             'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
@@ -573,6 +574,7 @@ describe('Management API jack config', () => {
 
     const onDisk = jsonc.parse(await Bun.file(path).text()) as { jack: { external: unknown } }
     expect(onDisk.jack.external).toEqual({
+      instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
       headers: {
         'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
@@ -583,6 +585,7 @@ describe('Management API jack config', () => {
     const get = await app.request('/config/jack', { headers: KEY })
     expect((await get.json() as any).external.headers['CF-Access-Client-Id']).toEqual({ env: 'CF_ACCESS_ID' })
     expect(configService.getResolvedExternalJack()).toEqual({
+      instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
       headers: {
         'CF-Access-Client-Id': 'resolved-client-id',
@@ -641,6 +644,7 @@ describe('Management API quick links', () => {
       body: JSON.stringify({
         internalUrl: 'http://jack.test:5225',
         external: {
+          instanceName: 'Roz’s Jack',
           url: 'https://jack.example.com',
           headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
         },
@@ -650,7 +654,11 @@ describe('Management API quick links', () => {
     const res = await app.request('/quick-links', {
       method: 'POST',
       headers: { ...KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Roz’s Jack', description: 'Shared with a friend' }),
+      body: JSON.stringify({
+        peerName: 'Roz’s Jack',
+        keyName: 'Friend access',
+        keyDescription: 'Shared with a friend',
+      }),
     })
 
     expect(res.status).toBe(201)
@@ -658,6 +666,7 @@ describe('Management API quick links', () => {
     const body = await res.json() as { link: string, key: Record<string, unknown> }
     expect(body.link.startsWith('jack-link:v1:')).toBe(true)
     expect(body.key).not.toHaveProperty('key')
+    expect(body.key).toMatchObject({ name: 'Friend access', description: 'Shared with a friend' })
 
     const encoded = body.link.slice('jack-link:v1:'.length)
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
@@ -684,7 +693,7 @@ describe('Management API quick links', () => {
     const res = await app.request('/quick-links', {
       method: 'POST',
       headers: { ...KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Friend Jack' }),
+      body: JSON.stringify({ peerName: 'Friend Jack', keyName: 'Friend access' }),
     })
 
     expect(res.status).toBe(400)
@@ -710,7 +719,7 @@ describe('Management API quick links', () => {
     const res = await app.request('/quick-links', {
       method: 'POST',
       headers: { ...KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Friend Jack' }),
+      body: JSON.stringify({ peerName: 'Friend Jack', keyName: 'Friend access' }),
     })
 
     expect(res.status).toBe(400)
@@ -734,7 +743,7 @@ describe('Management API quick links', () => {
     const res = await app.request('/quick-links', {
       method: 'POST',
       headers: { ...KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Friend Jack' }),
+      body: JSON.stringify({ peerName: 'Friend Jack', keyName: 'Friend access' }),
     })
 
     expect(res.status).toBe(400)

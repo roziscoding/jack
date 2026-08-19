@@ -107,12 +107,14 @@ describe('external Jack config', () => {
 
   test('resolves ConfigSecret headers for quick-link generation', () => {
     expect(ExternalJackConfig.parse({
+      instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
       headers: {
         'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
         'CF-Access-Client-Secret': 'literal-secret',
       },
     })).toEqual({
+      instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
       headers: {
         'CF-Access-Client-Id': 'resolved-client-id',
@@ -123,10 +125,12 @@ describe('external Jack config', () => {
 
   test('preserves ConfigSecret refs in the raw schema', () => {
     expect(RawExternalJackConfig.parse({
+      instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
       headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
       ignored: true,
     })).toEqual({
+      instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
       headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
     })

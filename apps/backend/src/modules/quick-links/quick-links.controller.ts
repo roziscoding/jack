@@ -47,7 +47,11 @@ export class QuickLinksController {
     if (!external)
       throw new BadRequestError('Configure Jack external access before generating a quick link')
 
-    const created = this.apiKeysController.create(input)
+    const created = this.apiKeysController.create({
+      name: input.keyName,
+      description: input.keyDescription,
+      expiresAt: input.expiresAt,
+    })
     const { key: rawKey, ...key } = created
 
     try {
@@ -55,7 +59,7 @@ export class QuickLinksController {
         link: encodeQuickLink({
           v: 1,
           type: 'peer',
-          name: input.name,
+          name: input.peerName,
           url: external.url,
           apiKey: rawKey,
           headers: external.headers,

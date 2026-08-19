@@ -343,7 +343,7 @@ async function confirmRevoke() {
   <QuickLinkGenerateModal
     v-if="jack?.external?.url"
     v-model:open="showQuickLink"
-    :external-url="jack.external.url"
+    :instance-name="jack.external.instanceName ?? ''"
     @generated="refresh"
   />
 

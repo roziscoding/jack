@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { decodeQuickLink } from './quick-link'
+import { decodeQuickLink, suggestQuickLinkKeyName } from './quick-link'
 
 function base64Url(text: string): string {
   const binary = String.fromCharCode(...new TextEncoder().encode(text))
@@ -18,6 +18,14 @@ const validPayload = {
   apiKey: 'jack_test_key',
   headers: { 'CF-Access-Client-Id': 'client-id' },
 }
+
+describe('suggestQuickLinkKeyName', () => {
+  test('keeps the generated API key name within the backend limit', () => {
+    const suggestion = suggestQuickLinkKeyName('x'.repeat(100))
+    expect(suggestion).toHaveLength(100)
+    expect(suggestion).toStartWith('Quick link for ')
+  })
+})
 
 describe('decodeQuickLink', () => {
   test('decodes UTF-8 and returns a PeerInput', () => {
