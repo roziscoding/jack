@@ -8,9 +8,10 @@ jack authenticates each external surface by **key type**, so a credential only
 works where it's meant to (`/ping` is the only unauthenticated route):
 
 - **Peer API keys.** Issued per peer from the management UI's *API keys* section
-  (or the management API) — named, revocable, and optionally expiring. Scoped to
-  the **peer API** (`/handshake`, `/peer/*`): a peer key **cannot** query your
-  Torznab indexer or act as your download client.
+  (or the management API, or implicitly when you generate a
+  [quick link](/guide/quick-links)) — named, revocable, and optionally expiring.
+  Scoped to the **peer API** (`/handshake`, `/peer/*`): a peer key **cannot**
+  query your Torznab indexer or act as your download client.
 - **Managed keys.** jack mints these automatically and registers them in your
   Radarr/Sonarr when it auto-registers as their indexer + download client.
   Scoped to the ***arr surface** (`/torznab`, the qBittorrent API); you never
@@ -45,6 +46,12 @@ address your own Radarr/Sonarr use to reach jack.
 - **They give you** theirs, and you add them the same way in your config.
 
 After that, each side's Radarr/Sonarr can find and pull media the other has.
+
+::: tip Skip the copy-paste
+[Quick links](/guide/quick-links) package the URL, a freshly issued key, and any
+proxy headers into one string your friend pastes into their management UI. Same
+peering, fewer things to get wrong.
+:::
 
 ::: tip One key per peer
 Issue a **separate key per peer**. Each is scoped to the peer API — it can't

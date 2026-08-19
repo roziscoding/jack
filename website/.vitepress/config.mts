@@ -128,6 +128,7 @@ export default withMermaid({
           items: [
             { text: 'Management UI', link: '/guide/management-ui' },
             { text: 'API keys & peering', link: '/guide/peering' },
+            { text: 'Quick links', link: '/guide/quick-links' },
             { text: 'Running without Docker', link: '/guide/running-without-docker' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           ],
