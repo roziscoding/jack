@@ -134,6 +134,10 @@ export class ConfigController {
     return this.mutate(s => s.updateJack(input))
   }
 
+  updateJackExternal(input: unknown) {
+    return this.mutate(s => s.updateJackExternal(input))
+  }
+
   updateDownloads(input: unknown) {
     return this.mutate(s => s.updateDownloads(input))
   }

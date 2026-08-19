@@ -1,10 +1,10 @@
 import type { Envs } from '../lib/envs'
+import { Database } from 'bun:sqlite'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { jsonc } from 'jsonc'
 import { http, HttpResponse } from 'msw'
@@ -630,6 +630,62 @@ describe('Management API jack config', () => {
       body: JSON.stringify({ internalUrl: 'http://jack.test:5225' }),
     })
     expect(res.status).toBe(404)
+  })
+
+  test('PATCH /config/jack/external updates only external config during a concurrent Jack save', async () => {
+    const { app } = await makeMutableApp()
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: { instanceName: 'Old name', url: 'https://old.example.com' },
+      }),
+    })
+
+    const [jackPatch, externalPatch] = await Promise.all([
+      app.request('/config/jack', {
+        method: 'PATCH',
+        headers: { ...KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internalUrl: 'http://jack-new.test:5225' }),
+      }),
+      app.request('/config/jack/external', {
+        method: 'PATCH',
+        headers: { ...KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName: 'Roz’s Jack', url: 'https://jack.example.com' }),
+      }),
+    ])
+
+    expect(jackPatch.status).toBe(200)
+    expect(externalPatch.status).toBe(200)
+    const get = await app.request('/config/jack', { headers: KEY })
+    expect(await get.json()).toMatchObject({
+      internalUrl: 'http://jack-new.test:5225',
+      external: { instanceName: 'Roz’s Jack', url: 'https://jack.example.com' },
+    })
+  })
+
+  test('DELETE /config/jack/external removes external config only', async () => {
+    const { app } = await makeMutableApp()
+    await app.request('/config/jack', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        external: { instanceName: 'Roz’s Jack', url: 'https://jack.example.com' },
+      }),
+    })
+
+    const remove = await app.request('/config/jack/external', {
+      method: 'DELETE',
+      headers: KEY,
+    })
+    expect(remove.status).toBe(200)
+
+    const get = await app.request('/config/jack', { headers: KEY })
+    const body = await get.json() as Record<string, unknown>
+    expect(body.internalUrl).toBe('http://jack.test:5225')
+    expect(body.external).toBeUndefined()
   })
 })
 

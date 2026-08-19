@@ -6,7 +6,6 @@ const { request, extractError } = useManagement()
 const { settings, pending, error, reload } = useSettings()
 
 const showForm = ref(false)
-const showImport = ref(false)
 const editTarget = ref<PeerItem | null>(null)
 const importedInput = ref<PeerInput | null>(null)
 const formRevision = ref(0)
@@ -79,6 +78,7 @@ function reviewImported(peer: PeerInput) {
   formRevision.value++
   showForm.value = true
 }
+defineExpose({ reviewImported })
 function closeForm() {
   showForm.value = false
   importedInput.value = null
@@ -128,10 +128,7 @@ async function confirmDelete() {
 <template>
   <SettingsSection title="Peers" description="Other jacks this instance federates with.">
     <template #aside>
-      <div class="flex gap-2">
-        <UButton label="Quick link" color="neutral" variant="outline" icon="i-ph-link" @click="() => { showImport = true }" />
-        <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
-      </div>
+      <UButton label="Add peer" icon="i-ph-plus" @click="openAdd" />
     </template>
 
     <UAlert v-if="error && !settings" color="error" variant="soft" icon="i-ph-warning" title="Failed to load peers." />
@@ -191,8 +188,6 @@ async function confirmDelete() {
       />
     </template>
   </UModal>
-
-  <QuickLinkImportModal v-model:open="showImport" @imported="reviewImported" />
 
   <UModal v-model:open="confirmOpen" title="Remove peer" :ui="{ footer: 'justify-end' }">
     <template #body>

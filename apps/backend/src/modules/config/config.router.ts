@@ -2,7 +2,7 @@ import type { ConfigController } from './config.controller'
 import { Hono } from 'hono'
 import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
-import { RawDownloadsConfig, RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
+import { RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 import { streamSnapshots } from '../../lib/sse'
 
 const idParam = z.object({ id: z.string().min(1) })
@@ -68,6 +68,14 @@ export function getConfigRouter(controller: ConfigController) {
     // persists; internalUrl is required, apiKey optional (RawJackConfig).
     app.patch('/jack', configDoc('Update the jack block', 'Persists the new values; they take effect on next boot (no connectivity check).'), zValidator('json', RawJackConfig), async (c) => {
       return c.json(await controller.updateJack(c.req.valid('json')))
+    })
+
+    app.patch('/jack/external', configDoc('Update external Jack access', 'Atomically replaces only the external access profile.'), zValidator('json', RawExternalJackConfig), async (c) => {
+      return c.json(await controller.updateJackExternal(c.req.valid('json')))
+    })
+
+    app.delete('/jack/external', configDoc('Remove external Jack access', 'Atomically removes only the external access profile.'), async (c) => {
+      return c.json(await controller.updateJackExternal(null))
     })
 
     // Partial patch: the body is merged onto the stored downloads block. Every knob
