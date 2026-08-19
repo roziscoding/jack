@@ -31,6 +31,19 @@ instance can reach your peer API, plus a **peer API key**. This public or
 LAN-reachable peer URL is independent of `jack.internalUrl`, which is the
 address your own Radarr/Sonarr use to reach jack.
 
+### With a quick link
+
+The easiest way to do that exchange is a [quick link](/guide/quick-links):
+generate one in the management UI and send it to your friend, who pastes it into
+theirs. The link carries your peer URL, a peer API key issued on the spot, and
+any proxy headers needed to reach you, so neither of you types a credential by
+hand.
+
+### By hand
+
+You can also exchange the two values yourself, which is what a quick link
+automates:
+
 - **You give a friend** your reachable peer URL plus a peer API key you issue
   them (management UI, ***API keys***). They add you under `peers` in *their*
   config:
@@ -45,12 +58,8 @@ address your own Radarr/Sonarr use to reach jack.
 
 - **They give you** theirs, and you add them the same way in your config.
 
-After that, each side's Radarr/Sonarr can find and pull media the other has.
-
-::: tip Skip the copy-paste
-[Quick links](/guide/quick-links) package the URL, a freshly issued key, and any
-proxy headers into one string your friend pastes into their management UI.
-:::
+Either way, each side's Radarr/Sonarr can then find and pull media the other
+has.
 
 ::: tip One key per peer
 Issue a **separate key per peer**. Each one is scoped to the peer API, so it
