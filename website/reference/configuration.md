@@ -21,6 +21,9 @@ it alone.)
 | --- | --- |
 | [`jack.internalUrl`](#jack-internalurl) | URL your *arr apps use to reach jack |
 | [`jack.tmdbApiKey`](#jack-tmdbapikey) | TMDB metadata for the catalog |
+| [`jack.external.instanceName`](#jack-external-instancename) | Peer name suggested in your quick links |
+| [`jack.external.url`](#jack-external-url) | URL peers use to reach you |
+| [`jack.external.headers`](#jack-external-headers) | Headers peers must send to reach you |
 | [`downloads.completedPath`](#downloads-completedpath) | Where finished downloads go |
 | [`downloads.maxConcurrentDownloads`](#downloads-maxconcurrentdownloads) | Simultaneous transfer cap |
 | [`downloads.maxDownloadAttempts`](#downloads-maxdownloadattempts) | Retries before a download fails |
@@ -66,6 +69,53 @@ they use whatever you hand them (see [API keys & peering](/guide/peering)).
 
 TMDB v3 API key, used by the management UI's catalog to enrich peer libraries
 with artwork and metadata.
+
+### `jack.external`
+
+**Type:** `object`
+
+How *another* jack reaches this instance — the profile jack encodes into the
+[quick links](/guide/quick-links) you generate. Optional: without it, peering
+still works, you just hand out the URL and key by hand.
+
+Edit it from the management UI (**Settings → Quick linking**), which writes this
+block through its own endpoints so the rest of `jack` is left untouched.
+
+### `jack.external.instanceName`
+
+**Type:** `string`\
+**Format:** 1–100 characters
+
+The peer name suggested to whoever imports one of your quick links. They can
+change it before saving the peer. The management UI won't generate a link until
+this is set; calling the API directly, the suggested name comes from the request
+body instead.
+
+### `jack.external.url`
+
+**Type:** `string` · **Required**\
+**Format:** `http`/`https` URL, no embedded `user:password@` credentials
+
+The URL a peer should use to reach this instance — what ends up in the `url`
+field of every quick link you generate. Distinct from
+[`jack.internalUrl`](#jack-internalurl), which is for your own *arr apps. Use
+`https://`: the peer's API key travels in a request header.
+
+### `jack.external.headers`
+
+**Type:** `object`\
+**Content:** header name → [`ConfigSecret`](#configsecret) value\
+**Default:** `{}`
+
+Extra headers a peer must send to get through whatever sits in front of you —
+Cloudflare Access service tokens and the like. They're copied into the quick
+link so your friend doesn't have to configure them by hand, landing in their
+config as [`peers[].headers`](#peers-headers).
+
+Values are resolved when the profile is saved and when a link is generated,
+while `env` and `file` references remain references in your config file. Reserved headers
+(`X-Api-Key`, `Host`, `Content-Length`, `Connection`, `Transfer-Encoding`),
+duplicate names, and values with line breaks are rejected; at most 100 headers.
 
 ## `downloads`
 
@@ -341,7 +391,15 @@ reports the problem and refuses to load that config.
 {
   "jack": {
     "internalUrl": "http://jack:5225",
-    "tmdbApiKey": { "env": "TMDB_API_KEY" }
+    "tmdbApiKey": { "env": "TMDB_API_KEY" },
+    "external": {
+      "instanceName": "Roz's Jack",
+      "url": "https://jack.example.com",
+      "headers": {
+        "CF-Access-Client-Id": { "env": "MY_CF_CLIENT_ID" },
+        "CF-Access-Client-Secret": { "env": "MY_CF_CLIENT_SECRET" }
+      }
+    }
   },
   "downloads": {
     "completedPath": "/data/torrents/completed",

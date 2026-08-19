@@ -22,6 +22,8 @@ operate jack day to day:
   [`downloads`](/reference/configuration#downloads) block: where finished files
   land, how many transfers run at once, whether jack drops its copy after an
   import, and the retry and import-watcher tuning.
+- **Settings → Quick linking** — how peers reach this instance, plus the
+  buttons that generate and import [quick links](/guide/quick-links).
 - **API keys** — issue and revoke the keys you hand to peers.
 - **Logs** — live-tail the backend's logs.
 
@@ -49,6 +51,21 @@ One **Save** covers the form and only lights up once something changed;
 **Revert** discards your edits. `unlinkImportedFiles` takes effect the moment
 you save — **every other key here is read at startup, so restart jack** to apply
 it.
+
+## Settings → Quick linking
+
+This section holds the [`jack.external`](/reference/configuration#jack-external)
+profile — the instance name, external URL, and any proxy headers a peer needs to
+reach you — and the two buttons that use it:
+
+- **Generate quick link** issues a fresh peer API key and encodes it, together
+  with the profile, into a single shareable string. It's enabled only once the
+  profile is saved, and the link is revealed exactly once.
+- **Add via quick link** decodes a link a friend sent you and opens the *Add
+  peer* form prefilled, for you to review before saving.
+
+Treat a generated link as a credential — see
+[Quick links](/guide/quick-links) for the full workflow and how to revoke one.
 
 ## Access control
 
