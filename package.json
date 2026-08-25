@@ -15,7 +15,7 @@
     "@types/bun": "latest",
     "conventional-changelog": "^8.1.3",
     "conventional-changelog-conventionalcommits": "^10.4.0",
-    "eslint": "10.6.0",
+    "eslint": "10.9.0",
     "eslint-plugin-markdown-links": "0.9.1"
   }
 }
