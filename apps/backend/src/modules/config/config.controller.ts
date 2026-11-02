@@ -91,6 +91,11 @@ export class ConfigController {
     return this.configService?.getRawDownloads() ?? null
   }
 
+  /** The catalog block with defaults applied, for the settings form. */
+  getCatalog() {
+    return this.configService?.getCatalog() ?? null
+  }
+
   /** Whether mutation endpoints are available (a ConfigService was injected). */
   get canMutate() {
     return this.configService !== undefined
@@ -147,5 +152,9 @@ export class ConfigController {
 
   updateDownloads(input: unknown) {
     return this.mutate(s => s.updateDownloads(input))
+  }
+
+  updateCatalog(input: unknown) {
+    return this.mutate(s => s.updateCatalog(input))
   }
 }

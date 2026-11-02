@@ -4,7 +4,7 @@ import type { ConnectorManager } from '../../lib/servers'
 import type { DownloadsRepository } from '../downloads/downloads.repository'
 import { jsonc } from 'jsonc'
 import { atomicWriteFile } from '../../lib/atomic-write'
-import { DownloadsConfig, ExternalJackConfig, JackConfig, PeerConfig, RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
+import { CatalogConfig, DownloadsConfig, ExternalJackConfig, JackConfig, PeerConfig, RawCatalogConfig, RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig, ServerConfig } from '../../lib/config'
 import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { ConflictError } from '../../lib/errors/ConflictError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
@@ -128,6 +128,11 @@ export class ConfigService {
    * management UI and the import watcher both see the current values, not the ones
    * captured at boot.
    */
+  /** The catalog block with defaults applied (it always has a usable schedule). */
+  getCatalog(): CatalogConfig {
+    return CatalogConfig.parse(this.raw.catalog ?? {})
+  }
+
   getRawDownloads(): RawDownloadsConfig | null {
     const downloads = this.raw.downloads
     if (!downloads)
@@ -389,6 +394,30 @@ export class ConfigService {
       // would bake every default into the file.
       DownloadsConfig.parse(merged)
       const next = { ...this.raw, downloads: merged } as RawConfig
+      await this.persist(next)
+      this.raw = next
+    })
+  }
+
+  // ── Catalog ────────────────────────────────────────────────────────────────
+  /**
+   * Patch the `catalog` block, merged onto what's stored like updateDownloads; a
+   * `null` value drops the key so the default applies. The catalog sync picks up
+   * a new schedule right away (it subscribes to config changes).
+   */
+  async updateCatalog(input: unknown): Promise<void> {
+    const patch = RawCatalogConfig.parse(input)
+    return this.enqueue(async () => {
+      const merged: Record<string, unknown> = {
+        ...(this.raw.catalog ?? {}),
+        ...patch,
+      }
+      for (const [key, value] of Object.entries(merged)) {
+        if (value === null)
+          delete merged[key]
+      }
+      CatalogConfig.parse(merged)
+      const next = { ...this.raw, catalog: merged } as RawConfig
       await this.persist(next)
       this.raw = next
     })

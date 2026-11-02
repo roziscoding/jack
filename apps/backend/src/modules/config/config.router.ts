@@ -2,7 +2,7 @@ import type { ConfigController } from './config.controller'
 import { Hono } from 'hono'
 import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { z } from 'zod'
-import { RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
+import { RawCatalogConfig, RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 import { streamSnapshots } from '../../lib/sse'
 
 const idParam = z.object({
@@ -34,6 +34,7 @@ export function getConfigRouter(controller: ConfigController) {
   app.get('/servers', configDoc('List configured servers'), c => c.json(controller.listServers()))
   app.get('/jack', configDoc('Get the jack block'), c => c.json(controller.getJack()))
   app.get('/downloads', configDoc('Get the downloads block', 'The persisted downloads config, or null when downloads are not configured.'), c => c.json(controller.getDownloads()))
+  app.get('/catalog', configDoc('Get the catalog block', 'The catalog sync settings, with defaults applied.'), c => c.json(controller.getCatalog()))
   app.get('/stream', describeRoute({
     tags: ['Config'],
     summary: 'Stream connector config',
@@ -98,6 +99,10 @@ export function getConfigRouter(controller: ConfigController) {
     // but `unlinkImportedFiles` is captured at boot, so those land on next restart.
     app.patch('/downloads', configDoc('Update the downloads block', 'Merges the given fields into the stored downloads config. `unlinkImportedFiles` applies immediately; the other values take effect on next boot.'), zValidator('json', RawDownloadsConfig), async (c) => {
       return c.json(await controller.updateDownloads(c.req.valid('json')))
+    })
+
+    app.patch('/catalog', configDoc('Update the catalog block', 'Merges the given fields into the stored catalog config; `null` restores a field\'s default. A new `refreshSchedule` (5-field cron) applies right away.'), zValidator('json', RawCatalogConfig), async (c) => {
+      return c.json(await controller.updateCatalog(c.req.valid('json')))
     })
   }
 

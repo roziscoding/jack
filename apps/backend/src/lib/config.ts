@@ -304,10 +304,39 @@ export const RawDownloadsConfig = z.object({
 
 export type RawDownloadsConfig = z.infer<typeof RawDownloadsConfig>
 
+export const DEFAULT_CATALOG_REFRESH_SCHEDULE = '0 * * * *'
+
+function isCronExpression(expression: string): boolean {
+  try {
+    return Bun.cron.parse(expression) !== null
+  }
+  catch {
+    return false
+  }
+}
+
+const CronExpression = z.string().trim().min(1).refine(isCronExpression, 'Not a valid cron expression with a future run')
+
+export const CatalogConfig = z.object({
+  // When to sync this instance's catalog and every peer's (5-field cron, local time).
+  refreshSchedule: CronExpression.default(DEFAULT_CATALOG_REFRESH_SCHEDULE),
+})
+
+export type CatalogConfig = z.infer<typeof CatalogConfig>
+
+// Raw catalog for persistence: a PATCH body merged onto the stored block, like
+// RawDownloadsConfig. `null` drops the key, so the default applies again.
+export const RawCatalogConfig = z.object({
+  refreshSchedule: CronExpression.nullish(),
+})
+
+export type RawCatalogConfig = z.infer<typeof RawCatalogConfig>
+
 export const AppConfig = z.object({
   version: z.number(),
   jack: JackConfig,
   downloads: DownloadsConfig.optional(),
+  catalog: CatalogConfig.default({ refreshSchedule: DEFAULT_CATALOG_REFRESH_SCHEDULE }),
   servers: z.array(ServerConfig).default([]),
   peers: z.array(PeerConfig).default([]),
 })
@@ -368,6 +397,7 @@ const EMPTY_APP_CONFIG: AppConfig = {
   // jack is required; the resolved fallback carries only an internalUrl (no master key —
   // auto-registration provisions its own managed keys).
   jack: { internalUrl: 'http://jack:5225' },
+  catalog: { refreshSchedule: DEFAULT_CATALOG_REFRESH_SCHEDULE },
   servers: [],
   peers: [],
 }
