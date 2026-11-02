@@ -21,10 +21,16 @@ if (isOtelEnabled(envs)) {
     // instead of waiting for a batch interval. The OTLP/HTTP exporters read
     // OTEL_EXPORTER_OTLP_ENDPOINT (or the signal-specific *_TRACES_ENDPOINT /
     // *_LOGS_ENDPOINT) from the environment, posting to /v1/traces and /v1/logs.
-    spanProcessors: [new SimpleSpanProcessor(new OTLPTraceExporter())],
+    spanProcessors: [
+      new SimpleSpanProcessor(new OTLPTraceExporter()),
+    ],
     // Registers the global logger provider. The pino->OTel bridge in logger.ts
     // feeds it (see logger.ts); NodeSDK.shutdown() flushes it on exit.
-    logRecordProcessors: [new SimpleLogRecordProcessor(new OTLPLogExporter())],
+    logRecordProcessors: [
+      new SimpleLogRecordProcessor({
+        exporter: new OTLPLogExporter(),
+      }),
+    ],
     // Spans are created explicitly by the @hono/otel middleware, so no
     // auto-instrumentation is needed — and skipping it avoids the module
     // monkey-patching that doesn't play well under Bun.

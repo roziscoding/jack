@@ -11,14 +11,12 @@
     "fetch-specs": "curl -sSL -o radarr.openapi.json https://raw.githubusercontent.com/Radarr/Radarr/master/src/Radarr.Api.V3/openapi.json && curl -sSL -o sonarr.openapi.json https://raw.githubusercontent.com/Sonarr/Sonarr/main/src/Sonarr.Api.V3/openapi.json",
     "generate": "openapi-ts"
   },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
   "dependencies": {
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.99.0",
-    "@types/bun": "latest"
+    "@types/bun": "^1.4.4",
+    "typescript": "^6.0.3"
   }
 }
