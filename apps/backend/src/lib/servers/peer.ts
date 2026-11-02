@@ -9,10 +9,11 @@ import { IncompatiblePeerError } from '../errors/IncompatiblePeerError'
 import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
 import { UnknownSizeError } from '../errors/UnknownSizeError'
 import { assertHandleAtPath, isErrnoException, withFsContext } from '../fs-errors'
+import { PeerCatalogResponse } from '../peer-catalog'
 import { normalizeImdbId, Release } from '../release'
 import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
-import { isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION } from '../version'
+import { compareVersions, isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION, PEER_CATALOG_SUMMARY_VERSION } from '../version'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({
@@ -185,6 +186,39 @@ export class PeerConnector extends ServerConnector {
       const { items } = await this.fetch('/peer/search', { method: 'GET', schema: PeerSearchResponse })
       setSpanAttribute(span, 'release.count', items.length)
       return items
+    })
+  }
+
+  /**
+   * The peer's catalog in whichever shape it can serve: per-title changes since
+   * revision `since` (or everything) from peers that have `/peer/catalog`, or the
+   * full release list from older ones, which the caller summarizes itself.
+   */
+  @requiresInitialization
+  async listCatalog(since?: number): Promise<{ kind: 'titles' } & PeerCatalogResponse | { kind: 'releases', releases: Release[] }> {
+    if (!this._peerVersion || compareVersions(this._peerVersion, PEER_CATALOG_SUMMARY_VERSION) < 0)
+      return { kind: 'releases', releases: await this.listReleases() }
+
+    return withSpan('peer.catalog_summary', {
+      'peer.name': this.name,
+      'peer.id': this.id,
+      'catalog.since': since,
+    }, async (span) => {
+      const response = await this.fetch('/peer/catalog', {
+        method: 'GET',
+        query: since === undefined
+          ? undefined
+          : {
+              since: String(since),
+            },
+        schema: PeerCatalogResponse,
+      })
+      setSpanAttributes(span, {
+        'catalog.full': response.full,
+        'title.count': response.titles.length,
+        'title.removed_count': response.removed.length,
+      })
+      return { kind: 'titles' as const, ...response }
     })
   }
 

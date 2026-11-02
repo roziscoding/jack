@@ -1,6 +1,8 @@
 import type { FileSystemErrorDetails } from '../lib/errors/FileSystemError'
+import type { Release } from '../lib/release'
+import type { TmdbMetadata } from '../lib/tmdb/client'
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 // Lifecycle: downloading → import_queued (file in completedPath, handed to *arr)
 // → imported (*arr finished importing; terminal). `failed` is terminal too.
@@ -92,3 +94,118 @@ export const managedKeys = sqliteTable('managed_keys', {
 
 export type ManagedKeyRow = typeof managedKeys.$inferSelect
 export type NewManagedKeyRow = typeof managedKeys.$inferInsert
+
+// One row per title per peer: a summary of what that peer carries, never the
+// individual releases (a series would otherwise be one row per episode). Rows
+// are diffed against each live fetch, so unchanged titles are never rewritten.
+export const peerCatalogTitles = sqliteTable('peer_catalog_titles', {
+  peerId: text('peer_id').notNull(),
+  // The per-peer grouping key: `${mediaType}:id:${id}` or `${mediaType}:name:${name}`.
+  titleKey: text('title_key').notNull(),
+  mediaType: text('media_type', {
+    enum: ['movie', 'tv'],
+  }).notNull(),
+  tmdbId: integer('tmdb_id'),
+  imdbId: text('imdb_id'),
+  tvdbId: integer('tvdb_id'),
+  title: text('title').notNull(),
+  releaseCount: integer('release_count').notNull(),
+  totalSize: integer('total_size').notNull(),
+  // Distinct resolutions (e.g. [2160, 1080]), best first.
+  resolutions: text('resolutions', { mode: 'json' }).$type<number[]>().notNull(),
+  // From the peer's *arr; null for peers older than protocol 0.2.0.
+  posterUrl: text('poster_url'),
+  backdropUrl: text('backdrop_url'),
+  genres: text('genres', { mode: 'json' }).$type<string[]>(),
+  updatedAt: text('updated_at').notNull(),
+}, t => [
+  primaryKey({
+    columns: [t.peerId, t.titleKey],
+  }),
+  check('peer_catalog_titles_media_type_check', sql`${t.mediaType} in ('movie', 'tv')`),
+])
+
+export type PeerCatalogTitleRow = typeof peerCatalogTitles.$inferSelect
+export type NewPeerCatalogTitleRow = typeof peerCatalogTitles.$inferInsert
+
+// The last revision of each peer's catalog this instance has applied, so the
+// next sync asks that peer only for what changed since.
+export const peerCatalogSync = sqliteTable('peer_catalog_sync', {
+  peerId: text('peer_id').primaryKey(),
+  // Null for peers older than protocol 0.2.0, which only serve full catalogs.
+  revision: integer('revision'),
+  syncedAt: text('synced_at').notNull(),
+})
+
+// This instance's own catalog as served to peers, rebuilt from the source
+// Radarr/Sonarr on each sync. Every change stamps the row with the next
+// revision; removed titles stay as `deleted` rows so a peer asking for changes
+// since an older revision learns about the removal.
+export const ownCatalogTitles = sqliteTable('own_catalog_titles', {
+  titleKey: text('title_key').primaryKey(),
+  mediaType: text('media_type', {
+    enum: ['movie', 'tv'],
+  }).notNull(),
+  tmdbId: integer('tmdb_id'),
+  imdbId: text('imdb_id'),
+  tvdbId: integer('tvdb_id'),
+  title: text('title').notNull(),
+  releaseCount: integer('release_count').notNull(),
+  totalSize: integer('total_size').notNull(),
+  resolutions: text('resolutions', { mode: 'json' }).$type<number[]>().notNull(),
+  posterUrl: text('poster_url'),
+  backdropUrl: text('backdrop_url'),
+  genres: text('genres', { mode: 'json' }).$type<string[]>(),
+  revision: integer('revision').notNull(),
+  deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
+}, t => [
+  check('own_catalog_titles_media_type_check', sql`${t.mediaType} in ('movie', 'tv')`),
+  index('own_catalog_titles_revision_idx').on(t.revision),
+])
+
+export type OwnCatalogTitleRow = typeof ownCatalogTitles.$inferSelect
+
+// The releases behind each own catalog title, so `/peer/search` is answered from
+// here instead of Radarr/Sonarr. Ids are the *arr release ids, so a peer can
+// still fetch the item and its file live.
+export const ownCatalogReleases = sqliteTable('own_catalog_releases', {
+  id: text('id').primaryKey(),
+  titleKey: text('title_key').notNull(),
+  mediaType: text('media_type', {
+    enum: ['movie', 'tv'],
+  }).notNull(),
+  tmdbId: integer('tmdb_id'),
+  // Without the `tt` prefix, the form peers search with.
+  imdbId: text('imdb_id'),
+  tvdbId: integer('tvdb_id'),
+  season: integer('season'),
+  episode: integer('episode'),
+  // The Release as the source returned it.
+  data: text('data', { mode: 'json' }).$type<Release>().notNull(),
+}, t => [
+  check('own_catalog_releases_media_type_check', sql`${t.mediaType} in ('movie', 'tv')`),
+  index('own_catalog_releases_title_key_idx').on(t.titleKey),
+  index('own_catalog_releases_tmdb_id_idx').on(t.tmdbId),
+  index('own_catalog_releases_imdb_id_idx').on(t.imdbId),
+  index('own_catalog_releases_tvdb_id_idx').on(t.tvdbId),
+])
+
+export type OwnCatalogReleaseRow = typeof ownCatalogReleases.$inferSelect
+
+// TMDB lookups, persisted so a title is looked up once. `data` is null when TMDB
+// has no entry for the id (404); failed lookups are not stored and retry.
+export const tmdbMetadata = sqliteTable('tmdb_metadata', {
+  mediaType: text('media_type', {
+    enum: ['movie', 'tv'],
+  }).notNull(),
+  tmdbId: integer('tmdb_id').notNull(),
+  data: text('data', { mode: 'json' }).$type<TmdbMetadata | null>(),
+  fetchedAt: text('fetched_at').notNull(),
+}, t => [
+  primaryKey({
+    columns: [t.mediaType, t.tmdbId],
+  }),
+  check('tmdb_metadata_media_type_check', sql`${t.mediaType} in ('movie', 'tv')`),
+])
+
+export type TmdbMetadataRow = typeof tmdbMetadata.$inferSelect

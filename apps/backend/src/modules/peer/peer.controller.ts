@@ -1,5 +1,7 @@
+import type { PeerCatalogResponse } from '../../lib/peer-catalog'
 import type { Release } from '../../lib/release'
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
+import type { OwnCatalogRepository } from '../catalog/own-catalog.repository'
 import { setSpanAttribute, setSpanAttributes } from '../../lib/span-attributes'
 import { withSpan } from '../../lib/tracing'
 import { logger } from '../../logger'
@@ -51,6 +53,7 @@ export type StreamFileResult
 export class PeerController {
   constructor(
     private readonly getSources: () => ArrServerConnector[],
+    private readonly ownCatalog?: Pick<OwnCatalogRepository, 'changesSince' | 'searchReleases'>,
   ) {}
 
   // Sources gated by config only (`source: true`). We deliberately do NOT filter
@@ -77,6 +80,16 @@ export class PeerController {
         setSpanAttribute(span, 'release.count', 0)
         return []
       }
+
+      // Answered from the catalog the sync keeps, so a search never waits on
+      // Radarr/Sonarr. Before the first sync there is nothing cached yet, so the
+      // sources are asked directly.
+      const cached = this.ownCatalog?.searchReleases(params)
+      if (cached) {
+        setSpanAttributes(span, { 'search.from_cache': true, 'release.count': cached.length })
+        return cached
+      }
+      setSpanAttribute(span, 'search.from_cache', false)
 
       // Id-based lookup (precise, often server-side); with no id we return the
       // full catalog (used by the torznab RSS feed). No free-text matching — *arr
@@ -114,6 +127,23 @@ export class PeerController {
       setSpanAttribute(span, 'release.count', flat.length)
       return flat
     })
+  }
+
+  /**
+   * The library by title, as of the last catalog sync: everything, or only what
+   * changed after `since`. Served from the cache, so peers asking never reach
+   * Radarr or Sonarr.
+   */
+  catalog(since?: number): PeerCatalogResponse {
+    if (!this.ownCatalog) {
+      return {
+        revision: 0,
+        full: true,
+        titles: [],
+        removed: [],
+      }
+    }
+    return this.ownCatalog.changesSince(since)
   }
 
   async getItem(id: string): Promise<Release | null> {

@@ -2,6 +2,7 @@ import type { PeerController } from './peer.controller'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator as zValidator } from 'hono-openapi'
 import z from 'zod'
+import { PeerCatalogResponse } from '../../lib/peer-catalog'
 
 // Strip characters that could break out of the quoted filename or inject extra
 // response headers (CR/LF/quote). The name comes from a trusted *arr basename, so
@@ -49,6 +50,27 @@ export function getPeerRouter(controller: PeerController) {
       return c.json({ items: results })
     },
   )
+
+  app.get('/catalog', describeRoute({
+    tags: ['Peer'],
+    summary: 'List this library by title',
+    description: 'One entry per movie or series that has files in the source Radarr/Sonarr libraries, with release totals, the distinct resolutions available, artwork, and genres. Served from the catalog as of the last sync. Pass the `revision` from a previous response as `since` to get only what changed after it; without `since`, or with one newer than this instance knows, the whole catalog comes back with `full: true`. Added in protocol 0.2.0; older peers only serve `/search`.',
+    security: [
+      { 'X-Api-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Per-title summaries of the library, or the changes since `since`',
+        content: {
+          'application/json': {
+            schema: resolver(PeerCatalogResponse),
+          },
+        },
+      },
+    },
+  }), zValidator('query', z.object({
+    since: z.coerce.number().int().nonnegative().optional(),
+  })), c => c.json(controller.catalog(c.req.valid('query').since)))
 
   app.get('/items/:itemId', describeRoute({
     tags: ['Peer'],

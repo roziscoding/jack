@@ -31,6 +31,16 @@ export function runMigrations(db: AppDatabase) {
   migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 }
 
+/** A migrated, throwaway in-memory database (tests and optional caches). */
+export function openMemoryDatabase(): AppDatabase {
+  const db = drizzle({
+    client: new Database(':memory:'),
+    schema,
+  })
+  runMigrations(db)
+  return db
+}
+
 export async function openDatabase({ appConfigPath }: { appConfigPath: string }): Promise<DatabaseHandle> {
   const path = getDatabasePath(appConfigPath)
   await mkdir(dirname(path), { recursive: true })
