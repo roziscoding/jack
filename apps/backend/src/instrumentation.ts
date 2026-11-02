@@ -2,7 +2,7 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs'
 import { NodeSDK } from '@opentelemetry/sdk-node'
-import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
+import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace'
 import { getAppEnvs, isOtelEnabled } from './lib/envs'
 import { logger } from './logger'
 
@@ -22,7 +22,9 @@ if (isOtelEnabled(envs)) {
     // OTEL_EXPORTER_OTLP_ENDPOINT (or the signal-specific *_TRACES_ENDPOINT /
     // *_LOGS_ENDPOINT) from the environment, posting to /v1/traces and /v1/logs.
     spanProcessors: [
-      new SimpleSpanProcessor(new OTLPTraceExporter()),
+      new SimpleSpanProcessor({
+        exporter: new OTLPTraceExporter(),
+      }),
     ],
     // Registers the global logger provider. The pino->OTel bridge in logger.ts
     // feeds it (see logger.ts); NodeSDK.shutdown() flushes it on exit.
