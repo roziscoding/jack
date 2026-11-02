@@ -148,6 +148,69 @@ This only affects downloads imported **after** you enable it. Files already in
 the folder are yours to clear out; deleting the download rows from the
 management UI's Downloads page removes their files too.
 
+## Download error codes
+
+Every failed download carries an error code. On ***Downloads***, expand the
+download to see its code, linked to its row below, and what went wrong. Logs
+record the code as `error_code`.
+
+For filesystem errors, jack also records what it found on disk when the error
+happened: the errno, the operation, and the mode, owner, and size of the file
+and its folder. The expanded download lays these out like `ls -l`, and the log
+holds them in its `filesystem` field.
+
+jack retries the codes marked **Retried** on its own, up to
+[`downloads.maxDownloadAttempts`](/reference/configuration#downloads-maxdownloadattempts).
+The code you see is the one from the last attempt. Every other code fails the
+download at once; fix the cause, then use ***Retry*** on the download.
+
+### Download file
+
+The `.part` is the file jack writes while downloading. When the transfer
+finishes, jack renames it into `downloads.completedPath`.
+
+| Code | What happened | What to check |
+|---|---|---|
+| <span id="PART_DIR_MISSING">`PART_DIR_MISSING`</span> | The folder for the `.part` doesn't exist. | The volume is mounted and `completedPath` is right. |
+| <span id="PART_CREATE_DENIED">`PART_CREATE_DENIED`</span> | jack can't create the `.part` in its folder. | The folder is writable by jack's uid (1000 by default). |
+| <span id="PART_RESUME_DENIED">`PART_RESUME_DENIED`</span> | The `.part` from an earlier attempt exists, but jack can no longer open it. | Its permissions or owner changed since the last attempt. |
+| <span id="PART_WRITE_DENIED">`PART_WRITE_DENIED`</span> | Writing to the open `.part` was refused. | Only network filesystems (NFS, SMB, FUSE) do this mid-transfer: check the share's permissions. |
+| <span id="PART_DELETED">`PART_DELETED`</span> | The `.part` was deleted while jack wrote it. Those bytes are lost. | Cleanup scripts, another download client, or *arr touching the folder. |
+| <span id="PART_MOVED">`PART_MOVED`</span> | The `.part` was moved or renamed while jack wrote it. | Same as `PART_DELETED`. |
+| <span id="PART_REPLACED">`PART_REPLACED`</span> | Another file took the `.part`'s place, or an NFS server invalidated it. | Another process writing the same name. |
+| <span id="DISK_FULL">`DISK_FULL`</span> | The disk is full, out of inodes, or jack's quota ran out. | Free space on the volume; the error shows what was available. |
+| <span id="FILE_TOO_LARGE_FOR_FS">`FILE_TOO_LARGE_FOR_FS`</span> | The file is larger than the filesystem allows. | FAT32 caps files at 4 GiB. |
+| <span id="FS_READ_ONLY">`FS_READ_ONLY`</span> | The filesystem is read-only. | A `:ro` mount, or a disk the kernel remounted read-only after errors. |
+| <span id="DISK_IO_ERROR">`DISK_IO_ERROR`</span> | The disk or network share failed the write. | `dmesg` on the host, and the disk's health. |
+| <span id="COMPLETED_MOVE_DENIED">`COMPLETED_MOVE_DENIED`</span> | The download finished, but jack can't move it into place. | Permissions on `completedPath`, or an existing file there owned by someone else. |
+| <span id="COMPLETED_DIR_MISSING">`COMPLETED_DIR_MISSING`</span> | The download finished, but its destination folder doesn't exist. | The volume is still mounted. |
+| <span id="CROSS_DEVICE_MOVE">`CROSS_DEVICE_MOVE`</span> | The `.part` and the destination are on different filesystems. | Keep both on the same mount. |
+| <span id="INVALID_PATH">`INVALID_PATH`</span> | The path can't be used: a name too long, a symlink loop, or a folder where a file should be. | The release name and the folders in the path. |
+| <span id="TOO_MANY_OPEN_FILES">`TOO_MANY_OPEN_FILES`</span> | jack or the host hit the open-file limit. The file is untouched. | `ulimit -n` for the container. |
+| <span id="FILESYSTEM_ERROR">`FILESYSTEM_ERROR`</span> | Any other filesystem error. | The errno in the message. |
+
+### Transfer
+
+| Code | What happened | What to check | Retried |
+|---|---|---|---|
+| <span id="IDLE_TIMEOUT">`IDLE_TIMEOUT`</span> | The peer stopped sending data for longer than [`downloads.idleTimeoutMs`](/reference/configuration#downloads-idletimeoutms). | The peer's connection and load. | Yes |
+| <span id="INCOMPLETE_DOWNLOAD">`INCOMPLETE_DOWNLOAD`</span> | The transfer ended before the whole file arrived. | The peer's connection. The next attempt resumes from the `.part`. | Yes |
+| <span id="PEER_UNREACHABLE">`PEER_UNREACHABLE`</span> | jack couldn't connect to the peer. | The peer's URL and whether its jack is up. | Yes |
+| <span id="PEER_HTTP_ERROR">`PEER_HTTP_ERROR`</span> | The peer answered with an HTTP error. | The status in the message: `404` means the peer no longer has the file. | `429` and `5xx` only |
+| <span id="UNKNOWN_SIZE">`UNKNOWN_SIZE`</span> | Neither the peer nor *arr reported the file size, so jack can't verify the download. | A proxy in front of the peer that strips `Content-Length`. | No |
+| <span id="PEER_NOT_FOUND">`PEER_NOT_FOUND`</span> | The download's peer was removed from the config. | Re-add the peer, or delete the download. | No |
+| <span id="CANCELLED">`CANCELLED`</span> | You cancelled the download. The `.part` is kept. | Nothing; ***Retry*** resumes it. | No |
+| <span id="SUPERSEDED">`SUPERSEDED`</span> | After a restart, another download for the same file resumed instead of this one. | Nothing; delete the duplicate. | No |
+| <span id="STALE_AFTER_RESTART">`STALE_AFTER_RESTART`</span> | jack restarted mid-download, and the config has no `downloads` block to resume it with. | Add the [`downloads`](/reference/configuration#downloads) block back. | No |
+| <span id="UNKNOWN_ERROR">`UNKNOWN_ERROR`</span> | An error jack doesn't classify yet. | The message and the logs. | No |
+
+### Import
+
+| Code | What happened | What to check |
+|---|---|---|
+| <span id="IMPORT_REJECTED">`IMPORT_REJECTED`</span> | Radarr/Sonarr rejected the manual import. | The reason in the message, and *arr's own logs. |
+| <span id="IMPORT_TRIGGER_FAILED">`IMPORT_TRIGGER_FAILED`</span> | jack couldn't start the manual import in Radarr/Sonarr after repeated attempts. | That *arr is reachable from jack. |
+
 ## Management UI stuck on "Reconnecting..."
 
 The Overview and Downloads pages show a ***Live*** badge while their

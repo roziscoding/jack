@@ -117,7 +117,7 @@ describe('Management status endpoints', () => {
 
     const failed = downloadsRepository.create({ ...base, filename: 'c.mkv' })
     downloadsRepository.updateProgress(failed.id, 10)
-    downloadsRepository.markFailed(failed.id, 'boom')
+    downloadsRepository.markFailed(failed.id, 'UNKNOWN_ERROR', 'boom')
 
     const res = await app.request('/overview', { headers: KEY })
     expect(res.status).toBe(200)

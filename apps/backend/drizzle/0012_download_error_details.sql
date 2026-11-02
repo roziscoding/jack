@@ -1,0 +1,1 @@
+ALTER TABLE `downloads` ADD `error_details` text;

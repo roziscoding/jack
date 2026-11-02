@@ -1,10 +1,11 @@
 import type { PeerDownloadProgressEvent } from '../lib/servers/peer'
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
+import { FileSystemError } from '../lib/errors/FileSystemError'
 import { IdleTimeoutError } from '../lib/errors/IdleTimeoutError'
 import { UnknownSizeError } from '../lib/errors/UnknownSizeError'
 import { PeerConnector } from '../lib/servers/peer'
@@ -381,6 +382,69 @@ describe('PeerConnector.downloadFile', () => {
     try {
       await peer.downloadFile('remote1:movie:99', destPath, { partPath: `${destPath}.part`, releaseSize: 4, idleTimeoutMs: 200 })
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('PeerConnector.downloadFile filesystem errors', () => {
+  test('fails with FileSystemError when the .part is deleted mid-download', async () => {
+    const releaseSecondChunk = Promise.withResolvers<void>()
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => new Response(new ReadableStream({
+        async start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]))
+          await releaseSecondChunk.promise
+          controller.enqueue(new Uint8Array([4, 5]))
+          controller.close()
+        },
+      }), { headers: { 'Content-Length': '5' } })),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-deleted-'))
+    const destPath = join(dir, 'Movie.mkv')
+    const partPath = `${destPath}.part`
+
+    try {
+      const download = peer.downloadFile('remote1:movie:1', destPath, { partPath }).then(() => null, (e: unknown) => e)
+      await waitFor(async () => (await Bun.file(partPath).exists()) && Bun.file(partPath).size === 3)
+      await unlink(partPath)
+      releaseSecondChunk.resolve()
+
+      const err = await download
+      expect(err).toBeInstanceOf(FileSystemError)
+      expect((err as FileSystemError).errno).toBe('ENOENT')
+      expect((err as FileSystemError).code).toBe('PART_DELETED')
+      expect((err as FileSystemError).details.operation).toBe('checking the .part is still on disk after the last chunk (5 bytes written)')
+      expect((err as FileSystemError).message).toContain('The file was deleted while jack was writing it; the 5 bytes jack had written went with it.')
+      expect((err as FileSystemError).details.file).toEqual({ path: partPath, exists: false, stat_error: 'ENOENT' })
+      expect(await Bun.file(destPath).exists()).toBe(false)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('fails with FileSystemError showing the nearest existing directory when the parent is missing', async () => {
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-no-parent-'))
+    const destPath = join(dir, 'gone', 'deeper', 'Movie.mkv')
+
+    try {
+      const err = await peer.downloadFile('remote1:movie:2', destPath, { partPath: `${destPath}.part` }).then(() => null, (e: unknown) => e)
+      expect(err).toBeInstanceOf(FileSystemError)
+      const { message, details } = err as FileSystemError
+      expect(message).toStartWith('Filesystem error ENOENT while creating the .part file.')
+      expect(details.code).toBe('PART_DIR_MISSING')
+      expect(details.file_dir).toEqual({ path: join(dir, 'gone', 'deeper'), exists: false, stat_error: 'ENOENT' })
+      expect(details.file_nearest_existing_dir).toMatchObject({ path: dir, exists: true, type: 'directory' })
     }
     finally {
       await rm(dir, { recursive: true, force: true })

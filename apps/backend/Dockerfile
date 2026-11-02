@@ -34,6 +34,29 @@ RUN bun install --frozen-lockfile \
 COPY packages/schemas ./packages/schemas
 RUN bun run --cwd packages/schemas openapi-ts
 
+# ---- development: full deps + source, run with hot reload ----
+# Used by `mise run dev` (target: development). Compose Watch syncs local edits
+# to src/ and drizzle/ into the copy below, and `bun --hot` reloads. Not part of
+# the published image: runtime is the last stage.
+FROM generate AS development
+
+ENV ENVIRONMENT=development \
+    PORT=5225 \
+    APP_CONFIG_PATH=/config/config.jsonc
+
+COPY tsconfig.json ./
+# Owned by the user the container runs as (the host user under `mise run dev`)
+# so Compose Watch can write synced files into it.
+ARG DEV_UID=1000
+ARG DEV_GID=1000
+COPY --chown=${DEV_UID}:${DEV_GID} apps/backend ./apps/backend
+
+RUN mkdir -p /config && chown bun:bun /config
+USER bun
+EXPOSE 5225
+
+CMD ["bun", "--hot", "apps/backend/src/index.ts"]
+
 # ---- runtime ----
 FROM oven/bun:1.3.14-alpine AS runtime
 WORKDIR /app

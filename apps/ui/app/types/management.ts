@@ -27,6 +27,29 @@ export interface ServerItem extends ConnectorBase {
 // nothing reaches for a field the overview never sends.
 export type OverviewServerItem = Omit<ServerItem, 'autoregister'>
 
+// What jack found at one path when a filesystem error happened. Mirrors
+// InspectedPath in apps/backend/src/lib/errors/FileSystemError.ts.
+export type InspectedPath
+  = | { path: string, exists: true, type: 'file' | 'directory' | 'other', mode: string, mode_octal: string, uid: number, gid: number, size_bytes?: number }
+    | { path: string, exists: false, stat_error: string }
+
+// Mirrors FileSystemErrorDetails in apps/backend/src/lib/errors/FileSystemError.ts.
+export interface FileSystemErrorDetails {
+  code: string
+  errno: string
+  explanation: string
+  operation: string
+  occurred_at: string
+  file?: InspectedPath
+  file_dir?: InspectedPath
+  file_nearest_existing_dir?: InspectedPath
+  destination?: InspectedPath
+  destination_dir?: InspectedPath
+  destination_nearest_existing_dir?: InspectedPath
+  free_space?: { dir: string, bytes_available: number, inodes_free: number } | { dir: string, statfs_error: string }
+  process?: { uid: number, gid: number, groups: string }
+}
+
 export interface DownloadItem {
   id: number
   filename: string
@@ -39,6 +62,17 @@ export interface DownloadItem {
   releaseSize: number
   attempts: number
   error: string | null
+  // Why the download failed; documented at /guide/troubleshooting#<code>.
+  errorCode: string | null
+  // Structured context for filesystem failures; null for other errors.
+  errorDetails: FileSystemErrorDetails | null
+  itemId: string
+  destPath: string
+  partPath: string
+  expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null
+  // The *arr connector and category that requested it; null for catalog requests.
+  qbSourceServer: string | null
+  qbCategory: string | null
   lastOperation: 'transfer' | 'import'
   operationFailed: boolean
   importMode: 'jack_manual' | null

@@ -8,6 +8,7 @@ import { IdleTimeoutError } from '../errors/IdleTimeoutError'
 import { IncompatiblePeerError } from '../errors/IncompatiblePeerError'
 import { IncompleteDownloadError } from '../errors/IncompleteDownloadError'
 import { UnknownSizeError } from '../errors/UnknownSizeError'
+import { assertHandleAtPath, isErrnoException, withFsContext } from '../fs-errors'
 import { normalizeImdbId, Release } from '../release'
 import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
@@ -296,7 +297,7 @@ export class PeerConnector extends ServerConnector {
         }
         else if (existingBytes === options.releaseSize) {
           signal.throwIfAborted()
-          await rename(partPath, destPath)
+          await withFsContext('move_completed', 'moving the completed .part into place', [partPath, destPath], () => rename(partPath, destPath))
           setSpanAttribute(span, 'download.downloaded_bytes', existingBytes)
           // Emit headers too so the service persists expectedBytes/source (the
           // fast path otherwise skips the headers event).
@@ -394,7 +395,12 @@ export class PeerConnector extends ServerConnector {
       if (expectedBytes > MAX_DOWNLOAD_BYTES)
         throw new Error(`File too large: ${expectedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
 
-      const handle = await open(partPath, resuming ? 'a' : 'w')
+      const handle = await withFsContext(
+        resuming ? 'resume_part' : 'create_part',
+        resuming ? `opening the .part to resume at byte ${existingBytes}` : 'creating the .part file',
+        [partPath],
+        () => open(partPath, resuming ? 'a' : 'w'),
+      )
       let reader: ReadableStreamDefaultReader<Uint8Array>
       try {
         reader = response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>
@@ -413,6 +419,19 @@ export class PeerConnector extends ServerConnector {
           return
         handleClosed = true
         await handle.close().catch(() => {})
+      }
+
+      // Write errors on network filesystems (ENOSPC, EIO, EDQUOT) often surface
+      // only at fsync. Only "fsync is not supported here" is ignored.
+      const syncPart = async (operation: string) => {
+        try {
+          await handle.datasync()
+        }
+        catch (err) {
+          if (isErrnoException(err) && ['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'].includes(err.code!))
+            return
+          await withFsContext('write_part', operation, [partPath], () => Promise.reject(err))
+        }
       }
 
       try {
@@ -435,16 +454,18 @@ export class PeerConnector extends ServerConnector {
           if (!value)
             continue
 
+          const writeOffset = downloadedBytes
           downloadedBytes += value.byteLength
           if (downloadedBytes > MAX_DOWNLOAD_BYTES)
             throw new Error(`File too large: downloaded ${downloadedBytes} bytes exceeds ${MAX_DOWNLOAD_BYTES} byte limit`)
 
-          await handle.write(value)
+          await withFsContext('write_part', `writing a ${value.byteLength}-byte chunk to the .part at byte ${writeOffset}`, [partPath], () => handle.write(value))
 
           const now = Date.now()
           const shouldLogProgress = downloadedBytes - lastLoggedBytes >= DOWNLOAD_PROGRESS_BYTES || now - lastLoggedAt >= DOWNLOAD_PROGRESS_INTERVAL_MS
           if (lastLoggedBytes === existingBytes || shouldLogProgress) {
-            await handle.datasync().catch(() => {})
+            await syncPart(`flushing the .part to disk after ${downloadedBytes} bytes were written`)
+            await assertHandleAtPath(handle, partPath, `checking the .part is still on disk after ${downloadedBytes} bytes were written`)
             logger.debug({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes, peer: this.name }, 'Download progress from peer')
             await options.onProgress?.({ type: 'progress', downloadedBytes, expectedBytes })
             lastLoggedAt = now
@@ -452,8 +473,10 @@ export class PeerConnector extends ServerConnector {
           }
         }
 
-        await handle.datasync().catch(() => {})
-        await closeHandle()
+        await syncPart(`flushing the .part to disk after the last chunk (${downloadedBytes} bytes written)`)
+        await assertHandleAtPath(handle, partPath, `checking the .part is still on disk after the last chunk (${downloadedBytes} bytes written)`)
+        handleClosed = true
+        await withFsContext('write_part', 'closing the .part file', [partPath], () => handle.close())
 
         // Release the lock only after the completeness check passes, so the catch
         // block's cancel+release runs against a still-locked reader on the
@@ -463,7 +486,7 @@ export class PeerConnector extends ServerConnector {
         reader.releaseLock()
 
         signal.throwIfAborted()
-        await rename(partPath, destPath)
+        await withFsContext('move_completed', 'moving the completed .part into place', [partPath, destPath], () => rename(partPath, destPath))
         setSpanAttribute(span, 'download.downloaded_bytes', downloadedBytes)
         try {
           await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })

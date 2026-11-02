@@ -40,6 +40,11 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 config.jsonc
+# Committed template that dev:preview copies into apps/backend
+!.mise/tasks/dev/preview/config.jsonc
+
+# Local SQLite database created next to config.jsonc (plus its WAL files)
+database.sqlite*
 
 # AI working docs (research, scratch design notes)
 ai_docs

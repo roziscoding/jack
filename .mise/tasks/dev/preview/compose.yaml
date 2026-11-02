@@ -1,0 +1,36 @@
+# Used by `mise run dev:preview`. Builds both images from the working tree and
+# runs them against the same config.jsonc and database.sqlite as `mise run dev`
+# and the db:* tasks: apps/backend is mounted as /config, and the backend keeps
+# its database next to its config.
+name: jack-preview
+
+services:
+  jack:
+    build:
+      context: ../../../..
+      dockerfile: apps/backend/Dockerfile
+    # Run as the host user so the backend can write config, database, and logs
+    # into the mounted apps/backend. `mise run dev:preview` exports these.
+    user: '${JACK_UID:-1000}:${JACK_GID:-1000}'
+    ports:
+      - '${JACK_PORT:-5225}:5225'
+    environment:
+      LOG_LEVEL: info
+      PORT: 5225
+      APP_CONFIG_PATH: /config/config.jsonc
+      # Local preview only; the UI below injects the same value.
+      JACK_MANAGEMENT_KEY: jack-preview-management-key
+    volumes:
+      - ../../../../apps/backend:/config
+
+  jack-ui:
+    build:
+      context: ../../../..
+      dockerfile: apps/ui/Dockerfile
+    depends_on:
+      - jack
+    ports:
+      - '${JACK_UI_PORT:-3000}:3000'
+    environment:
+      JACK_MANAGEMENT_API_URL: http://jack:5226
+      JACK_MANAGEMENT_KEY: jack-preview-management-key

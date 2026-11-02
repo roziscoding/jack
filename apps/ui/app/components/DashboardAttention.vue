@@ -124,7 +124,7 @@ function plural(n: number, word: string) {
                 :title="d.error ?? undefined"
               >
                 <span class="text-toned">{{ d.filename }}</span>
-                · {{ d.error ?? 'unknown error' }}
+                · {{ errorHeadline(d) }}
               </p>
               <p v-if="failedCount > PREVIEW" class="mt-1 text-xs text-dimmed">
                 and {{ failedCount - PREVIEW }} more

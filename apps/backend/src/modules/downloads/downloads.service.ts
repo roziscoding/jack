@@ -6,11 +6,13 @@ import type { DownloadOperationCoordinator } from './download-operation-coordina
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
 import { basename, join, resolve } from 'node:path'
 import { ConflictError } from '../../lib/errors/ConflictError'
+import { FileSystemError } from '../../lib/errors/FileSystemError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
 import { retry } from '../../lib/retry'
 import { Semaphore } from '../../lib/semaphore'
 import { logger } from '../../logger'
 import { unlinkDownloadArtifact } from './artifact-cleanup'
+import { transferErrorCode, transferErrorLogFields } from './download-error-codes'
 import { coordinatorFor } from './download-operation-coordinator'
 import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
@@ -146,6 +148,8 @@ export class DownloadsService {
         updatedAt: '',
         completedAt: null,
         error: null,
+        errorCode: null,
+        errorDetails: null,
         lastOperation: 'transfer',
         operationFailed: false,
         qbCategory: input.qbCategory ?? null,
@@ -247,7 +251,7 @@ export class DownloadsService {
     const resumable: DownloadRecord[] = []
     for (const record of repo.listStaleDownloads()) {
       if (seen.has(record.destPath)) {
-        repo.markFailed(record.id, 'superseded by another resumable download for the same destination')
+        repo.markFailed(record.id, 'SUPERSEDED', 'superseded by another resumable download for the same destination')
         continue
       }
       seen.add(record.destPath)
@@ -281,7 +285,7 @@ export class DownloadsService {
     const record = repo.get(id)
     if (!record)
       throw new NotFoundError(`Download ${id} not found`)
-    if (record.status === 'failed' && record.operationFailed && record.lastOperation === 'transfer' && record.error?.includes('cancelled'))
+    if (record.status === 'failed' && record.operationFailed && record.lastOperation === 'transfer' && record.errorCode === 'CANCELLED')
       return record
     if (record.status !== 'downloading')
       throw new ConflictError(`Download ${id} is not active`)
@@ -347,7 +351,7 @@ export class DownloadsService {
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      this.downloadsRepository?.markFailed(record.id, message, 'transfer')
+      this.downloadsRepository?.markFailed(record.id, transferErrorCode(err, controller.signal), message, 'transfer')
     }
     finally {
       this.active.delete(record.destPath)
@@ -358,8 +362,8 @@ export class DownloadsService {
     const repo = this.downloadsRepository
     const peer = this.peers.find(p => p.id === record.peerId)
     if (!peer) {
-      repo?.markFailed(record.id, `Peer ${record.peerId} not found`)
-      logger.error({ torrentFilename: record.torrentFilename, peerId: record.peerId }, 'Cannot run download: peer not found')
+      repo?.markFailed(record.id, 'PEER_NOT_FOUND', `Peer ${record.peerId} not found`)
+      logger.error({ torrentFilename: record.torrentFilename, peerId: record.peerId, error_code: 'PEER_NOT_FOUND' }, 'Cannot run download: peer not found')
       return
     }
 
@@ -400,8 +404,7 @@ export class DownloadsService {
         isRetryable: isTransientDownloadError,
         retryAfterMs: downloadRetryAfterMs,
         onRetry: ({ attempt, delayMs, error }) => {
-          const message = error instanceof Error ? error.message : String(error)
-          logger.warn({ torrentFilename: record.torrentFilename, attempt, delayMs, error: message }, 'Retrying peer download after transient failure')
+          logger.warn({ torrentFilename: record.torrentFilename, attempt, delayMs, ...transferErrorLogFields(error) }, 'Retrying peer download after transient failure')
         },
         signal,
       })
@@ -414,8 +417,8 @@ export class DownloadsService {
       const message = err instanceof Error ? err.message : String(err)
       // The .part file is preserved by downloadFile on failure, so a later
       // restart re-enqueue can resume from it.
-      repo?.markFailed(record.id, message)
-      logger.error({ torrentFilename: record.torrentFilename, filename: record.filename, error: message }, 'Download failed')
+      repo?.markFailed(record.id, transferErrorCode(err, signal), message, 'transfer', err instanceof FileSystemError ? err.details : null)
+      logger.error({ torrentFilename: record.torrentFilename, filename: record.filename, ...transferErrorLogFields(err, signal) }, 'Download failed')
     }
   }
 }

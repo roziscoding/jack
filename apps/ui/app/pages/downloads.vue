@@ -84,9 +84,65 @@ const chips = computed<{ key: StatusFilter, label: string, color: BadgeProps['co
   { key: 'imported', label: 'Imported', color: 'success' },
   { key: 'failed', label: 'Failed', color: 'error' },
 ])
+// Toolbar filters, applied on top of the status chips. Peer and error code
+// options come from what's in the loaded list, each with its count.
+const search = ref('')
+const peerFilter = ref<string[]>([])
+const codeFilter = ref<string[]>([])
+
+const peerItems = computed(() => {
+  const counts = new Map<string, number>()
+  for (const d of data.value?.downloads ?? [])
+    counts.set(d.peerName, (counts.get(d.peerName) ?? 0) + 1)
+  return Array.from(counts, ([peer, count]) => ({ label: peer, value: peer, count }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+})
+
+// Grouped like the troubleshooting guide's tables: Download file, Transfer, Import.
+const codeItems = computed(() => errorCodeGroups(data.value?.downloads ?? [])
+  .map(({ group, codes }) => [
+    // Labels aren't selectable; the value only keeps value-key typed.
+    { type: 'label' as const, label: group, value: group },
+    ...codes.map(({ code, count }) => ({ label: code, value: code, count, ui: { itemLabel: 'font-mono text-xs' } })),
+  ]))
+
+// Drop selections whose peer or code no longer appears after a live update.
+// Only reassign when something was actually dropped: a new array would count
+// as a filter change and send the user back to page one on every update.
+function keepPresent(selection: Ref<string[]>, present: Set<string>) {
+  const kept = selection.value.filter(value => present.has(value))
+  if (kept.length !== selection.value.length)
+    selection.value = kept
+}
+watch(peerItems, (items) => {
+  keepPresent(peerFilter, new Set(items.map(item => item.value)))
+})
+watch(codeItems, (groups) => {
+  keepPresent(codeFilter, new Set(groups.flat().filter(item => !('type' in item)).map(item => item.value)))
+})
+
+const hasFilters = computed(() => filter.value !== 'all' || search.value.trim() !== '' || peerFilter.value.length > 0 || codeFilter.value.length > 0)
+// Only a status chip active: name the status. Anything else: point at the filters.
+const emptyMessage = computed(() => {
+  const onlyStatus = search.value.trim() === '' && peerFilter.value.length === 0 && codeFilter.value.length === 0
+  if (onlyStatus && filter.value !== 'all')
+    return `No ${statusBadge[filter.value].label.toLowerCase()} downloads.`
+  return 'No downloads match these filters.'
+})
+
+function clearFilters() {
+  filter.value = 'all'
+  search.value = ''
+  peerFilter.value = []
+  codeFilter.value = []
+}
+
 const filtered = computed(() => {
-  const all = data.value?.downloads ?? []
-  return filter.value === 'all' ? all : all.filter(d => d.status === filter.value)
+  return (data.value?.downloads ?? []).filter(d =>
+    (filter.value === 'all' || d.status === filter.value)
+    && matchesSearch(d.filename, search.value)
+    && (peerFilter.value.length === 0 || peerFilter.value.includes(d.peerName))
+    && (codeFilter.value.length === 0 || (d.errorCode != null && codeFilter.value.includes(d.errorCode))))
 })
 
 // Client-side pagination: just slice the filtered list. No server round-trips.
@@ -100,7 +156,7 @@ const showingTo = computed(() => Math.min(page.value * PAGE_SIZE, total.value))
 
 // Switching filters starts over at page one; a refresh that shrinks the list
 // clamps the current page so we never strand the user on an empty page.
-watch(filter, () => {
+watch([filter, search, peerFilter, codeFilter], () => {
   page.value = 1
 })
 watch(pageCount, (count) => {
@@ -108,7 +164,22 @@ watch(pageCount, (count) => {
     page.value = count
 })
 
+// Every row expands into its details (failure first, when there is one), so
+// the table itself stays one line per download. Keyed by download id (see
+// get-row-id), so the right row stays open when live updates reorder the list.
+// TanStack's ExpandedState: `true` expands every row.
+const expanded = ref<true | Record<string, boolean> | undefined>({})
+
+// The whole row toggles its details. Clicks on the row's own buttons and links
+// (the chevron, actions) are left to them.
+function onRowSelect(event: Event, row: { toggleExpanded: () => void }) {
+  if (event.target instanceof Element && event.target.closest('button, a'))
+    return
+  row.toggleExpanded()
+}
+
 const columns: TableColumn<DownloadItem>[] = [
+  { id: 'expand', header: '' },
   { accessorKey: 'filename', header: 'File' },
   { accessorKey: 'peerName', header: 'Peer' },
   { accessorKey: 'status', header: 'Status' },
@@ -129,6 +200,97 @@ const columns: TableColumn<DownloadItem>[] = [
           </UBadge>
         </template>
       </UDashboardNavbar>
+
+      <!-- Status chips on the left (they double as the breakdown), the finer
+           filters on the right. Wraps instead of scrolling on narrow screens. -->
+      <UDashboardToolbar
+        v-if="data?.downloads.length"
+        :ui="{ root: 'flex-wrap overflow-visible gap-y-2 py-2', left: 'flex-wrap', right: 'flex-wrap w-full sm:w-auto' }"
+      >
+        <template #left>
+          <UButton
+            v-for="chip in chips"
+            :key="chip.key"
+            :color="chip.color"
+            :variant="filter === chip.key ? 'subtle' : 'ghost'"
+            size="sm"
+            @click="() => { filter = chip.key }"
+          >
+            {{ chip.label }}
+            <UBadge :color="chip.color" :variant="filter === chip.key ? 'solid' : 'soft'" size="sm">
+              {{ counts[chip.key] }}
+            </UBadge>
+          </UButton>
+        </template>
+
+        <template #right>
+          <UInput
+            v-model="search"
+            icon="i-ph-magnifying-glass"
+            placeholder="Search by file name"
+            size="sm"
+            class="w-full sm:w-56"
+            aria-label="Search downloads by file name"
+          />
+
+          <USelectMenu
+            v-model="peerFilter"
+            :items="peerItems"
+            value-key="value"
+            multiple
+            icon="i-ph-users-three"
+            size="sm"
+            :search-input="{ placeholder: 'Find a peer' }"
+            class="w-[calc(50%-0.1875rem)] sm:w-36"
+            aria-label="Filter by peer"
+          >
+            <template #default>
+              <span class="flex items-center gap-1.5">
+                <span :class="peerFilter.length ? 'text-default' : 'text-dimmed'">Peer</span>
+                <UBadge v-if="peerFilter.length" :label="String(peerFilter.length)" color="primary" variant="soft" size="sm" />
+              </span>
+            </template>
+            <template #item-trailing="{ item }">
+              <span class="text-xs tabular-nums text-dimmed">{{ (item as { count?: number }).count }}</span>
+            </template>
+          </USelectMenu>
+
+          <USelectMenu
+            v-if="codeItems.length"
+            v-model="codeFilter"
+            :items="codeItems"
+            value-key="value"
+            multiple
+            icon="i-ph-warning-circle"
+            size="sm"
+            :search-input="{ placeholder: 'Find an error code' }"
+            :content="{ align: 'end' }"
+            :ui="{ content: 'min-w-64' }"
+            class="w-[calc(50%-0.1875rem)] sm:w-40"
+            aria-label="Filter by error code"
+          >
+            <template #default>
+              <span class="flex items-center gap-1.5">
+                <span :class="codeFilter.length ? 'text-default' : 'text-dimmed'">Error code</span>
+                <UBadge v-if="codeFilter.length" :label="String(codeFilter.length)" color="primary" variant="soft" size="sm" />
+              </span>
+            </template>
+            <template #item-trailing="{ item }">
+              <span class="text-xs tabular-nums text-dimmed">{{ (item as { count?: number }).count }}</span>
+            </template>
+          </USelectMenu>
+
+          <UButton
+            v-if="hasFilters"
+            label="Clear filters"
+            icon="i-ph-x"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            @click="clearFilters"
+          />
+        </template>
+      </UDashboardToolbar>
     </template>
 
     <template #body>
@@ -149,36 +311,41 @@ const columns: TableColumn<DownloadItem>[] = [
       </UCard>
 
       <div v-else-if="data" class="space-y-4">
-        <!-- Status filter / breakdown -->
-        <div class="flex flex-wrap gap-2">
-          <UButton
-            v-for="chip in chips"
-            :key="chip.key"
-            :color="chip.color"
-            :variant="filter === chip.key ? 'subtle' : 'ghost'"
-            size="sm"
-            @click="() => { filter = chip.key }"
-          >
-            {{ chip.label }}
-            <UBadge :color="chip.color" :variant="filter === chip.key ? 'solid' : 'soft'" size="sm">
-              {{ counts[chip.key] }}
-            </UBadge>
-          </UButton>
-        </div>
-
         <!-- Desktop: the full table. -->
         <UCard class="hidden lg:block" variant="subtle" :ui="{ body: '!p-0' }">
-          <UTable :data="paged" :columns="columns" :ui="{ td: 'align-top' }">
+          <UTable
+            v-model:expanded="expanded"
+            :data="paged"
+            :columns="columns"
+            :get-row-id="(download: DownloadItem) => String(download.id)"
+            :on-select="onRowSelect"
+            :meta="{ class: { tr: 'cursor-pointer' } }"
+            :ui="{ td: 'align-top' }"
+          >
+            <template #expand-cell="{ row }">
+              <UButton
+                icon="i-ph-caret-right"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                :ui="{ leadingIcon: row.getIsExpanded() ? 'transition-transform rotate-90' : 'transition-transform' }"
+                :aria-label="row.getIsExpanded() ? 'Hide details' : 'Show details'"
+                :aria-expanded="row.getIsExpanded()"
+                @click="row.toggleExpanded()"
+              />
+            </template>
+
             <template #filename-cell="{ row }">
               <p class="font-medium text-default" :title="row.original.filename">
                 {{ row.original.filename }}
               </p>
-              <p v-if="row.original.error" class="text-xs text-error" :title="row.original.error">
-                {{ row.original.error }}
-              </p>
-              <p v-else-if="row.original.expectedBytesMismatch" class="text-xs text-warning">
+              <p v-if="row.original.status !== 'failed' && row.original.expectedBytesMismatch" class="text-xs text-warning">
                 size mismatch
               </p>
+            </template>
+
+            <template #expanded="{ row }">
+              <DownloadDetails :download="row.original" class="py-2 pr-2 pl-10" />
             </template>
 
             <template #peerName-cell="{ row }">
@@ -214,8 +381,9 @@ const columns: TableColumn<DownloadItem>[] = [
             </template>
 
             <template #empty>
-              <div class="py-6 text-center text-sm text-muted">
-                No {{ statusBadge[filter as DownloadItem['status']].label.toLowerCase() }} downloads.
+              <div class="flex flex-col items-center gap-2 py-6 text-sm text-muted">
+                <p>{{ emptyMessage }}</p>
+                <UButton label="Clear filters" color="neutral" variant="subtle" size="sm" @click="clearFilters" />
               </div>
             </template>
           </UTable>
@@ -230,10 +398,7 @@ const columns: TableColumn<DownloadItem>[] = [
                   <p class="font-medium break-words text-default" :title="d.filename">
                     {{ d.filename }}
                   </p>
-                  <p v-if="d.error" class="mt-0.5 text-xs text-error">
-                    {{ d.error }}
-                  </p>
-                  <p v-else-if="d.expectedBytesMismatch" class="mt-0.5 text-xs text-warning">
+                  <p v-if="d.status !== 'failed' && d.expectedBytesMismatch" class="mt-0.5 text-xs text-warning">
                     size mismatch
                   </p>
                 </div>
@@ -244,6 +409,20 @@ const columns: TableColumn<DownloadItem>[] = [
                 <span class="truncate">{{ d.peerName }}</span>
                 <span class="shrink-0 tabular-nums">{{ formatBytes(d.totalBytes) }} · {{ formatAgo(d.updatedAt) }} ago</span>
               </div>
+              <UCollapsible>
+                <UButton
+                  label="Details"
+                  color="neutral"
+                  variant="link"
+                  size="xs"
+                  class="px-0"
+                  trailing-icon="i-ph-caret-down"
+                  :ui="{ trailingIcon: 'transition-transform group-data-[state=open]:rotate-180' }"
+                />
+                <template #content>
+                  <DownloadDetails :download="d" class="pt-2" />
+                </template>
+              </UCollapsible>
               <DownloadActions
                 :download="d"
                 :pending="pendingActions[d.id]"
@@ -252,9 +431,10 @@ const columns: TableColumn<DownloadItem>[] = [
             </div>
           </UCard>
 
-          <p v-if="paged.length === 0" class="py-6 text-center text-sm text-muted">
-            No {{ statusBadge[filter as DownloadItem['status']].label.toLowerCase() }} downloads.
-          </p>
+          <div v-if="paged.length === 0" class="flex flex-col items-center gap-2 py-6 text-sm text-muted">
+            <p>{{ emptyMessage }}</p>
+            <UButton label="Clear filters" color="neutral" variant="subtle" size="sm" @click="clearFilters" />
+          </div>
         </div>
 
         <!-- Pagination shared by both layouts. -->

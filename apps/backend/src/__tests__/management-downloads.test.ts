@@ -63,14 +63,14 @@ describe('management download actions', () => {
 
   test('POST /downloads/:id/retry dispatches from the persisted last failed operation', async () => {
     const { app, retryTransfer, retryImport, repository, row, sqlite } = setup()
-    repository.markFailed(row.id, 'transfer failed', 'transfer')
+    repository.markFailed(row.id, 'UNKNOWN_ERROR', 'transfer failed', 'transfer')
 
     const transferResponse = await app.request(`/downloads/${row.id}/retry`, { method: 'POST', headers: HEADERS })
     expect(transferResponse.status).toBe(200)
     expect(retryTransfer).toHaveBeenCalledWith(row.id)
 
     repository.markImportQueued(row.id)
-    repository.markFailed(row.id, 'import failed', 'import')
+    repository.markFailed(row.id, 'IMPORT_REJECTED', 'import failed', 'import')
     // Retry selection is driven by the persisted failed operation, not the display status.
     sqlite.query('UPDATE downloads SET status = ? WHERE id = ?').run('imported', row.id)
     const importResponse = await app.request(`/downloads/${row.id}/retry`, { method: 'POST', headers: HEADERS })

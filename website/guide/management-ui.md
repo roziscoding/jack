@@ -15,7 +15,9 @@ operate jack day to day:
 - ***Catalog***: browse everything your peers share, and request titles into
   your library.
 - ***Downloads***: inspect, cancel, retry, and delete in-flight or finished
-  grabs, updating live as they progress.
+  grabs, updating live as they progress. A failed download shows its
+  [error code](/guide/troubleshooting#download-error-codes), linked to its
+  entry in the troubleshooting guide, and the list can be filtered by code.
 - ***Peers*** and ***Servers***: add, edit, and remove your friends and your
   Radarr/Sonarr connectors.
 - ***Settings -> Downloads***: the whole

@@ -9,7 +9,7 @@
 
     // Bundler mode
     "moduleResolution": "bundler",
-    "types": ["bun"],
+    "types": ["bun", "node"],
     "allowImportingTsExtensions": true,
     "allowJs": true,
 
@@ -24,8 +24,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noEmit": true,
+    "esModuleInterop": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
+  // The default "**/*" skips dot-folders, so mise's TS tasks need listing.
+  "include": ["**/*", ".mise/**/*"],
   "exclude": ["apps/ui", "website"]
 }

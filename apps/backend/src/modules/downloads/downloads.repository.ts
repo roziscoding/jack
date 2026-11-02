@@ -1,7 +1,9 @@
 import type { AppDatabase } from '../../database/connection'
 import type { DownloadOperation, DownloadRow, DownloadStatus, ExpectedBytesSource, NewDownloadRow } from '../../database/schema'
+import type { FileSystemErrorDetails } from '../../lib/errors/FileSystemError'
 import type { Release } from '../../lib/release'
 import type { ManualImportTarget } from '../../lib/servers/arr/base'
+import type { DownloadErrorCode } from './download-error-codes'
 import { desc, eq, sql } from 'drizzle-orm'
 import { downloads } from '../../database/schema'
 
@@ -26,6 +28,8 @@ export interface DownloadRecord {
   updatedAt: string
   completedAt: string | null
   error: string | null
+  errorCode: DownloadErrorCode | null
+  errorDetails: FileSystemErrorDetails | null
   lastOperation: DownloadOperation
   operationFailed: boolean
   qbCategory: string | null
@@ -80,6 +84,8 @@ function toRecord(row: DownloadRow): DownloadRecord {
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
     error: row.error,
+    errorCode: (row.errorCode as DownloadErrorCode | null) ?? null,
+    errorDetails: row.errorDetails ?? null,
     lastOperation: row.lastOperation,
     operationFailed: row.operationFailed,
     qbCategory: row.qbCategory ?? null,
@@ -182,6 +188,8 @@ export class DownloadsRepository {
         completedAt: timestamp,
         updatedAt: timestamp,
         error: null,
+        errorCode: null,
+        errorDetails: null,
         lastOperation: 'import',
         operationFailed: false,
       })
@@ -194,7 +202,7 @@ export class DownloadsRepository {
   // is kept (not deleted) so the downloads list doubles as a history.
   markImported(id: number): void {
     this.db.update(downloads)
-      .set({ status: 'imported', lastOperation: 'import', operationFailed: false, error: null, updatedAt: nowIso() })
+      .set({ status: 'imported', lastOperation: 'import', operationFailed: false, error: null, errorCode: null, errorDetails: null, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -216,6 +224,8 @@ export class DownloadsRepository {
         lastOperation: 'import',
         operationFailed: false,
         error: null,
+        errorCode: null,
+        errorDetails: null,
         updatedAt: nowIso(),
       })
       .where(eq(downloads.id, id))
@@ -223,9 +233,9 @@ export class DownloadsRepository {
     this.notifyChanged()
   }
 
-  markFailed(id: number, error: string, operation: DownloadOperation = 'transfer'): void {
+  markFailed(id: number, errorCode: DownloadErrorCode, error: string, operation: DownloadOperation = 'transfer', errorDetails: FileSystemErrorDetails | null = null): void {
     this.db.update(downloads)
-      .set({ status: 'failed', error, lastOperation: operation, operationFailed: true, updatedAt: nowIso() })
+      .set({ status: 'failed', error, errorCode, errorDetails, lastOperation: operation, operationFailed: true, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -243,7 +253,7 @@ export class DownloadsRepository {
 
   markTransferStarted(id: number): void {
     this.db.update(downloads)
-      .set({ status: 'downloading', lastOperation: 'transfer', operationFailed: false, error: null, updatedAt: nowIso() })
+      .set({ status: 'downloading', lastOperation: 'transfer', operationFailed: false, error: null, errorCode: null, errorDetails: null, updatedAt: nowIso() })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -302,6 +312,7 @@ export class DownloadsRepository {
           lastOperation: 'transfer',
           operationFailed: true,
           downloadedBytes,
+          errorCode: 'STALE_AFTER_RESTART',
           error: partExists
             ? `stale download after Jack restart; found .part file with ${downloadedBytes} bytes`
             : 'stale download after Jack restart; .part file was not found',
