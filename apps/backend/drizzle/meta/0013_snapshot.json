@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3fd628a9-0718-4caa-9bc7-b37c378b24fd",
+  "id": "eaa57d45-c178-4268-8f20-7583ce45c634",
   "prevId": "98a73f51-7c4b-4de6-9869-9a1939f29413",
   "tables": {
     "api_keys": {
@@ -385,6 +385,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "sources_read_at": {
+          "name": "sources_read_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },

@@ -86,7 +86,12 @@ export class OwnCatalogRepository {
    * otherwise the whole source is. Only rows that changed are written.
    */
   replaceSource(sourceId: string, entries: Map<string, OwnCatalogEntry>, onlyKeys?: string[]): void {
+    // Make sure the meta row exists before recording the read in it.
+    this.generation()
     this.db.transaction((tx) => {
+      tx.update(ownCatalogMeta).set({
+        sourcesReadAt: new Date().toISOString(),
+      }).where(eq(ownCatalogMeta.id, 1)).run()
       const scope = onlyKeys
         ? and(eq(ownCatalogSourceTitles.sourceId, sourceId), inArray(ownCatalogSourceTitles.titleKey, onlyKeys))
         : eq(ownCatalogSourceTitles.sourceId, sourceId)
@@ -232,7 +237,7 @@ export class OwnCatalogRepository {
    * Null until a source has been read, so the caller asks the sources instead.
    */
   searchReleases(sourceIds: string[], params: ReleaseSearch): Release[] | null {
-    if (!this.db.select({ sourceId: ownCatalogSourceTitles.sourceId }).from(ownCatalogSourceTitles).limit(1).get())
+    if (!this.db.select().from(ownCatalogMeta).where(eq(ownCatalogMeta.id, 1)).get()?.sourcesReadAt)
       return null
     if (sourceIds.length === 0)
       return []

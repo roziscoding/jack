@@ -1,6 +1,7 @@
 CREATE TABLE `own_catalog_meta` (
 	`id` integer PRIMARY KEY NOT NULL,
-	`generation` text NOT NULL
+	`generation` text NOT NULL,
+	`sources_read_at` text
 );
 --> statement-breakpoint
 CREATE TABLE `own_catalog_releases` (

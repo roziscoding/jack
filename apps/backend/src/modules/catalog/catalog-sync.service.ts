@@ -257,8 +257,10 @@ export class CatalogSyncService {
       if (!ids.has(id))
         this.libraryByServer.delete(id)
     }
-    // Imports that happened before this read are in it now.
-    this.imported = this.imported.filter(i => i.seq > cutoff)
+    // Imports that happened before this read are in it now, but only if every
+    // library was read: the import landed in one of them, and we don't know which.
+    if (results.every(result => result.status === 'fulfilled'))
+      this.imported = this.imported.filter(i => i.seq > cutoff)
   }
 
   private async syncPeers(): Promise<void> {

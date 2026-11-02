@@ -807,8 +807,49 @@ describe('catalogSyncService', () => {
     await sync.sync()
 
     expect(own.changesSince([]).titles).toEqual([])
-    // Nothing is left from any source, so the cache reads as never synced.
-    expect(own.searchReleases(['radarr'], {})).toBeNull()
+    expect(own.searchReleases(['radarr'], {})).toEqual([])
+  })
+
+  test('an emptied catalog is still answered from the cache', async () => {
+    let titles: PeerCatalogTitle[] = [matrix]
+    const radarr = sourceRadarr(() => titles)
+    const { sync, own } = setup({
+      servers: [radarr],
+    })
+    await sync.sync()
+
+    titles = []
+    await sync.sync()
+
+    // Read and empty, which is not the same as never read (null).
+    expect(own.searchReleases(['radarr'], { tmdbId: '603' })).toEqual([])
+  })
+
+  test('keeps an import\'s owned mark while a library can\'t be read', async () => {
+    const peer = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 604, title: 'Reloaded' }),
+    ])
+    let fail = false
+    const radarr = {
+      id: 'radarr',
+      isInitialized: true,
+      listLibrary: async () => {
+        if (fail)
+          throw new Error('down')
+        return []
+      },
+    }
+    const { sync, controller } = setup({
+      servers: [radarr],
+      peers: [peer],
+    })
+    await sync.sync()
+
+    await sync.addImported(movie({ tmdbId: 604 }))
+    fail = true
+    await sync.sync()
+
+    expect(controller.getCatalog().titles[0]!.inLibrary).toBe(true)
   })
 
   test('marks titles the local library already has', async () => {
