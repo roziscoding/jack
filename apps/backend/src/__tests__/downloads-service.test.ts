@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { openDatabase } from '../database/connection'
 import { FetchError } from '../lib/errors/FetchError'
+import { fileSystemError } from '../lib/fs-errors'
+import { logger } from '../logger'
 import { DownloadOperationCoordinator } from '../modules/downloads/download-operation-coordinator'
 import { DownloadsRepository } from '../modules/downloads/downloads.repository'
 import { DownloadsService } from '../modules/downloads/downloads.service'
@@ -92,7 +94,7 @@ describe('DownloadsService download progress persistence', () => {
 
     await service.cancel(two.id)
 
-    expect(repository.get(two.id)).toMatchObject({ status: 'failed', operationFailed: true, lastOperation: 'transfer' })
+    expect(repository.get(two.id)).toMatchObject({ status: 'failed', operationFailed: true, lastOperation: 'transfer', errorCode: 'CANCELLED' })
     await service.cancel(repository.list().find(row => row.itemId === 'one')!.id)
     handle.close()
   }, 1000)
@@ -169,6 +171,7 @@ describe('DownloadsService download progress persistence', () => {
 
     expect(repository.get(one.id)).toMatchObject({ status: 'failed', lastOperation: 'transfer' })
     expect(repository.get(one.id)?.error).toContain('cancelled')
+    expect(repository.get(one.id)?.errorCode).toBe('CANCELLED')
     expect(await Bun.file(one.partPath).exists()).toBe(true)
     expect(repository.get(two.id)?.status).toBe('downloading')
     started.get('two')?.()
@@ -261,7 +264,7 @@ describe('DownloadsService download progress persistence', () => {
       importTarget: { kind: 'movie', movieId: 42 },
     })
     repository.markImportQueued(row.id)
-    repository.markFailed(row.id, 'import rejected', 'import')
+    repository.markFailed(row.id, 'IMPORT_REJECTED', 'import rejected', 'import')
     await Bun.write(row.destPath, 'completed')
     const started = Promise.withResolvers<void>()
     const finish = Promise.withResolvers<void>()
@@ -363,7 +366,7 @@ describe('DownloadsService download progress persistence', () => {
       releaseSize: release.size,
       release,
     })
-    repository.markFailed(row.id, 'transfer failed')
+    repository.markFailed(row.id, 'UNKNOWN_ERROR', 'transfer failed')
     const coordinator = new DownloadOperationCoordinator()
     const locked = Promise.withResolvers<void>()
     const releaseLock = Promise.withResolvers<void>()
@@ -445,7 +448,39 @@ describe('DownloadsService download progress persistence', () => {
     expect(calls).toBe(1) // 404 is permanent — no retry
     const downloads = repository.list()
     expect(downloads[0]?.status).toBe('failed')
+    expect(downloads[0]?.errorCode).toBe('PEER_HTTP_ERROR')
     handle.close()
+  })
+
+  test('stores the code and human filesystem message on the row and logs the summary with structured details', async () => {
+    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const repository = new DownloadsRepository(handle.db)
+    const fsError = await fileSystemError({ errno: 'EACCES', stage: 'create_part', operation: 'creating the .part file', paths: [join(tempDir, 'x.part')] })
+    let calls = 0
+    const peer = fakePeer({ downloadFile: async () => {
+      calls++
+      throw fsError
+    } })
+    const service = new DownloadsService(downloadsConfig(), { peers: [peer as any] }, repository)
+    const errorSpy = spyOn(logger, 'error')
+
+    try {
+      await service.startQbDownload({ peerId: 'peer-1', itemId: 'movie:1', qbCategory: 'jack-x', qbSourceServer: 'My Radarr', sourceServerId: 'radarr-1' })
+      await waitForStatus(repository, 'failed')
+
+      expect(calls).toBe(1) // filesystem errors are permanent
+      expect(repository.list()[0]?.error).toBe(fsError.message)
+      expect(repository.list()[0]?.errorCode).toBe('PART_CREATE_DENIED')
+      expect(repository.list()[0]?.errorDetails).toEqual(fsError.details)
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ error_code: 'PART_CREATE_DENIED', error: fsError.summary, filesystem: fsError.details }),
+        'Download failed',
+      )
+    }
+    finally {
+      errorSpy.mockRestore()
+      handle.close()
+    }
   })
 
   test('retries a transient failure then succeeds', async () => {
@@ -596,6 +631,7 @@ describe('DownloadsService download progress persistence', () => {
     const rows = repository.list()
     expect(rows.filter(d => d.status === 'import_queued')).toHaveLength(1)
     expect(rows.find(d => d.status === 'failed')?.error).toContain('superseded')
+    expect(rows.find(d => d.status === 'failed')?.errorCode).toBe('SUPERSEDED')
     handle.close()
   })
 

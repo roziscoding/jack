@@ -145,7 +145,7 @@ export class ImportWatcher {
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        this.repository.markFailed(id, message, 'import')
+        this.repository.markFailed(id, err instanceof PermanentManualImportError ? 'IMPORT_REJECTED' : 'IMPORT_TRIGGER_FAILED', message, 'import')
         throw err
       }
     })
@@ -228,8 +228,8 @@ export class ImportWatcher {
               return 1
             }
             if (status.state === 'failed') {
-              this.repository.markFailed(row.id, status.error, 'import')
-              logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: status.error }, 'Manual import command failed')
+              this.repository.markFailed(row.id, 'IMPORT_REJECTED', status.error, 'import')
+              logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error_code: 'IMPORT_REJECTED', error: status.error }, 'Manual import command failed')
             }
           }
           catch (err) {
@@ -258,16 +258,16 @@ export class ImportWatcher {
         catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           if (err instanceof PermanentManualImportError) {
-            this.repository.markFailed(row.id, message, 'import')
+            this.repository.markFailed(row.id, 'IMPORT_REJECTED', message, 'import')
             this.triggerFailures.delete(row.id)
-            logger.warn({ id: row.id, server: connector.name, error: message }, 'Manual import cannot be retried')
+            logger.warn({ id: row.id, server: connector.name, error_code: 'IMPORT_REJECTED', error: message }, 'Manual import cannot be retried')
             return 0
           }
           const failures = (this.triggerFailures.get(row.id)?.failures ?? 0) + 1
           if (failures >= this.retryPolicy.maxAttempts) {
-            this.repository.markFailed(row.id, `manual import failed after ${failures} attempts: ${message}`, 'import')
+            this.repository.markFailed(row.id, 'IMPORT_TRIGGER_FAILED', `manual import failed after ${failures} attempts: ${message}`, 'import')
             this.triggerFailures.delete(row.id)
-            logger.warn({ id: row.id, server: connector.name, attempts: failures, error: message }, 'Manual import gave up after repeated failures')
+            logger.warn({ id: row.id, server: connector.name, attempts: failures, error_code: 'IMPORT_TRIGGER_FAILED', error: message }, 'Manual import gave up after repeated failures')
             return 0
           }
           const delayMs = Math.min(this.retryPolicy.backoffMaxMs, this.retryPolicy.backoffBaseMs * 2 ** (failures - 1))

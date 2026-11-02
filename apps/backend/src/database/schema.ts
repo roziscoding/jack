@@ -1,3 +1,4 @@
+import type { FileSystemErrorDetails } from '../lib/errors/FileSystemError'
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -29,6 +30,12 @@ export const downloads = sqliteTable('downloads', {
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
   error: text('error'),
+  // A DownloadErrorCode (download-error-codes.ts). No check constraint, so new
+  // codes don't need a migration.
+  errorCode: text('error_code'),
+  // FileSystemErrorDetails for filesystem failures, so the UI can show the
+  // paths, permissions, and free space jack found. Null for other errors.
+  errorDetails: text('error_details', { mode: 'json' }).$type<FileSystemErrorDetails | null>(),
   lastOperation: text('last_operation').$type<DownloadOperation>().notNull().default('transfer'),
   operationFailed: integer('operation_failed', { mode: 'boolean' }).notNull().default(false),
   // qBittorrent emulation: the category *arr sent on add, and the server

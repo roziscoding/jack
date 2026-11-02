@@ -156,7 +156,7 @@ describe('ImportWatcher jack_manual trigger', () => {
   test('serializes a manual retry against a watcher tick and revalidates state', async () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
-    repo.markFailed(row.id, 'manual import rejected', 'import')
+    repo.markFailed(row.id, 'IMPORT_REJECTED', 'manual import rejected', 'import')
     const started = Promise.withResolvers<void>()
     const finish = Promise.withResolvers<void>()
     const manualImport = mock(async () => {
@@ -180,7 +180,7 @@ describe('ImportWatcher jack_manual trigger', () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
     repo.updateProgress(row.id, release.size)
-    repo.markFailed(row.id, 'manual import rejected', 'import')
+    repo.markFailed(row.id, 'IMPORT_REJECTED', 'manual import rejected', 'import')
     const manualImport = mock(async () => 105)
     const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
 

@@ -172,6 +172,7 @@ describe('DownloadsRepository', () => {
     expect(stale.status).toBe('failed')
     expect(stale.downloadedBytes).toBe(4)
     expect(stale.error).toContain('stale')
+    expect(stale.errorCode).toBe('STALE_AFTER_RESTART')
     expect(stale.lastOperation).toBe('transfer')
     expect(stale.operationFailed).toBe(true)
     handle.close()

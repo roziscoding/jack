@@ -78,6 +78,20 @@
       "when": 1785019399084,
       "tag": "0010_calm_cyclops",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793620246138,
+      "tag": "0011_download_error_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793626347209,
+      "tag": "0012_download_error_details",
+      "breakpoints": true
     }
   ]
 }
