@@ -13,7 +13,7 @@ const metadata = computed(() => entry.value?.data ?? props.title.metadata ?? nul
 const status = computed<'loading' | 'unavailable' | 'ready'>(() => {
   if (metadata.value)
     return 'ready'
-  if (props.title.tmdbId == null)
+  if (props.title.tmdbId == null || props.title.metadata === null)
     return 'unavailable'
   return entry.value === null || entry.value.status === 'loading'
     ? 'loading'
@@ -23,9 +23,12 @@ const status = computed<'loading' | 'unavailable' | 'ready'>(() => {
 const name = computed(() => metadata.value?.title ?? props.title.displayTitle)
 // Prefer the poster, fall back to the backdrop — both for titles that only have one
 // and for transient TMDB load failures (object-cover crops it to the card shape).
+// The peers' *arr artwork comes last, for titles TMDB can't fill in.
 const { src: poster, onError: onPosterError } = useFallbackImage(() => [
   metadata.value?.posterUrl,
   metadata.value?.backdropUrl,
+  props.title.posterUrl,
+  props.title.backdropUrl,
 ])
 const year = computed(() => metadata.value?.year ?? null)
 const rating = computed(() => metadata.value?.rating ?? null)
@@ -65,10 +68,13 @@ onBeforeUnmount(() => observer?.disconnect())
   <button
     ref="cardRef"
     type="button"
-    class="group flex flex-col gap-2 text-left focus:outline-none"
+    class="group flex cursor-pointer flex-col gap-2 rounded-lg text-left focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
     @click="$emit('select')"
   >
-    <div class="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted ring-1 ring-default transition group-hover:ring-primary">
+    <div
+      class="@container relative aspect-[2/3] overflow-hidden rounded-lg bg-muted ring-1 transition group-hover:ring-primary"
+      :class="title.inLibrary ? 'ring-success/60' : 'ring-default'"
+    >
       <!-- No loading="lazy": the IntersectionObserver already defers the poster URL
            until the card nears the viewport, and native lazy-loading is unreliable
            inside the panel's internal scroll container (images stay blank until the
@@ -77,7 +83,8 @@ onBeforeUnmount(() => observer?.disconnect())
         v-if="poster"
         :src="poster"
         :alt="name"
-        class="size-full object-cover"
+        class="size-full object-cover transition"
+        :class="title.inLibrary && 'opacity-60 saturate-[.35] group-hover:opacity-100 group-hover:saturate-100 group-focus-visible:opacity-100 group-focus-visible:saturate-100'"
         @error="onPosterError"
       >
       <!-- Loading: pulsing surface with a spinner. -->
@@ -92,6 +99,20 @@ onBeforeUnmount(() => observer?.disconnect())
       <div v-else class="flex size-full items-center justify-center">
         <UIcon :name="mediaIcon" class="size-8 text-dimmed" />
       </div>
+      <!-- Owned titles: the poster is dimmed (above) and tagged here, so what's new
+           stands out while scanning. The label collapses to the icon on narrow posters
+           so it never collides with the rating badge. -->
+      <UTooltip v-if="title.inLibrary" text="Already in your library">
+        <UBadge
+          variant="solid"
+          size="sm"
+          icon="i-ph-check-circle-fill"
+          class="absolute left-1.5 top-1.5 gap-1 bg-black/65 font-semibold text-emerald-300 ring-1 ring-emerald-400/30 backdrop-blur"
+          :ui="{ leadingIcon: 'text-emerald-400' }"
+        >
+          <span class="hidden @[150px]:inline">In library</span>
+        </UBadge>
+      </UTooltip>
       <UBadge
         v-if="rating"
         :label="rating.toFixed(1)"

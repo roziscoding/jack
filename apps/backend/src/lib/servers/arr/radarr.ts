@@ -1,13 +1,13 @@
 import type { MovieFileResource, MovieResource } from '@jack/schemas/radarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import type { AddParams, ManualImportParams } from './base'
+import type { AddParams, CatalogEntry, CatalogTitleFilter, LibraryEntry, ManualImportParams } from './base'
 import { z } from 'zod'
 import { BadRequestError } from '../../errors/BadRequestError'
 import { normalizeImdbId, ReleaseCategory } from '../../release'
 import { setSpanAttribute, setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
-import { ArrServerConnector, basename, stripExtension } from './base'
+import { ArrServerConnector, artworkFrom, basename, resolutionsOf, stripExtension } from './base'
 
 const CreatedId = z.object({
   id: z.number().int(),
@@ -74,6 +74,7 @@ export class RadarrServerConnector extends ArrServerConnector {
       releaseGroup: file.releaseGroup ?? undefined,
       edition: file.edition ?? undefined,
       mediaInfo: (file.mediaInfo as Record<string, unknown> | undefined) ?? undefined,
+      movieTitle: movie.title ?? undefined,
       publishDate: file.dateAdded ?? undefined,
     }
   }
@@ -154,6 +155,51 @@ export class RadarrServerConnector extends ArrServerConnector {
       .filter(m => m.hasFile)
       .map(m => this.toRelease(m))
       .filter((r): r is Release => r != null)
+  }
+
+  protected override async doListLibrary(): Promise<LibraryEntry[]> {
+    const movies = await this.listMovies()
+    return movies
+      .filter(m => m.hasFile)
+      .map(m => ({
+        mediaType: 'movie' as const,
+        tmdbId: m.tmdbId ?? undefined,
+        imdbId: m.imdbId ?? undefined,
+      }))
+  }
+
+  protected override async doListCatalog(only?: CatalogTitleFilter): Promise<CatalogEntry[]> {
+    if (only && only.tmdbId == null)
+      return []
+    // Radarr filters /movie by tmdbId server-side.
+    const movies = only
+      ? await this.arrGet<MovieResource[]>('/api/v3/movie', {
+          tmdbId: String(only.tmdbId),
+        })
+      : await this.listMovies()
+    return (Array.isArray(movies)
+      ? movies
+      : []).flatMap((movie): CatalogEntry[] => {
+      const release = this.toRelease(movie)
+      if (!release)
+        return []
+      return [
+        {
+          title: {
+            mediaType: 'movie',
+            tmdbId: release.tmdbId,
+            imdbId: release.imdbId,
+            title: movie.title ?? release.title,
+            releaseCount: 1,
+            totalSize: release.size,
+            resolutions: resolutionsOf([release]),
+            ...artworkFrom(movie.images),
+            genres: movie.genres?.length ? movie.genres : undefined,
+          },
+          releases: [release],
+        },
+      ]
+    })
   }
 
   private async getMovie(id: string): Promise<MovieResource | null> {

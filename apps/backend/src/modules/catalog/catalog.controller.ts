@@ -2,15 +2,64 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { TmdbClient, TmdbMediaType, TmdbMetadata } from '../../lib/tmdb/client'
 import type { DownloadsService } from '../downloads/downloads.service'
-import type { PeerReleases, UnifiedCatalogTitle } from './catalog.lib'
+import type { CatalogSyncService, CatalogSyncStatus } from './catalog-sync.service'
+import type { UnifiedCatalogTitle } from './catalog.lib'
+import type { CatalogFacets, CatalogQuery } from './catalog.query'
+import type { TmdbMetadataRepository } from './tmdb-metadata.repository'
+import { openMemoryDatabase } from '../../database/connection'
 import { BadRequestError } from '../../lib/errors/BadRequestError'
 import { NotFoundError } from '../../lib/errors/NotFoundError'
-import { groupReleasesIntoUnifiedTitles, pickBestPerEpisode, pickBestRelease } from './catalog.lib'
+import { CatalogCacheRepository } from './catalog-cache.repository'
+import { groupPeerCatalogs, markInLibrary, pickBestPerEpisode, pickBestRelease } from './catalog.lib'
+import { queryCatalog } from './catalog.query'
 
 export interface CatalogResponse {
-  // Peers that responded and contributed to this catalog.
+  // Configured peers with titles in the cache.
   peers: Array<{ id: string, name: string }>
+  // The titles matching the query, ranked and sorted.
   titles: UnifiedCatalogTitle[]
+  facets: CatalogFacets
+  sync: CatalogSyncStatus
+}
+
+const ALL_TITLES: CatalogQuery = {
+  type: 'all',
+  peers: [],
+  genres: [],
+  hideOwned: false,
+}
+
+const NEVER_SYNCED: CatalogSyncStatus = { syncing: false, syncedAt: null }
+
+/** Attach stored TMDB lookups; their genres join the *arr ones so the genre filter sees both. */
+function attachMetadata(titles: UnifiedCatalogTitle[], metadata: Map<string, TmdbMetadata | null> | undefined): void {
+  if (!metadata)
+    return
+  for (const title of titles) {
+    if (title.tmdbId == null)
+      continue
+    const entry = metadata.get(`${title.mediaType}:${title.tmdbId}`)
+    if (entry === undefined)
+      continue
+    title.metadata = entry
+    if (entry?.genres.length) {
+      title.genres = [
+        ...new Set([
+          ...title.genres,
+          ...entry.genres,
+        ]),
+      ]
+    }
+  }
+}
+
+export interface CatalogStores {
+  // Defaults to an in-memory database, so the cache only lives as long as the process.
+  catalog?: CatalogCacheRepository
+  // Stored TMDB lookups, attached to the titles they belong to.
+  metadata?: Pick<TmdbMetadataRepository, 'all'>
+  // Fills the cache; also the source of the local library that marks owned titles.
+  sync?: Pick<CatalogSyncService, 'sync' | 'status' | 'libraryEntries'>
 }
 
 export interface TmdbStatus {
@@ -37,11 +86,16 @@ export interface CatalogRequestInput {
 }
 
 export class CatalogController {
+  private readonly cache: CatalogCacheRepository
+
   constructor(
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[] },
     private readonly tmdb?: TmdbClient,
     private readonly downloads?: DownloadsService,
-  ) {}
+    private readonly stores: CatalogStores = {},
+  ) {
+    this.cache = stores.catalog ?? new CatalogCacheRepository(openMemoryDatabase())
+  }
 
   private requirePeer(peerId: string): PeerConnector {
     const peer = this.connectors.peers.find(p => p.id === peerId)
@@ -50,27 +104,36 @@ export class CatalogController {
     return peer
   }
 
-  async getCatalog(): Promise<CatalogResponse> {
-    // Fan out to every initialized peer. A peer that can't serve its catalog is
-    // skipped (partial results) rather than failing the whole aggregate.
-    const peers = this.connectors.peers.filter(p => p.isInitialized)
-    const results = await Promise.all(peers.map(async (peer): Promise<PeerReleases | null> => {
-      try {
-        const releases = await peer.listReleases()
-        return {
-          peer: { id: peer.id, name: peer.name },
-          releases,
-        }
-      }
-      catch {
-        return null
-      }
-    }))
-    const responded = results.filter((r): r is PeerReleases => r !== null)
+  /**
+   * The titles matching `query`, from the cache the catalog sync keeps. Never
+   * contacts a peer, so offline peers show their last known catalog.
+   */
+  getCatalog(query: CatalogQuery = ALL_TITLES): CatalogResponse {
+    const configured = this.connectors.peers
+    const cached = this.cache.listByPeer(configured.map(p => p.id))
+    const catalogs = configured
+      .filter(p => cached.has(p.id))
+      .map(p => ({
+        peer: { id: p.id, name: p.name },
+        titles: cached.get(p.id)!,
+      }))
+
+    const all = groupPeerCatalogs(catalogs)
+    markInLibrary(all, this.stores.sync?.libraryEntries ?? [])
+    attachMetadata(all, this.stores.metadata?.all())
     return {
-      peers: responded.map(r => r.peer),
-      titles: groupReleasesIntoUnifiedTitles(responded),
+      peers: catalogs.map(c => c.peer),
+      ...queryCatalog(all, query),
+      sync: this.stores.sync?.status ?? NEVER_SYNCED,
     }
+  }
+
+  /** Sync now (or wait for the sync already running), then report its status. */
+  async refresh(): Promise<CatalogSyncStatus> {
+    if (!this.stores.sync)
+      return NEVER_SYNCED
+    await this.stores.sync.sync()
+    return this.stores.sync.status
   }
 
   /** TMDB metadata for a single title; null when TMDB is unconfigured or the id is unknown. */

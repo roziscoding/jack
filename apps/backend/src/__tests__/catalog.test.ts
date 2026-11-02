@@ -1,10 +1,20 @@
+import type { PeerCatalogResponse, PeerCatalogTitle } from '../lib/peer-catalog'
 import type { Release } from '../lib/release'
+import type { TmdbMetadata } from '../lib/tmdb/client'
 import type { DownloadsService, StartQbDownloadResult } from '../modules/downloads/downloads.service'
 import { describe, expect, mock, test } from 'bun:test'
+import { openMemoryDatabase } from '../database/connection'
 import { BadRequestError } from '../lib/errors/BadRequestError'
 import { NotFoundError } from '../lib/errors/NotFoundError'
+import { CatalogCacheRepository } from '../modules/catalog/catalog-cache.repository'
+import { CatalogSyncService } from '../modules/catalog/catalog-sync.service'
 import { CatalogController } from '../modules/catalog/catalog.controller'
-import { groupReleasesIntoUnifiedTitles, pickBestPerEpisode, pickBestRelease } from '../modules/catalog/catalog.lib'
+import { diffPeerCatalog, groupReleasesIntoUnifiedTitles, indexPeerTitles, pickBestPerEpisode, pickBestRelease, summarizeReleases } from '../modules/catalog/catalog.lib'
+import { OwnCatalogRepository } from '../modules/catalog/own-catalog.repository'
+
+function deferred<T>() {
+  return Promise.withResolvers<T>()
+}
 
 function movie(overrides: Partial<Release> = {}): Release {
   return {
@@ -57,33 +67,53 @@ describe('groupReleasesIntoUnifiedTitles', () => {
     expect(alpha.totalSize).toBe(100)
   })
 
-  test('preserves per-release detail in each peer bucket', () => {
+  test('summarizes each peer bucket with totals and distinct resolutions, best first', () => {
     const titles = groupReleasesIntoUnifiedTitles([
       {
         peer: { id: 'p1', name: 'Alpha' },
         releases: [
           episode({
-            id: 'ep:1',
             tvdbId: 1396,
             seriesTitle: 'Breaking Bad',
             season: 1,
             episode: 1,
             size: 50,
-            quality: { resolution: 1080 },
+            quality: { resolution: 720 },
+          }),
+          episode({
+            tvdbId: 1396,
+            seriesTitle: 'Breaking Bad',
+            season: 1,
+            episode: 2,
+            size: 60,
+            quality: { resolution: 2160 },
+          }),
+          episode({
+            tvdbId: 1396,
+            seriesTitle: 'Breaking Bad',
+            season: 1,
+            episode: 3,
+            size: 70,
+            quality: { resolution: 720 },
+          }),
+          episode({
+            tvdbId: 1396,
+            seriesTitle: 'Breaking Bad',
+            season: 1,
+            episode: 4,
+            size: 80,
           }),
         ],
       },
     ])
 
-    const bucket = titles[0]!.peers[0]!
-    expect(bucket.releases).toHaveLength(1)
-    expect(bucket.releases[0]).toMatchObject({
-      id: 'ep:1',
-      filename: 'Show.S01E01.1080p.mkv',
-      size: 50,
-      season: 1,
-      episode: 1,
-      quality: { resolution: 1080 },
+    expect(titles).toHaveLength(1)
+    expect(titles[0]!.peers[0]).toEqual({
+      id: 'p1',
+      name: 'Alpha',
+      releaseCount: 4,
+      totalSize: 260,
+      resolutions: [2160, 720],
     })
   })
 
@@ -154,6 +184,122 @@ describe('groupReleasesIntoUnifiedTitles', () => {
     ])
 
     expect(titles.map(t => t.displayTitle)).toEqual(['Apple', 'Zebra'])
+  })
+})
+
+describe('diffPeerCatalog', () => {
+  const base: PeerCatalogTitle = {
+    mediaType: 'movie',
+    tmdbId: 603,
+    title: 'The Matrix',
+    releaseCount: 1,
+    totalSize: 100,
+    resolutions: [1080],
+  }
+
+  test('separates added, updated, removed and unchanged titles', () => {
+    const cached = indexPeerTitles([
+      base,
+      { ...base, tmdbId: 604, title: 'Reloaded' },
+      { ...base, tmdbId: 605, title: 'Revolutions' },
+    ])
+    const fresh = indexPeerTitles([
+      base,
+      // Quality upgrade: same title, new resolution.
+      {
+        ...base,
+        tmdbId: 604,
+        title: 'Reloaded',
+        resolutions: [2160, 1080],
+      },
+      { ...base, tmdbId: 606, title: 'Resurrections' },
+    ])
+
+    const diff = diffPeerCatalog(cached, fresh)
+
+    expect([
+      ...diff.added.keys(),
+    ]).toEqual(['movie:id:606'])
+    expect([
+      ...diff.updated.keys(),
+    ]).toEqual(['movie:id:604'])
+    expect(diff.removed).toEqual(['movie:id:605'])
+  })
+
+  test('merges duplicate entries for the same title from one peer', () => {
+    const indexed = indexPeerTitles([
+      base,
+      {
+        ...base,
+        releaseCount: 2,
+        totalSize: 300,
+        resolutions: [720, 2160],
+      },
+    ])
+
+    expect([
+      ...indexed.values(),
+    ]).toEqual([
+      {
+        ...base,
+        releaseCount: 3,
+        totalSize: 400,
+        resolutions: [2160, 1080, 720],
+      },
+    ])
+  })
+})
+
+describe('catalogCacheRepository.applyPeerCatalog', () => {
+  test('writes only the rows that changed', async () => {
+    const cache = new CatalogCacheRepository(openMemoryDatabase())
+    const first = summarizeReleases([
+      movie({
+        tmdbId: 603,
+        quality: { resolution: 1080 },
+      }),
+      movie({
+        tmdbId: 604,
+        quality: { resolution: 1080 },
+      }),
+    ])
+    cache.applyPeerCatalog('p1', indexPeerTitles(first))
+
+    const second = summarizeReleases([
+      movie({
+        tmdbId: 603,
+        quality: { resolution: 1080 },
+      }),
+      movie({
+        tmdbId: 604,
+        quality: { resolution: 2160 },
+      }),
+      movie({ tmdbId: 605 }),
+    ])
+    const diff = cache.applyPeerCatalog('p1', indexPeerTitles(second))
+
+    expect(diff.added.size).toBe(1)
+    expect(diff.updated.size).toBe(1)
+    expect(diff.removed).toEqual([])
+    const stored = cache.listByPeer(['p1']).get('p1')!
+    expect(stored.find(t => t.tmdbId === 604)!.resolutions).toEqual([2160])
+    expect(stored).toHaveLength(3)
+  })
+
+  test('removes titles the peer no longer carries, leaving other peers alone', () => {
+    const cache = new CatalogCacheRepository(openMemoryDatabase())
+    cache.applyPeerCatalog('p1', indexPeerTitles(summarizeReleases([
+      movie({ tmdbId: 603 }),
+    ])))
+    cache.applyPeerCatalog('p2', indexPeerTitles(summarizeReleases([
+      movie({ tmdbId: 603 }),
+    ])))
+
+    cache.applyPeerCatalog('p1', new Map())
+
+    expect([
+      ...cache.listByPeer(['p1', 'p2']).keys(),
+    ]).toEqual(['p2'])
   })
 })
 
@@ -257,31 +403,96 @@ describe('pickBestPerEpisode', () => {
   })
 })
 
-describe('catalogController.getCatalog', () => {
-  function makeConnectors(peers: any[]) {
-    return { servers: [], peers }
+describe('catalogSyncService', () => {
+  // A pre-0.2.0 peer: no /peer/catalog, so it hands back full releases.
+  function legacyPeer(id: string, name: string, releases: () => Promise<Release[]>, isInitialized = true) {
+    return {
+      id,
+      name,
+      isInitialized,
+      listCatalog: mock(async (_since?: Since) => ({ kind: 'releases' as const, releases: await releases() })),
+    }
   }
 
-  test('aggregates the same title across two initialized peers', async () => {
-    const p1 = {
-      id: 'p1',
-      name: 'Alpha',
-      isInitialized: true,
-      listReleases: async () => [
-        movie({ tmdbId: 603, size: 100 }),
-      ],
-    }
-    const p2 = {
-      id: 'p2',
-      name: 'Beta',
-      isInitialized: true,
-      listReleases: async () => [
-        movie({ tmdbId: 603, size: 200 }),
-      ],
-    }
-    const controller = new CatalogController(makeConnectors([p1, p2]) as any)
+  type Since = { revision: number, generation?: string } | undefined
 
-    const result = await controller.getCatalog()
+  // A 0.2.0+ peer serving per-title changes since a revision.
+  function summaryPeer(id: string, name: string, respond: (since: Since) => Omit<PeerCatalogResponse, 'generation'>) {
+    return {
+      id,
+      name,
+      isInitialized: true,
+      listCatalog: mock(async (since?: Since) => ({
+        kind: 'titles' as const,
+        generation: 'g1',
+        ...respond(since),
+      })),
+    }
+  }
+
+  // A source Radarr: `titles()` is what it carries now.
+  function sourceRadarr(titles: () => PeerCatalogTitle[], id = 'radarr') {
+    return {
+      id,
+      canSource: true,
+      isInitialized: true,
+      name: id,
+      listCatalog: mock(async (only?: { tmdbId?: number }) => titles()
+        .filter(t => !only || t.tmdbId === only.tmdbId)
+        .map(title => ({
+          title,
+          releases: [
+            movie({ id: `${id}:movie:${title.tmdbId}`, tmdbId: title.tmdbId }),
+          ],
+        }))),
+      listLibrary: async () => [],
+    }
+  }
+
+  function setup(connectors: { servers?: any[], peers?: any[] }, metadata?: { get: (mediaType: string, tmdbId: number) => TmdbMetadata | null | undefined }) {
+    const db = openMemoryDatabase()
+    const peerCache = new CatalogCacheRepository(db)
+    const own = new OwnCatalogRepository(db)
+    const live = { servers: connectors.servers ?? [], peers: connectors.peers ?? [] }
+    const sync = new CatalogSyncService({
+      connectors: live as any,
+      own,
+      peerCache,
+      metadata,
+      schedule: () => '0 * * * *',
+    })
+    const controller = new CatalogController(live as any, undefined, undefined, { catalog: peerCache, sync })
+    return {
+      sync,
+      own,
+      peerCache,
+      controller,
+      live,
+    }
+  }
+
+  const matrix: PeerCatalogTitle = {
+    mediaType: 'movie',
+    tmdbId: 603,
+    title: 'The Matrix',
+    releaseCount: 1,
+    totalSize: 100,
+    resolutions: [1080],
+  }
+
+  test('caches every peer so the catalog is served without contacting them', async () => {
+    const p1 = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 603, size: 100 }),
+    ])
+    const p2 = legacyPeer('p2', 'Beta', async () => [
+      movie({ tmdbId: 603, size: 200 }),
+    ])
+    const { sync, controller } = setup({
+      peers: [p1, p2],
+    })
+    await sync.sync()
+
+    const result = controller.getCatalog()
 
     expect(result.peers).toEqual([
       { id: 'p1', name: 'Alpha' },
@@ -289,53 +500,448 @@ describe('catalogController.getCatalog', () => {
     ])
     expect(result.titles).toHaveLength(1)
     expect(result.titles[0]!.releaseCount).toBe(2)
-    expect(result.titles[0]!.peers).toHaveLength(2)
+    expect(result.sync.syncedAt).not.toBeNull()
+    expect(p1.listCatalog).toHaveBeenCalledTimes(1)
   })
 
-  test('skips a peer whose listReleases rejects but keeps the rest', async () => {
-    const broken = {
-      id: 'p1',
-      name: 'Broken',
-      isInitialized: true,
-      listReleases: async () => {
+  test('asks a 0.2.0+ peer for changes since the revision it last applied', async () => {
+    const peer = summaryPeer('p1', 'New', since => since === undefined
+      ? {
+          revision: 3,
+          full: true,
+          titles: [
+            matrix,
+            { ...matrix, tmdbId: 604, title: 'Reloaded' },
+          ],
+          removed: [],
+        }
+      : {
+          revision: 5,
+          full: false,
+          titles: [
+            {
+              ...matrix,
+              resolutions: [2160, 1080],
+            },
+          ],
+          removed: ['movie:id:604'],
+        })
+    const { sync, controller } = setup({
+      peers: [peer],
+    })
+
+    await sync.sync()
+    await sync.sync()
+
+    expect(peer.listCatalog.mock.calls.map(call => call[0])).toEqual([
+      undefined,
+      { revision: 3, generation: 'g1' },
+    ])
+    const { titles } = controller.getCatalog()
+    expect(titles.map(t => [t.displayTitle, t.peers[0]!.resolutions])).toEqual([
+      [
+        'The Matrix',
+        [2160, 1080],
+      ],
+    ])
+  })
+
+  test('a full response replaces everything cached for that peer', async () => {
+    let round = 0
+    const peer = summaryPeer('p1', 'New', () => round++ === 0
+      ? {
+          revision: 1,
+          full: true,
+          titles: [
+            matrix,
+            { ...matrix, tmdbId: 604, title: 'Reloaded' },
+          ],
+          removed: [],
+        }
+      : {
+          revision: 1,
+          full: true,
+          titles: [matrix],
+          removed: [],
+        })
+    const { sync, controller } = setup({
+      peers: [peer],
+    })
+
+    await sync.sync()
+    await sync.sync()
+
+    expect(controller.getCatalog().titles.map(t => t.displayTitle)).toEqual(['The Matrix'])
+  })
+
+  test('keeps the cached titles of a peer that fails', async () => {
+    let fail = false
+    const flaky = legacyPeer('p1', 'Flaky', async () => {
+      if (fail)
         throw new Error('unreachable')
+      return [
+        movie({ tmdbId: 603 }),
+      ]
+    })
+    const { sync, controller } = setup({
+      peers: [flaky],
+    })
+    await sync.sync()
+
+    fail = true
+    await sync.sync()
+    expect(controller.getCatalog().titles).toHaveLength(1)
+  })
+
+  test('asks a peer that was offline at boot, so it shows up once it\'s back', async () => {
+    // isInitialized false: the handshake failed at boot. listCatalog retries it.
+    const peer = legacyPeer('p1', 'Late', async () => [
+      movie({ tmdbId: 603 }),
+    ], false)
+    const { sync, controller } = setup({
+      peers: [peer],
+    })
+
+    await sync.sync()
+
+    expect(peer.listCatalog).toHaveBeenCalledTimes(1)
+    expect(controller.getCatalog().titles).toHaveLength(1)
+  })
+
+  test('drops a peer from the cache once it is no longer configured', async () => {
+    const { sync, controller, peerCache, live } = setup({
+      peers: [
+        legacyPeer('p1', 'Alpha', async () => [
+          movie({ tmdbId: 603 }),
+        ]),
+        legacyPeer('p2', 'Beta', async () => [
+          movie({ tmdbId: 604 }),
+        ]),
+      ],
+    })
+    await sync.sync()
+
+    live.peers = live.peers.filter(p => p.id === 'p1')
+    expect(controller.getCatalog().peers).toEqual([
+      { id: 'p1', name: 'Alpha' },
+    ])
+    await sync.sync()
+    expect([
+      ...peerCache.listByPeer(['p1', 'p2']).keys(),
+    ]).toEqual(['p1'])
+  })
+
+  test('joins a sync that is already running', async () => {
+    const releases = deferred<Release[]>()
+    const slow = legacyPeer('p1', 'Slow', () => releases.promise)
+    const { sync } = setup({
+      peers: [slow],
+    })
+
+    const first = sync.sync()
+    const second = sync.sync()
+    expect(sync.status.syncing).toBe(true)
+    releases.resolve([])
+    await Promise.all([first, second])
+
+    expect(slow.listCatalog).toHaveBeenCalledTimes(1)
+    expect(sync.status.syncing).toBe(false)
+  })
+
+  test('caches old peers\' movies under their stored TMDB title', async () => {
+    const peer = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 603, title: 'The.Matrix.1999.2160p', movieTitle: 'The Matrix' }),
+      movie({ tmdbId: 604, title: 'The.Matrix.Reloaded.2003.1080p' }),
+      movie({ tmdbId: 605, title: 'The.Matrix.Revolutions.2003.1080p' }),
+    ])
+    const reloaded = {
+      tmdbId: 604,
+      title: 'The Matrix Reloaded',
+      overview: null,
+      year: 2003,
+      rating: null,
+      posterUrl: null,
+      backdropUrl: null,
+      genres: [],
+    }
+    const { sync, controller } = setup({
+      peers: [peer],
+    }, {
+      get: (_, tmdbId) => tmdbId === 604
+        ? reloaded
+        : undefined,
+    })
+    await sync.sync()
+
+    expect(controller.getCatalog().titles.map(t => t.displayTitle)).toEqual([
+      'The Matrix',
+      'The Matrix Reloaded',
+      'The.Matrix.Revolutions.2003.1080p',
+    ])
+  })
+
+  test('rebuilds the own catalog from the sources, with one revision per change', async () => {
+    let resolutions = [1080]
+    const radarr = sourceRadarr(() => [
+      { ...matrix, resolutions },
+    ])
+    const { sync, own } = setup({
+      servers: [radarr],
+    })
+
+    await sync.sync()
+    const generation = own.generation()
+    expect(own.searchReleases(['radarr'], { tmdbId: '603' })).toHaveLength(1)
+    expect(own.changesSince(['radarr'])).toEqual({
+      revision: 1,
+      generation,
+      full: true,
+      titles: [matrix],
+      removed: [],
+    })
+
+    // Nothing changed: no new revision.
+    await sync.sync()
+    expect(own.currentRevision()).toBe(1)
+
+    resolutions = [2160, 1080]
+    await sync.sync()
+    expect(own.changesSince(['radarr'], 1, generation)).toEqual({
+      revision: 2,
+      generation,
+      full: false,
+      titles: [
+        {
+          ...matrix,
+          resolutions: [2160, 1080],
+        },
+      ],
+      removed: [],
+    })
+  })
+
+  test('addImported marks the title owned and adds just it to the own catalog', async () => {
+    const reloaded: PeerCatalogTitle = { ...matrix, tmdbId: 604, title: 'The Matrix Reloaded' }
+    let library: PeerCatalogTitle[] = [matrix]
+    const radarr = sourceRadarr(() => library)
+    const peer = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 604, title: 'Reloaded' }),
+    ])
+    const { sync, own, controller } = setup({
+      servers: [radarr],
+      peers: [peer],
+    })
+    await sync.sync()
+    expect(controller.getCatalog().titles[0]!.inLibrary).toBe(false)
+
+    library = [matrix, reloaded]
+    await sync.addImported(movie({ tmdbId: 604 }))
+
+    expect(controller.getCatalog().titles[0]!.inLibrary).toBe(true)
+    expect(radarr.listCatalog).toHaveBeenLastCalledWith({ tmdbId: 604 })
+    expect(own.searchReleases(['radarr'], { tmdbId: '604' })!.map(r => r.id)).toEqual(['radarr:movie:604'])
+    expect(own.changesSince(['radarr'], 1, own.generation())).toMatchObject({
+      revision: 2,
+      full: false,
+      titles: [reloaded],
+      removed: [],
+    })
+  })
+
+  test('an import never gets undone by a sync that read the sources before it', async () => {
+    const reloaded: PeerCatalogTitle = { ...matrix, tmdbId: 604, title: 'The Matrix Reloaded' }
+    let library: PeerCatalogTitle[] = [matrix]
+    const gate = deferred<void>()
+    const radarr = sourceRadarr(() => library)
+    const firstRead = radarr.listCatalog.getMockImplementation()!
+    // The full sync reads the old library, then stalls before writing.
+    radarr.listCatalog.mockImplementationOnce(async (only?: { tmdbId?: number }) => {
+      const result = await firstRead(only)
+      await gate.promise
+      return result
+    })
+    const { sync, own } = setup({
+      servers: [radarr],
+    })
+
+    const syncing = sync.sync()
+    library = [matrix, reloaded]
+    const importing = sync.addImported(movie({ tmdbId: 604 }))
+    gate.resolve()
+    await Promise.all([syncing, importing])
+
+    expect(own.changesSince(['radarr']).titles.map(t => t.tmdbId)).toEqual([603, 604])
+  })
+
+  test('keeps the titles of a source that fails, and only that source\'s', async () => {
+    let fail = false
+    const radarr = sourceRadarr(() => {
+      if (fail)
+        throw new Error('down')
+      return [matrix]
+    }, 'radarr')
+    let hd: PeerCatalogTitle[] = [
+      { ...matrix, tmdbId: 604, title: 'Reloaded' },
+    ]
+    const radarrHd = sourceRadarr(() => hd, 'radarr-hd')
+    const { sync, own } = setup({
+      servers: [radarr, radarrHd],
+    })
+    await sync.sync()
+
+    fail = true
+    hd = []
+    await sync.sync()
+
+    expect(own.changesSince(['radarr', 'radarr-hd']).titles.map(t => t.tmdbId)).toEqual([603])
+  })
+
+  test('drops a source that is no longer a source', async () => {
+    const radarr = sourceRadarr(() => [matrix])
+    const { sync, own, live } = setup({
+      servers: [radarr],
+    })
+    await sync.sync()
+
+    live.servers = []
+    await sync.sync()
+
+    expect(own.changesSince([]).titles).toEqual([])
+    // Its releases are gone, and so is the record of having read it: if it comes
+    // back as a source, searches ask it until it has been read again.
+    expect(own.searchReleases(['radarr'], {})).toBeNull()
+  })
+
+  test('an emptied catalog is still answered from the cache', async () => {
+    let titles: PeerCatalogTitle[] = [matrix]
+    const radarr = sourceRadarr(() => titles)
+    const { sync, own } = setup({
+      servers: [radarr],
+    })
+    await sync.sync()
+
+    titles = []
+    await sync.sync()
+
+    // Read and empty, which is not the same as never read (null).
+    expect(own.searchReleases(['radarr'], { tmdbId: '603' })).toEqual([])
+  })
+
+  test('keeps an import\'s owned mark while a library can\'t be read', async () => {
+    const peer = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 604, title: 'Reloaded' }),
+    ])
+    let fail = false
+    const radarr = {
+      id: 'radarr',
+      isInitialized: true,
+      listLibrary: async () => {
+        if (fail)
+          throw new Error('down')
+        return []
       },
     }
-    const healthy = {
-      id: 'p2',
-      name: 'Healthy',
-      isInitialized: true,
-      listReleases: async () => [
-        movie({ tmdbId: 603 }),
-      ],
-    }
-    const controller = new CatalogController(makeConnectors([broken, healthy]) as any)
+    const { sync, controller } = setup({
+      servers: [radarr],
+      peers: [peer],
+    })
+    await sync.sync()
 
-    const result = await controller.getCatalog()
+    await sync.addImported(movie({ tmdbId: 604 }))
+    fail = true
+    await sync.sync()
 
-    expect(result.peers).toEqual([
-      { id: 'p2', name: 'Healthy' },
-    ])
-    expect(result.titles).toHaveLength(1)
+    expect(controller.getCatalog().titles[0]!.inLibrary).toBe(true)
   })
 
-  test('does not query uninitialized peers', async () => {
-    const called = mock(async () => [
-      movie({ tmdbId: 603 }),
+  test('marks titles the local library already has', async () => {
+    const peer = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 603, title: 'The Matrix' }),
+      movie({ imdbId: '0133093', title: 'Matrix by imdb' }),
+      movie({ tmdbId: 604, title: 'Reloaded' }),
+      episode({ tvdbId: 1396, seriesTitle: 'Breaking Bad' }),
+      episode({ tvdbId: 9999, seriesTitle: 'Other Show' }),
     ])
-    const peer = {
-      id: 'p1',
-      name: 'Offline',
-      isInitialized: false,
-      listReleases: called,
+    const radarr = {
+      id: 'radarr',
+      isInitialized: true,
+      listLibrary: async () => [
+        { mediaType: 'movie', tmdbId: 603, imdbId: 'tt0133093' },
+      ],
     }
-    const controller = new CatalogController(makeConnectors([peer]) as any)
+    const sonarr = {
+      id: 'sonarr',
+      isInitialized: true,
+      listLibrary: async () => [
+        { mediaType: 'tv', tvdbId: 1396 },
+        // Same numeric id as a movie title must not cross media types.
+        { mediaType: 'tv', tmdbId: 604 },
+      ],
+    }
+    const { sync, controller } = setup({
+      servers: [radarr, sonarr],
+      peers: [peer],
+    })
+    await sync.sync()
 
-    const result = await controller.getCatalog()
+    const owned = Object.fromEntries(controller.getCatalog().titles.map(t => [t.displayTitle, t.inLibrary]))
 
-    expect(called).not.toHaveBeenCalled()
-    expect(result.peers).toEqual([])
-    expect(result.titles).toEqual([])
+    expect(owned).toEqual({
+      'The Matrix': true,
+      'Matrix by imdb': true,
+      'Reloaded': false,
+      'Breaking Bad': true,
+      'Other Show': false,
+    })
+  })
+
+  test('attaches stored TMDB metadata, including known misses', async () => {
+    const peer = legacyPeer('p1', 'Alpha', async () => [
+      movie({ tmdbId: 603, title: 'Matrix' }),
+      movie({ tmdbId: 604, title: 'Missing' }),
+      movie({ tmdbId: 605, title: 'Unknown' }),
+    ])
+    const matrixMeta = {
+      tmdbId: 603,
+      title: 'The Matrix',
+      overview: null,
+      year: 1999,
+      rating: 8,
+      posterUrl: null,
+      backdropUrl: null,
+      genres: ['Action'],
+    }
+    const stored = new Map<string, TmdbMetadata | null>([
+      ['movie:603', matrixMeta],
+      ['movie:604', null],
+    ])
+    const db = openMemoryDatabase()
+    const peerCache = new CatalogCacheRepository(db)
+    const live = {
+      servers: [],
+      peers: [peer],
+    }
+    const sync = new CatalogSyncService({
+      connectors: live as any,
+      own: new OwnCatalogRepository(db),
+      peerCache,
+      schedule: () => '0 * * * *',
+    })
+    const controller = new CatalogController(live as any, undefined, undefined, {
+      catalog: peerCache,
+      sync,
+      metadata: {
+        all: () => stored,
+      },
+    })
+    await sync.sync()
+
+    const byId = Object.fromEntries(controller.getCatalog().titles.map(t => [t.tmdbId, t]))
+
+    expect(byId[603]!.metadata).toEqual(matrixMeta)
+    expect(byId[603]!.genres).toEqual(['Action'])
+    expect(byId[604]!.metadata).toBeNull()
+    expect('metadata' in byId[605]!).toBe(false)
   })
 })
 

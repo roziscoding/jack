@@ -33,7 +33,8 @@ export function useCatalogMetadata() {
 
   async function load(title: CatalogTitle): Promise<void> {
     const key = keyFor(title)
-    if (!key)
+    // The catalog already carries stored lookups (null = TMDB has no entry).
+    if (!key || title.metadata !== undefined)
       return
     const existing = cache.value[key]
     // No id to look up, or already loading/loaded — don't refetch. Error entries retry.

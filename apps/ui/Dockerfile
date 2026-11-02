@@ -4,7 +4,7 @@
 # Used by `mise run dev` (target: development): Compose Watch syncs local edits
 # into the copy below and `nuxt dev` hot-reloads. The build stage continues
 # from here.
-FROM oven/bun:1.3.14-alpine AS development
+FROM oven/bun:1.4.4-alpine AS development
 WORKDIR /app
 
 # Copy only the manifests so this layer is cached unless deps change. The root
@@ -31,12 +31,15 @@ FROM development AS build
 RUN bun run --cwd apps/ui build
 
 # ---- runtime: the self-contained Nitro output ----
-FROM oven/bun:1.3.14-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    HOST=0.0.0.0 \
+    # `::` listens on IPv6 and IPv4 alike, so `localhost` (which resolves to ::1
+    # first in this image) and 127.0.0.1 both reach the server. 0.0.0.0 would be
+    # IPv4 only.
+    HOST=:: \
     # Where the jack management API listens. In compose this resolves to the
     # backend service by container name; override per deployment. Read at RUNTIME
     # (the `JACK_` prefix maps to Nuxt runtimeConfig — see apps/ui/nuxt.config.ts),
@@ -54,10 +57,8 @@ EXPOSE ${PORT}
 USER bun
 
 # /api/ping always answers 200 (ok | needs-key | disabled | error) once the
-# server is up, so it's a clean liveness probe. Use 127.0.0.1, not localhost:
-# the server binds IPv4 (0.0.0.0) only, but `localhost` resolves to ::1 first in
-# this image, and BusyBox wget won't fall back to IPv4 — so localhost is refused.
+# server is up, so it's a clean liveness probe.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/ping" || exit 1
+    CMD wget -q -O /dev/null "http://localhost:${PORT}/api/ping" || exit 1
 
 CMD ["bun", ".output/server/index.mjs"]

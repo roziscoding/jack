@@ -1,5 +1,8 @@
 import type { ConnectorManager } from './lib/servers'
 import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
+import type { CatalogCacheRepository } from './modules/catalog/catalog-cache.repository'
+import type { CatalogSyncService } from './modules/catalog/catalog-sync.service'
+import type { TmdbMetadataRepository } from './modules/catalog/tmdb-metadata.repository'
 import type { ConfigService } from './modules/config/config.service'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
@@ -38,6 +41,9 @@ export function getManagementApp(params: {
   downloadsService?: DownloadsService
   importWatcher?: ImportWatcher
   apiKeysRepository?: ApiKeysRepository
+  catalogCacheRepository?: CatalogCacheRepository
+  tmdbMetadataRepository?: TmdbMetadataRepository
+  catalogSync?: CatalogSyncService
   tmdbApiKey?: string
 }) {
   const app = new Hono()
@@ -92,9 +98,13 @@ export function getManagementApp(params: {
   app.route('/logs', getLogsRouter(new LogsController(logHub)))
 
   const tmdbClient = params.tmdbApiKey
-    ? new TmdbClient(params.tmdbApiKey)
+    ? new TmdbClient(params.tmdbApiKey, params.tmdbMetadataRepository)
     : undefined
-  const catalogController = new CatalogController(params.connectors, tmdbClient, params.downloadsService)
+  const catalogController = new CatalogController(params.connectors, tmdbClient, params.downloadsService, {
+    catalog: params.catalogCacheRepository,
+    metadata: params.tmdbMetadataRepository,
+    sync: params.catalogSync,
+  })
   app.route('/catalog', getCatalogRouter(catalogController))
 
   if (params.apiKeysRepository) {

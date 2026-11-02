@@ -8,6 +8,24 @@ const tmdbParam = z.object({
   tmdbId: z.coerce.number().int(),
 })
 
+// A repeated query key (`?peer=a&peer=b`) arrives as an array, a single one as a string.
+const repeated = z.union([
+  z.string(),
+  z.array(z.string()),
+])
+  .optional()
+  .transform(value => (value === undefined
+    ? []
+    : [value].flat()).filter(Boolean))
+
+const catalogQuery = z.object({
+  q: z.string().optional(),
+  type: z.enum(['all', 'movie', 'tv']).default('all'),
+  peer: repeated,
+  genre: repeated,
+  hideOwned: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
+})
+
 const requestBody = z.object({
   peerId: z.string().min(1),
   serverId: z.string().min(1),
@@ -52,8 +70,18 @@ export function getCatalogRouter(controller: CatalogController) {
     return c.json(await controller.requestDownload(c.req.valid('json')))
   })
 
-  // Aggregated catalog across all initialized peers.
-  app.get('/', catalogDoc('Get the aggregated catalog', 'Everything available across all initialized peers.'), async c => c.json(await controller.getCatalog()))
+  app.post('/refresh', catalogDoc('Sync the catalog now', 'Runs the catalog sync (this instance\'s catalog, every peer\'s, and the local library) and returns its status once it finishes. Joins a sync that is already running instead of starting another.'), async c => c.json(await controller.refresh()))
+
+  app.get('/', catalogDoc('Get the aggregated catalog', 'Returns the titles matching the query from the cached peer catalogs, which the catalog sync keeps current; no peer is contacted. Best search matches come first, then titles sort the way Radarr and Sonarr sort (a leading "a", "an", or "the" is ignored). `facets` counts each filter value across the whole catalog, and `sync` says when the cache was last synced. Repeat `peer` or `genre` to match any of several values.'), zValidator('query', catalogQuery), (c) => {
+    const { q, type, peer, genre, hideOwned } = c.req.valid('query')
+    return c.json(controller.getCatalog({
+      q,
+      type,
+      peers: peer,
+      genres: genre,
+      hideOwned,
+    }))
+  })
 
   return app
 }

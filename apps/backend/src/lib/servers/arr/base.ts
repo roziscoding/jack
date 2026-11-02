@@ -1,4 +1,5 @@
 import type { AutoRegisterConfig, ConnectorHeadersConfig, ServerConfig } from '../../config'
+import type { PeerCatalogTitle } from '../../peer-catalog'
 import type { Release } from '../../release'
 import z from 'zod'
 import { logger } from '../../../logger'
@@ -51,6 +52,46 @@ const CommandResource = z.object({
 const JACK_DOWNLOAD_CLIENT_PRIORITY = 50
 
 export type ReleaseKind = 'movie' | 'episode'
+
+/**
+ * Poster and backdrop from an *arr `images` list. `remoteUrl` points at the
+ * metadata provider's CDN; `url` is a path on the *arr itself, which peers can't
+ * reach, so it's ignored.
+ */
+export function artworkFrom(images: Array<{ coverType?: string, remoteUrl?: string | null }> | null | undefined): { posterUrl?: string, backdropUrl?: string } {
+  const find = (type: string) => images?.find(image => image.coverType === type)?.remoteUrl ?? undefined
+  return {
+    posterUrl: find('poster'),
+    backdropUrl: find('fanart'),
+  }
+}
+
+/** Distinct resolutions across releases, best first. */
+export function resolutionsOf(releases: Release[]): number[] {
+  return [
+    ...new Set(releases.map(r => r.quality?.resolution).filter((r): r is number => !!r)),
+  ].sort((a, b) => b - a)
+}
+
+/** A title in a source's catalog, with the releases (files) behind it. */
+export interface CatalogEntry {
+  title: PeerCatalogTitle
+  releases: Release[]
+}
+
+/** One title to look up: Radarr matches `tmdbId`, Sonarr matches `tvdbId`. */
+export interface CatalogTitleFilter {
+  tmdbId?: number
+  tvdbId?: number
+}
+
+/** A title this server already holds at least one file for, by its external ids. */
+export interface LibraryEntry {
+  mediaType: 'movie' | 'tv'
+  tmdbId?: number
+  imdbId?: string
+  tvdbId?: number
+}
 
 export interface AddParams {
   tmdbId?: number
@@ -202,6 +243,17 @@ export abstract class ArrServerConnector extends ServerConnector {
     return this.doListReleases()
   }
 
+  /**
+   * The library as one summary per title, with the *arr's artwork and genres,
+   * and the releases behind each. With `only`, just that title (a movie by
+   * tmdbId, a series by tvdbId), looked up directly instead of listing the library.
+   */
+  @requiresSource
+  @requiresInitialization
+  async listCatalog(only?: CatalogTitleFilter): Promise<CatalogEntry[]> {
+    return this.doListCatalog(only)
+  }
+
   @requiresSource
   @requiresInitialization
   async getRelease(id: string): Promise<Release | null> {
@@ -214,6 +266,17 @@ export abstract class ArrServerConnector extends ServerConnector {
     return this.doGetFilePath(id)
   }
 
+  /**
+   * Titles with at least one file on disk, regardless of the source/destination
+   * role: the peer catalog uses it to mark what the local library already has.
+   */
+  @requiresInitialization
+  async listLibrary(): Promise<LibraryEntry[]> {
+    return this.doListLibrary()
+  }
+
+  protected abstract doListLibrary(): Promise<LibraryEntry[]>
+  protected abstract doListCatalog(only?: CatalogTitleFilter): Promise<CatalogEntry[]>
   protected abstract doSearchItems(term: string): Promise<Release[]>
   protected abstract doSearchByImdbId(imdbId: string): Promise<Release[]>
   protected abstract doSearchByTmdbId(tmdbId: string): Promise<Release[]>

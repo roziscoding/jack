@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-//MISE description="Reset the downloads table of the dev database and fill it with sample downloads: every status, and one failed download per error code"
+//MISE description="Reset the downloads and peer catalog cache of the dev database and fill them with samples: downloads in every status and error code, and a cached catalog for each configured peer"
 //MISE depends=["db:migrate"]
 
 // Same cwd and APP_CONFIG_PATH (from mise.toml) as `mise run dev`, so this
@@ -11,14 +11,19 @@
 import type { DownloadStatus } from '@jack/backend/src/database/schema'
 import type { FileSystemErrorDetails } from '@jack/backend/src/lib/errors/FileSystemError'
 import type { FsStage } from '@jack/backend/src/lib/fs-errors'
+import type { PeerCatalogTitle } from '@jack/backend/src/lib/peer-catalog'
 import type { DownloadErrorCode } from '@jack/backend/src/modules/downloads/download-error-codes'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { openDatabase } from '@jack/backend/src/database/connection'
-import { downloads } from '@jack/backend/src/database/schema'
+import { downloads, peerCatalogTitles } from '@jack/backend/src/database/schema'
+import { getAppConfig } from '@jack/backend/src/lib/config'
 import { FILE_SYSTEM_ERROR_CODES } from '@jack/backend/src/lib/errors/FileSystemError'
 import { fileSystemError } from '@jack/backend/src/lib/fs-errors'
 import { getAppEnvs } from '@jack/backend/src/lib/envs'
+import { generateId } from '@jack/backend/src/lib/servers/base'
+import { CatalogCacheRepository } from '@jack/backend/src/modules/catalog/catalog-cache.repository'
+import { indexPeerTitles } from '@jack/backend/src/modules/catalog/catalog.lib'
 import { DOWNLOAD_ERROR_CODES } from '@jack/backend/src/modules/downloads/download-error-codes'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
@@ -34,6 +39,34 @@ const PEERS = ['Alice', 'Bob', 'Carol']
 const TITLES = ['Big.Buck.Bunny', 'Sintel', 'Tears.of.Steel', 'Elephants.Dream', 'Cosmos.Laundromat', 'Spring', 'Agent.327', 'Caminandes']
 const QUALITIES = ['1080p.BluRay.x264', '2160p.WEB-DL.HEVC', '720p.WEBRip.x264']
 const FILENAMES = TITLES.flatMap(title => QUALITIES.map(quality => `${title}.2024.${quality}.mkv`))
+
+// Open titles for the peer catalog cache. The ones without an id exercise the
+// name-keyed path and show as "no metadata" in the UI.
+// No artwork: the seed doesn't invent CDN URLs, so posters come from TMDB when
+// a key is configured.
+const CATALOG_TITLES: Array<Pick<PeerCatalogTitle, 'mediaType' | 'tmdbId' | 'title' | 'genres'> & { episodes?: number }> = [
+  { mediaType: 'movie', tmdbId: 10378, title: 'Big Buck Bunny', genres: ['Animation', 'Comedy'] },
+  { mediaType: 'movie', tmdbId: 45745, title: 'Sintel', genres: ['Animation', 'Fantasy'] },
+  { mediaType: 'movie', tmdbId: 9761, title: 'Elephants Dream', genres: ['Animation', 'Science Fiction'] },
+  { mediaType: 'movie', tmdbId: 133701, title: 'Tears of Steel', genres: ['Science Fiction', 'Action'] },
+  { mediaType: 'movie', tmdbId: 358332, title: 'Cosmos Laundromat', genres: ['Animation', 'Drama'] },
+  { mediaType: 'movie', title: 'Spring', genres: ['Animation', 'Fantasy'] },
+  { mediaType: 'movie', title: 'Agent 327: Operation Barbershop', genres: ['Animation', 'Action', 'Comedy'] },
+  { mediaType: 'tv', title: 'Caminandes', episodes: 3, genres: ['Animation', 'Comedy'] },
+]
+const RESOLUTION_SETS = [[2160, 1080], [1080], [720], [1080, 720]]
+
+// Each peer carries most titles, in a mix of resolutions, so titles overlap
+// across peers the way they do in a real catalog.
+function sampleCatalog(peerIndex: number): PeerCatalogTitle[] {
+  return CATALOG_TITLES
+    .filter((_, i) => (i + peerIndex) % 3 !== 0)
+    .map(({ episodes = 1, ...title }, i) => {
+      const resolutions = RESOLUTION_SETS[(i + peerIndex) % RESOLUTION_SETS.length]!
+      const releaseCount = episodes * resolutions.length
+      return { ...title, releaseCount, totalSize: releaseCount * (2 * GiB + i * 300 * MiB), resolutions }
+    })
+}
 
 const GROUPS: Array<{ status: DownloadStatus, count: number }> = [
   { status: 'downloading', count: 5 },
@@ -155,7 +188,7 @@ const { db } = handle
 // own instance over the same connection.
 const seedDb = drizzle({ client: handle.sqlite })
 
-await reset(seedDb, { downloads })
+await reset(seedDb, { downloads, peerCatalogTitles })
 
 let firstId = 1
 for (const [index, group] of GROUPS.entries()) {
@@ -225,4 +258,22 @@ for (const row of db.select().from(downloads).all()) {
 
 const total = GROUPS.reduce((sum, group) => sum + group.count, 0)
 console.log(`Seeded ${total} downloads into ${resolve(handle.path)}`)
+
+// The catalog only shows configured peers (and drops the rest from the cache on
+// refresh), so the cache is seeded under the ids of the peers in the dev config.
+// Peers that answer replace their seeded titles with their live catalog on the
+// next page load; offline ones keep showing the seed.
+// getAppConfig writes a default config when the file is missing; don't, so a
+// task that copies its own template afterwards (dev:preview) still can.
+const peers = await Bun.file(APP_CONFIG_PATH).exists()
+  ? (await getAppConfig({ APP_CONFIG_PATH })).appConfig.peers
+  : []
+const catalogCache = new CatalogCacheRepository(db)
+for (const [index, peer] of peers.entries())
+  catalogCache.applyPeerCatalog(generateId(peer.url), indexPeerTitles(sampleCatalog(index)))
+if (peers.length === 0)
+  console.log(`No peers in ${APP_CONFIG_PATH}; the peer catalog cache stays empty`)
+else
+  console.log(`Seeded the catalog cache for ${peers.length} peers: ${peers.map(p => p.name).join(', ')}`)
+
 handle.close()

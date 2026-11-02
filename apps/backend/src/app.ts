@@ -2,6 +2,7 @@ import type { AppConfig } from './lib/config'
 import type { Envs } from './lib/envs'
 import type { ConnectorManager } from './lib/servers'
 import type { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
+import type { OwnCatalogRepository } from './modules/catalog/own-catalog.repository'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
 import type { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
@@ -32,6 +33,8 @@ interface AppServices {
   managedKeysRepository: ManagedKeysRepository
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
+  // Serves `/peer/catalog`; without it the catalog comes back empty.
+  ownCatalogRepository?: OwnCatalogRepository
 }
 
 // This is the external surface, gated per audience rather than by one global key:
@@ -45,7 +48,7 @@ interface AppServices {
 export function getApp(envs: Envs, config: AppConfig, connManager: { servers: ConnectorManager['servers'], peers: ConnectorManager['peers'] }, services: AppServices) {
   const app = new Hono()
 
-  const peerController = new PeerController(() => connManager.servers)
+  const peerController = new PeerController(() => connManager.servers, services.ownCatalogRepository)
 
   app.use('*', secureHeaders())
 

@@ -11,6 +11,10 @@ import { PROTOCOL_VERSION } from './lib/version'
 import { logger } from './logger'
 import { getManagementApp } from './management-app'
 import { ApiKeysRepository } from './modules/api-keys/api-keys.repository'
+import { CatalogCacheRepository } from './modules/catalog/catalog-cache.repository'
+import { CatalogSyncService } from './modules/catalog/catalog-sync.service'
+import { OwnCatalogRepository } from './modules/catalog/own-catalog.repository'
+import { TmdbMetadataRepository } from './modules/catalog/tmdb-metadata.repository'
 import { ConfigService } from './modules/config/config.service'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
@@ -43,6 +47,8 @@ const database = await openDatabase({ appConfigPath: envs.APP_CONFIG_PATH })
 const downloadsRepository = new DownloadsRepository(database.db)
 const apiKeysRepository = new ApiKeysRepository(database.db)
 const managedKeysRepository = new ManagedKeysRepository(database.db)
+const catalogCacheRepository = new CatalogCacheRepository(database.db)
+const tmdbMetadataRepository = new TmdbMetadataRepository(database.db)
 
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
@@ -59,11 +65,26 @@ const downloadsService = config.downloads
   ? new DownloadsService(config.downloads, connectorManager, downloadsRepository)
   : undefined
 
+// Keeps this instance's catalog (served to peers) and every peer's (searched by
+// the Peer Catalog) current: once at boot, then on the configured cron schedule.
+const ownCatalogRepository = new OwnCatalogRepository(database.db)
+const catalogSync = new CatalogSyncService({
+  connectors: connectorManager,
+  own: ownCatalogRepository,
+  peerCache: catalogCacheRepository,
+  metadata: tmdbMetadataRepository,
+  schedule: () => configService?.getCatalog().refreshSchedule ?? config.catalog.refreshSchedule,
+})
+catalogSync.start()
+// A schedule edited in the UI applies without a restart.
+configService?.subscribe(() => catalogSync.reschedule())
+
 const app = getApp(envs, config, connectorManager, {
   downloadsRepository,
   downloadsService,
   apiKeysRepository,
   managedKeysRepository,
+  ownCatalogRepository,
 })
 const server = Bun.serve({
   fetch: app.fetch,
@@ -93,6 +114,9 @@ const importWatcher = downloadsConfig
       // from the boot config — it's the root every unlink is confined to.
       enabled: () => configService?.getRawDownloads()?.unlinkImportedFiles ?? downloadsConfig.unlinkImportedFiles,
       completedPath: downloadsConfig.completedPath,
+    }, (release) => {
+      // Show the import in the catalog now instead of on the next scheduled sync.
+      void catalogSync.addImported(release)
     })
   : undefined
 
@@ -114,6 +138,9 @@ function startManagementServer() {
     downloadsService,
     importWatcher,
     apiKeysRepository,
+    catalogCacheRepository,
+    tmdbMetadataRepository,
+    catalogSync,
     tmdbApiKey: config.jack.tmdbApiKey,
   })
   const instance = Bun.serve({ port: envs.MANAGEMENT_PORT, fetch: managementApp.fetch, idleTimeout: 60 })
@@ -177,6 +204,7 @@ else {
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
   importWatcher?.stop()
+  catalogSync.stop()
   database.close()
   server.stop()
   managementServer?.stop()
@@ -187,6 +215,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
   importWatcher?.stop()
+  catalogSync.stop()
   database.close()
   server.stop()
   managementServer?.stop()

@@ -940,6 +940,41 @@ describe('Management API quick links', () => {
   })
 })
 
+describe('Management API catalog config', () => {
+  function patch(app: ReturnType<typeof mgmtApp>, body: unknown) {
+    return app.request('/config/catalog', {
+      method: 'PATCH',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
+  test('GET returns the hourly default when nothing is stored', async () => {
+    const { app } = await makeMutableApp()
+    const res = await app.request('/config/catalog', { headers: KEY })
+    expect(await res.json()).toEqual({ refreshSchedule: '0 * * * *' })
+  })
+
+  test('PATCH stores a valid schedule, and null restores the default', async () => {
+    const { app, path } = await makeMutableApp()
+
+    expect((await patch(app, { refreshSchedule: '0 */6 * * *' })).status).toBe(200)
+    expect((jsonc.parse(await Bun.file(path).text()) as { catalog: unknown }).catalog).toEqual({ refreshSchedule: '0 */6 * * *' })
+
+    expect((await patch(app, { refreshSchedule: null })).status).toBe(200)
+    const get = await app.request('/config/catalog', { headers: KEY })
+    expect(await get.json()).toEqual({ refreshSchedule: '0 * * * *' })
+  })
+
+  test('PATCH rejects an invalid cron expression without writing', async () => {
+    const { app, path } = await makeMutableApp()
+    const before = await Bun.file(path).text()
+
+    expect((await patch(app, { refreshSchedule: 'every hour' })).status).toBe(400)
+    expect(await Bun.file(path).text()).toBe(before)
+  })
+})
+
 describe('Management API downloads config', () => {
   // Seed a config file that already carries a downloads block, so the partial-patch
   // behaviour (merge onto what's stored) has something to merge onto.

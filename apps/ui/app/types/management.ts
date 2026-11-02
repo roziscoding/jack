@@ -94,22 +94,13 @@ export interface TmdbMetadata {
   genres: string[]
 }
 
-export interface CatalogRelease {
-  id: string
-  title: string
-  filename: string
-  size: number
-  quality?: { name?: string, source?: string, resolution?: number }
-  season?: number
-  episode?: number
-}
-
 export interface CatalogTitlePeer {
   id: string
   name: string
   releaseCount: number
   totalSize: number
-  releases: CatalogRelease[]
+  // Distinct resolutions this peer has the title in, best first.
+  resolutions: number[]
 }
 
 export interface CatalogTitle {
@@ -119,16 +110,48 @@ export interface CatalogTitle {
   imdbId?: string
   tvdbId?: number
   displayTitle: string
+  // From the peers' *arr metadata: shown when TMDB has nothing (or isn't set up).
+  posterUrl?: string
+  backdropUrl?: string
+  genres: string[]
   // Totals across every peer that carries this title.
   releaseCount: number
   totalSize: number
+  // Absent until looked up; null when TMDB has no entry for the id.
   metadata?: TmdbMetadata | null
+  // A local Radarr/Sonarr already has at least one file for this title.
+  inLibrary: boolean
   peers: CatalogTitlePeer[]
 }
 
+export interface CatalogFacets {
+  // Counts across the whole catalog, so each filter shows what it can reach.
+  types: { all: number, movie: number, tv: number }
+  peers: Record<string, number>
+  genres: Array<{ genre: string, count: number }>
+  // Titles matching every other filter that are already in the library.
+  owned: number
+}
+
+export interface CatalogSyncStatus {
+  syncing: boolean
+  // When the last sync finished; null before the first one.
+  syncedAt: string | null
+}
+
+// GET /catalog: the cached catalog, searched, filtered, and sorted by the backend.
 export interface CatalogResponse {
+  // Configured peers with titles in the cache.
   peers: Array<{ id: string, name: string }>
   titles: CatalogTitle[]
+  facets: CatalogFacets
+  sync: CatalogSyncStatus
+}
+
+// GET/PATCH /config/catalog.
+export interface CatalogConfig {
+  // 5-field cron expression.
+  refreshSchedule: string
 }
 
 export interface RequestServerOption {
