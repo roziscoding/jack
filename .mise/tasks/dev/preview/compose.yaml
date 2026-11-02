@@ -9,6 +9,9 @@ services:
     build:
       context: ../../../..
       dockerfile: apps/backend/Dockerfile
+    # Run as the host user so the backend can write config, database, and logs
+    # into the mounted apps/backend. `mise run dev:preview` exports these.
+    user: '${JACK_UID:-1000}:${JACK_GID:-1000}'
     ports:
       - '${JACK_PORT:-5225}:5225'
     environment:

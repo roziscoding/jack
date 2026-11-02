@@ -107,12 +107,18 @@ const codeItems = computed(() => errorCodeGroups(data.value?.downloads ?? [])
   ]))
 
 // Drop selections whose peer or code no longer appears after a live update.
+// Only reassign when something was actually dropped: a new array would count
+// as a filter change and send the user back to page one on every update.
+function keepPresent(selection: Ref<string[]>, present: Set<string>) {
+  const kept = selection.value.filter(value => present.has(value))
+  if (kept.length !== selection.value.length)
+    selection.value = kept
+}
 watch(peerItems, (items) => {
-  peerFilter.value = peerFilter.value.filter(peer => items.some(item => item.value === peer))
+  keepPresent(peerFilter, new Set(items.map(item => item.value)))
 })
 watch(codeItems, (groups) => {
-  const present = new Set(groups.flat().filter(item => !('type' in item)).map(item => item.value))
-  codeFilter.value = codeFilter.value.filter(code => present.has(code))
+  keepPresent(codeFilter, new Set(groups.flat().filter(item => !('type' in item)).map(item => item.value)))
 })
 
 const hasFilters = computed(() => filter.value !== 'all' || search.value.trim() !== '' || peerFilter.value.length > 0 || codeFilter.value.length > 0)

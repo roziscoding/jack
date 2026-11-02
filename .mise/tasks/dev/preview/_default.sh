@@ -5,6 +5,11 @@
 #USAGE flag "--keep" help="Keep the containers and the seeded database after compose exits"
 set -euo pipefail
 
+# The backend container runs as the host user (see compose.yaml).
+JACK_UID="$(id -u)"
+JACK_GID="$(id -g)"
+export JACK_UID JACK_GID
+
 preview_dir="$(dirname "$0")"
 compose_file="$preview_dir/compose.yaml"
 # Same config the container mounts as /config/config.jsonc.
