@@ -14,7 +14,9 @@ export default antfu(
     },
   },
   {
-    ignores: ['packages/schemas/src/generated/**', '.mise/**'],
+    // drizzle-kit owns drizzle/meta: it writes the snapshots and journal in its
+    // own format (no trailing newline) and rewrites them on every generate.
+    ignores: ['packages/schemas/src/generated/**', '.mise/**', 'apps/backend/drizzle/meta/**'],
   },
   {
     // Docs prose is full of literal `*arr`, which the emphasis rule mangles when
