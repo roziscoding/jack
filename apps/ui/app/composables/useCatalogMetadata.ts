@@ -19,12 +19,16 @@ export function useCatalogMetadata() {
   const cache = useState<Record<string, CatalogMetadataEntry>>('catalog-tmdb', () => ({}))
 
   function keyFor(title: CatalogTitle): string | null {
-    return title.tmdbId == null ? null : `${title.mediaType}:${title.tmdbId}`
+    return title.tmdbId == null
+      ? null
+      : `${title.mediaType}:${title.tmdbId}`
   }
 
   function entryFor(title: CatalogTitle): CatalogMetadataEntry | null {
     const key = keyFor(title)
-    return key ? (cache.value[key] ?? null) : null
+    return key
+      ? (cache.value[key] ?? null)
+      : null
   }
 
   async function load(title: CatalogTitle): Promise<void> {

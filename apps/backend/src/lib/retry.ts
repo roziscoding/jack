@@ -55,7 +55,9 @@ export async function retry<T>(fn: (attempt: number) => Promise<T>, options: Ret
       const explicit = retryAfterMs?.(error) ?? null
       // Full jitter (AWS): pick uniformly in [0, exponential backoff].
       const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1))
-      const delayMs = explicit != null ? Math.min(explicit, maxDelayMs) : random() * backoff
+      const delayMs = explicit != null
+        ? Math.min(explicit, maxDelayMs)
+        : random() * backoff
       onRetry?.({ attempt, delayMs, error })
       if (options.signal && !options.sleep) {
         await abortableDefaultSleep(delayMs, options.signal)

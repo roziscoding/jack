@@ -10,8 +10,15 @@ export function getQuickLinksRouter(controller: QuickLinksController) {
     tags: ['Quick links'],
     summary: 'Generate a peer quick link',
     description: 'Resolves the configured external access profile, issues a fresh revocable API key, and returns a ready-to-share quick link. The link contains credentials and is returned only once.',
-    security: [{ 'X-Management-Key': [] }],
-    responses: { 201: { description: 'Quick link generated', content: { 'application/json': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      201: {
+        description: 'Quick link generated',
+        content: { 'application/json': {} },
+      },
+    },
   }), zValidator('json', CreateQuickLinkBody), (c) => {
     const result = controller.create(c.req.valid('json'))
     c.header('Cache-Control', 'no-store')

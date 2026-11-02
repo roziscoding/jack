@@ -29,8 +29,12 @@ export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1
   return z
     .union([
       z.string(),
-      z.object({ env: z.string().min(1) }),
-      z.object({ file: z.string().min(1) }),
+      z.object({
+        env: z.string().min(1),
+      }),
+      z.object({
+        file: z.string().min(1),
+      }),
     ])
     .transform((input, ctx) => {
       if (typeof input === 'string')
@@ -80,8 +84,12 @@ export function ConfigSecret(value: z.ZodType<string, string> = z.string().min(1
 // both RawPeerConfig (below) and RawServerConfig (Phase 5) can reference it.
 export const RawConfigSecret = z.union([
   z.string(),
-  z.object({ env: z.string().min(1) }),
-  z.object({ file: z.string().min(1) }),
+  z.object({
+    env: z.string().min(1),
+  }),
+  z.object({
+    file: z.string().min(1),
+  }),
 ])
 
 export const ServerType = z.enum(['radarr', 'sonarr'])
@@ -124,7 +132,10 @@ export const RawServerConfig = z.object({
   type: ServerType,
   source: z.boolean().optional(),
   destination: z.boolean().optional(),
-  autoregister: z.object({ enable: z.boolean().optional(), priority: z.number().int().optional() }).optional(),
+  autoregister: z.object({
+    enable: z.boolean().optional(),
+    priority: z.number().int().optional(),
+  }).optional(),
 })
 
 export type RawServerConfig = z.infer<typeof RawServerConfig>
@@ -310,7 +321,11 @@ export const MIGRATIONS = [
     const cfg = obj as T & { jack?: Record<string, unknown> }
     if (cfg.jack && 'baseUrl' in cfg.jack) {
       const { baseUrl, ...rest } = cfg.jack
-      return { ...obj, jack: { ...rest, internalUrl: baseUrl }, version: 2 } as T & { version: number }
+      return {
+        ...obj,
+        jack: { ...rest, internalUrl: baseUrl },
+        version: 2,
+      } as T & { version: number }
     }
     return { ...obj, version: 2 } as T & { version: number }
   },
@@ -319,7 +334,9 @@ const LATEST_MIGRATION = MIGRATIONS.length
 
 export function migrateConfig(rawConfigObject: unknown) {
   const configObject = z
-    .looseObject({ version: z.number().max(LATEST_MIGRATION).min(0).default(0).catch(0) })
+    .looseObject({
+      version: z.number().max(LATEST_MIGRATION).min(0).default(0).catch(0),
+    })
     .parse(rawConfigObject)
 
   const currentVersion = configObject.version
@@ -400,5 +417,8 @@ export async function getAppConfig({ APP_CONFIG_PATH }: Pick<Envs, 'APP_CONFIG_P
   // returns undefined when current; parsing undefined used to throw).
   const raw = (migrated ?? fileContent) as z.input<typeof AppConfig>
   logger.debug(`Validating app config`)
-  return { appConfig: AppConfig.parse(raw), raw }
+  return {
+    appConfig: AppConfig.parse(raw),
+    raw,
+  }
 }

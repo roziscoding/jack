@@ -18,7 +18,12 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     tags: ['qBittorrent'],
     summary: 'Log in',
     description: 'Form fields `username`/`password`. The password must be the master key or a managed key; on success a SID session cookie is set. Mirrors qBittorrent: the body is `Ok.` or `Fails.`, always 200.',
-    responses: { 200: { description: '`Ok.` with a SID cookie, or `Fails.`', content: { 'text/plain': {} } } },
+    responses: {
+      200: {
+        description: '`Ok.` with a SID cookie, or `Fails.`',
+        content: { 'text/plain': {} },
+      },
+    },
   }), async (c) => {
     const body = await c.req.parseBody()
     const sid = controller.login(String(body.username ?? ''), String(body.password ?? ''))
@@ -31,8 +36,15 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
   app.post('/auth/logout', describeRoute({
     tags: ['qBittorrent'],
     summary: 'Log out',
-    security: [{ SID: [] }],
-    responses: { 200: { description: '`Ok.`; the SID cookie is cleared', content: { 'text/plain': {} } } },
+    security: [
+      { SID: [] },
+    ],
+    responses: {
+      200: {
+        description: '`Ok.`; the SID cookie is cleared',
+        content: { 'text/plain': {} },
+      },
+    },
   }), (c) => {
     controller.logout(getCookie(c, SID_COOKIE))
     deleteCookie(c, SID_COOKIE, { path: '/' })
@@ -51,24 +63,43 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
   app.use('/torrents/*', requireSession)
 
   // ---- app ----
-  const qbAuth = { security: [{ SID: [] }] }
+  const qbAuth = {
+    security: [
+      { SID: [] },
+    ],
+  }
   app.get('/app/webapiVersion', describeRoute({
     tags: ['qBittorrent'],
     summary: 'WebAPI version',
     ...qbAuth,
-    responses: { 200: { description: 'The emulated qBittorrent WebAPI version', content: { 'text/plain': {} } } },
+    responses: {
+      200: {
+        description: 'The emulated qBittorrent WebAPI version',
+        content: { 'text/plain': {} },
+      },
+    },
   }), c => c.text(controller.webapiVersion()))
   app.get('/app/version', describeRoute({
     tags: ['qBittorrent'],
     summary: 'Application version',
     ...qbAuth,
-    responses: { 200: { description: 'The emulated qBittorrent application version', content: { 'text/plain': {} } } },
+    responses: {
+      200: {
+        description: 'The emulated qBittorrent application version',
+        content: { 'text/plain': {} },
+      },
+    },
   }), c => c.text(controller.version()))
   app.get('/app/preferences', describeRoute({
     tags: ['qBittorrent'],
     summary: 'Client preferences',
     ...qbAuth,
-    responses: { 200: { description: 'qBittorrent-shaped preferences object', content: { 'application/json': {} } } },
+    responses: {
+      200: {
+        description: 'qBittorrent-shaped preferences object',
+        content: { 'application/json': {} },
+      },
+    },
   }), c => c.json(controller.preferences()))
 
   // ---- torrents (connection-test surface; Phase 2 fills info with real data) ----
@@ -78,23 +109,50 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     description: '*arr polls this for download progress. Optional `category` and `hashes` (pipe-separated) filters.',
     ...qbAuth,
     parameters: [
-      { name: 'category', in: 'query', schema: { type: 'string' }, description: 'Filter by category' },
-      { name: 'hashes', in: 'query', schema: { type: 'string' }, description: 'Pipe-separated torrent hashes' },
+      {
+        name: 'category',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Filter by category',
+      },
+      {
+        name: 'hashes',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Pipe-separated torrent hashes',
+      },
     ],
-    responses: { 200: { description: 'qBittorrent-shaped torrent list', content: { 'application/json': {} } } },
+    responses: {
+      200: {
+        description: 'qBittorrent-shaped torrent list',
+        content: { 'application/json': {} },
+      },
+    },
   }), (c) => {
     const category = c.req.query('category') ?? undefined
     const hashesRaw = c.req.query('hashes')
-    const hashes = hashesRaw ? hashesRaw.split('|') : undefined
+    const hashes = hashesRaw
+      ? hashesRaw.split('|')
+      : undefined
     return c.json(controller.torrentsInfo({ category, hashes }))
   })
   app.get('/torrents/properties', describeRoute({
     tags: ['qBittorrent'],
     summary: 'Torrent properties',
     ...qbAuth,
-    parameters: [{ name: 'hash', in: 'query', required: true, schema: { type: 'string' } }],
+    parameters: [
+      {
+        name: 'hash',
+        in: 'query',
+        required: true,
+        schema: { type: 'string' },
+      },
+    ],
     responses: {
-      200: { description: 'Properties for the torrent', content: { 'application/json': {} } },
+      200: {
+        description: 'Properties for the torrent',
+        content: { 'application/json': {} },
+      },
       404: { description: 'Unknown hash' },
     },
   }), (c) => {
@@ -107,14 +165,31 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     tags: ['qBittorrent'],
     summary: 'Torrent file list',
     ...qbAuth,
-    parameters: [{ name: 'hash', in: 'query', required: true, schema: { type: 'string' } }],
-    responses: { 200: { description: 'Files belonging to the torrent', content: { 'application/json': {} } } },
+    parameters: [
+      {
+        name: 'hash',
+        in: 'query',
+        required: true,
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      200: {
+        description: 'Files belonging to the torrent',
+        content: { 'application/json': {} },
+      },
+    },
   }), c => c.json(controller.torrentFiles(c.req.query('hash') ?? '')))
   app.get('/torrents/categories', describeRoute({
     tags: ['qBittorrent'],
     summary: 'List categories',
     ...qbAuth,
-    responses: { 200: { description: 'Known categories keyed by name', content: { 'application/json': {} } } },
+    responses: {
+      200: {
+        description: 'Known categories keyed by name',
+        content: { 'application/json': {} },
+      },
+    },
   }), c => c.json(controller.categories()))
 
   app.post('/torrents/add', describeRoute({
@@ -123,20 +198,35 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     description: 'Multipart/form upload of stub `.torrent` files (`torrents`) and/or download URLs (`urls`, newline-separated), with an optional `category`. Only Jack stubs are accepted; each one queues an HTTP download from the owning peer.',
     ...qbAuth,
     responses: {
-      200: { description: '`Ok.` — download queued', content: { 'text/plain': {} } },
-      415: { description: 'Not a Jack stub torrent', content: { 'text/plain': {} } },
-      503: { description: 'Download pipeline unavailable or failed to start', content: { 'text/plain': {} } },
+      200: {
+        description: '`Ok.` — download queued',
+        content: { 'text/plain': {} },
+      },
+      415: {
+        description: 'Not a Jack stub torrent',
+        content: { 'text/plain': {} },
+      },
+      503: {
+        description: 'Download pipeline unavailable or failed to start',
+        content: { 'text/plain': {} },
+      },
     },
   }), async (c) => {
     const session = c.get('qbSession')
     const body = await c.req.parseBody({ all: true })
 
     // Normalize: parseBody({ all: true }) returns string | File | Array of those.
-    const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v])
+    const asList = (v: unknown): unknown[] => (Array.isArray(v)
+      ? v
+      : v == null
+        ? []
+        : [v])
     const firstString = (v: unknown): string | undefined => asList(v).find((x): x is string => typeof x === 'string')
 
     const urls = asList(body.urls)
-      .flatMap(v => (typeof v === 'string' ? v.split(NEWLINE) : []))
+      .flatMap(v => (typeof v === 'string'
+        ? v.split(NEWLINE)
+        : []))
       .map(s => s.trim())
       .filter(Boolean)
 
@@ -147,7 +237,12 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     }
 
     const category = firstString(body.category)
-    const result = await controller.addTorrent({ session, category, urls, torrentFiles })
+    const result = await controller.addTorrent({
+      session,
+      category,
+      urls,
+      torrentFiles,
+    })
     if (result === 'unavailable')
       return c.text('Download pipeline unavailable: jack has no downloads config.', 503)
     if (result === 'failed')
@@ -162,7 +257,12 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     summary: 'Delete torrents',
     description: 'Form fields `hashes` (pipe-separated) and `deleteFiles` (`true`/`false`).',
     ...qbAuth,
-    responses: { 200: { description: '`Ok.`', content: { 'text/plain': {} } } },
+    responses: {
+      200: {
+        description: '`Ok.`',
+        content: { 'text/plain': {} },
+      },
+    },
   }), async (c) => {
     const session = c.get('qbSession')
     const body = await c.req.parseBody()
@@ -175,7 +275,12 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     summary: 'Set torrent category',
     description: 'Form fields `hashes` (pipe-separated) and `category`.',
     ...qbAuth,
-    responses: { 200: { description: '`Ok.`', content: { 'text/plain': {} } } },
+    responses: {
+      200: {
+        description: '`Ok.`',
+        content: { 'text/plain': {} },
+      },
+    },
   }), async (c) => {
     const session = c.get('qbSession')
     const body = await c.req.parseBody()
@@ -188,7 +293,12 @@ export function getQbittorrentRouter(controller: QbittorrentController) {
     summary,
     description: 'Acknowledged no-op: jack doesn\'t seed or prioritize, but *arr expects a 200 (real qBittorrent returns one too).',
     ...qbAuth,
-    responses: { 200: { description: '`Ok.`', content: { 'text/plain': {} } } },
+    responses: {
+      200: {
+        description: '`Ok.`',
+        content: { 'text/plain': {} },
+      },
+    },
   })
   app.post('/torrents/createCategory', noop('Create a category'), c => c.text('Ok.', 200))
 

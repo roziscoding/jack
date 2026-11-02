@@ -18,7 +18,10 @@ export interface AuthRepos {
 // Pass an existing db to seed real keys and have them visible to the app under test.
 export function makeAuthRepos(db?: AppDatabase): AuthRepos {
   const database = db ?? (() => {
-    const d = drizzle({ client: new Database(':memory:'), schema })
+    const d = drizzle({
+      client: new Database(':memory:'),
+      schema,
+    })
     runMigrations(d)
     return d
   })()

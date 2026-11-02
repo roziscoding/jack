@@ -90,7 +90,9 @@ describe('qBittorrent flow (e2e)', () => {
     // 6. The destination *arr lists a QBittorrent download client.
     const clients = await fetchJson<Array<{ implementation: string }>>(
       `${env.radarrUrl}/api/v3/downloadclient`,
-      { headers: { 'X-Api-Key': env.radarrApiKey } },
+      {
+        headers: { 'X-Api-Key': env.radarrApiKey },
+      },
     )
     expect(clients.some(client => client.implementation === 'QBittorrent')).toBe(true)
   }, 120_000)

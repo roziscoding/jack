@@ -40,8 +40,17 @@ const mockMovie = {
     dateAdded: '2021-01-01T00:00:00Z',
     sceneName: 'The.Matrix.1999.1080p.BluRay.x264-GROUP',
     releaseGroup: 'GROUP',
-    quality: { quality: { id: 7, name: 'Bluray-1080p', source: 'bluray', resolution: 1080 } },
-    languages: [{ id: 1, name: 'English' }],
+    quality: {
+      quality: {
+        id: 7,
+        name: 'Bluray-1080p',
+        source: 'bluray',
+        resolution: 1080,
+      },
+    },
+    languages: [
+      { id: 1, name: 'English' },
+    ],
     mediaInfo: { videoCodec: 'x264', audioCodec: 'DTS' },
   },
 }
@@ -63,7 +72,9 @@ const handlers = [
   http.get(`${RADARR_URL}/api/v3/system/status`, () => HttpResponse.json({ appName: 'Radarr', version: '4.0.0' })),
   http.get(`${RADARR_URL}/api/v3/movie`, ({ request }) => {
     const imdbId = new URL(request.url).searchParams.get('imdbId')
-    const movies = imdbId && mockMovie.imdbId !== imdbId ? [] : [mockMovie]
+    const movies = imdbId && mockMovie.imdbId !== imdbId
+      ? []
+      : [mockMovie]
     return HttpResponse.json(movies)
   }),
   http.get(`${RADARR_URL}/api/v3/movie/:id`, ({ params }) => {
@@ -177,7 +188,19 @@ function createTestApp() {
   const db = drizzle({ client: database, schema })
   runMigrations(db)
   const downloadsRepository = new DownloadsRepository(db)
-  return { app: getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository, ...makeAuthRepos(db) }), radarr, peer, database, downloadsRepository }
+  return {
+    app: getApp(envs, config, {
+      servers: [radarr],
+      peers: [peer],
+    }, {
+      downloadsRepository,
+      ...makeAuthRepos(db),
+    }),
+    radarr,
+    peer,
+    database,
+    downloadsRepository,
+  }
 }
 
 describe('Peer API', () => {
@@ -274,10 +297,18 @@ describe('Torznab API', () => {
 
   test('an over-eager peer (returns its whole catalog) is filtered to the searched id', async () => {
     const { app } = createTestApp()
-    const otherRelease: Release = { ...peerRelease, id: 'remote1:movie:2', title: 'Some.Other.Movie.2020.1080p', imdbId: 'tt9999999', tmdbId: 111 }
+    const otherRelease: Release = {
+      ...peerRelease,
+      id: 'remote1:movie:2',
+      title: 'Some.Other.Movie.2020.1080p',
+      imdbId: 'tt9999999',
+      tmdbId: 111,
+    }
     // Simulate an old/over-eager peer that ignores the id and returns everything.
     server.use(
-      http.get(`${PEER_JACK_URL}/peer/search`, () => HttpResponse.json({ items: [peerRelease, otherRelease] })),
+      http.get(`${PEER_JACK_URL}/peer/search`, () => HttpResponse.json({
+        items: [peerRelease, otherRelease],
+      })),
     )
     const res = await app.request('/torznab/api?t=movie&tmdbid=603&apikey=test-api-key')
     const xml = await res.text()
@@ -340,7 +371,10 @@ describe('Torrent download', () => {
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const { key: managedKey } = new ManagedApiKeys(managedKeysRepository).provision(radarr.id)
 
-    const app = getApp(envs, config, { servers: [radarr], peers: [peer] }, { downloadsRepository, apiKeysRepository, managedKeysRepository })
+    const app = getApp(envs, config, {
+      servers: [radarr],
+      peers: [peer],
+    }, { downloadsRepository, apiKeysRepository, managedKeysRepository })
 
     const feed = await (await app.request(`/torznab/api?t=movie&tmdbid=603&apikey=${managedKey}`)).text()
     expect(feed).toContain(peerRelease.title)
@@ -501,7 +535,12 @@ describe('Auto-registration', () => {
     server.use(
       http.get(`${RADARR_URL}/api/v3/downloadclient`, () => {
         return HttpResponse.json([
-          { id: 3, name: 'Jack', implementation: 'TorrentBlackhole', fields: [] },
+          {
+            id: 3,
+            name: 'Jack',
+            implementation: 'TorrentBlackhole',
+            fields: [],
+          },
         ])
       }),
       http.put(`${RADARR_URL}/api/v3/downloadclient/3`, async ({ request }) => {
@@ -529,7 +568,15 @@ describe('Auto-registration', () => {
     server.use(
       // A prior version had tagged this client; the upgrade PUT must clear it.
       http.get(`${RADARR_URL}/api/v3/downloadclient`, () =>
-        HttpResponse.json([{ id: 5, name: 'Jack', implementation: 'QBittorrent', priority: 1, tags: [1] }])),
+        HttpResponse.json([
+          {
+            id: 5,
+            name: 'Jack',
+            implementation: 'QBittorrent',
+            priority: 1,
+            tags: [1],
+          },
+        ])),
       http.put(`${RADARR_URL}/api/v3/downloadclient/5`, async ({ request }) => {
         putBody = await request.json()
         return HttpResponse.json({ id: 5, name: 'Jack' })
@@ -558,9 +605,15 @@ describe('Scoped auth boundaries', () => {
   function scopedApp() {
     const { apiKeysRepository, managedKeysRepository } = makeAuthRepos()
     const peerKey = generateApiKey()
-    apiKeysRepository.create({ keyHash: hashKey(peerKey), name: 'A Peer' })
+    apiKeysRepository.create({
+      keyHash: hashKey(peerKey),
+      name: 'A Peer',
+    })
     const managedKey = generateManagedKey()
-    managedKeysRepository.create({ keyHash: hashKey(managedKey), serverId: 'srv' })
+    managedKeysRepository.create({
+      keyHash: hashKey(managedKey),
+      serverId: 'srv',
+    })
     const app = getApp(envs, config, { servers: [], peers: [] }, { apiKeysRepository, managedKeysRepository })
     return { app, peerKey, managedKey }
   }
@@ -586,7 +639,9 @@ describe('Scoped auth boundaries', () => {
 
 describe('Routes mount without peers or sources', () => {
   function createBareApp() {
-    return getApp(envs, config, { servers: [], peers: [] }, { ...makeAuthRepos() })
+    return getApp(envs, config, { servers: [], peers: [] }, {
+      ...makeAuthRepos(),
+    })
   }
 
   test('Torznab caps works with no peers', async () => {

@@ -60,13 +60,21 @@ function makePeer() {
   return markInitialized(new PeerConnector({ url: 'http://peer.test:3000', apiKey: 'peer-api-key', name: 'Friend Jack' }))
 }
 
-function mgmtApp(managementKey = 'mgmt-secret', peers = [makePeer()]) {
-  return getManagementApp({ environment: 'test', managementKey, connectors: { servers: [], peers } })
+function mgmtApp(managementKey = 'mgmt-secret', peers = [
+  makePeer(),
+]) {
+  return getManagementApp({
+    environment: 'test',
+    managementKey,
+    connectors: { servers: [], peers },
+  })
 }
 
 describe('Management API auth', () => {
   test('GET /config/peers with valid key returns 200 + peers', async () => {
-    const res = await mgmtApp().request('/config/peers', { headers: { 'X-Management-Key': 'mgmt-secret' } })
+    const res = await mgmtApp().request('/config/peers', {
+      headers: { 'X-Management-Key': 'mgmt-secret' },
+    })
     expect(res.status).toBe(200)
     const body = await res.json() as { peers: Array<{ name: string }> }
     expect(body.peers[0]?.name).toBe('Friend Jack')
@@ -78,15 +86,26 @@ describe('Management API auth', () => {
   })
 
   test('GET /config/peers with wrong key returns 401', async () => {
-    const res = await mgmtApp().request('/config/peers', { headers: { 'X-Management-Key': 'wrong' } })
+    const res = await mgmtApp().request('/config/peers', {
+      headers: { 'X-Management-Key': 'wrong' },
+    })
     expect(res.status).toBe(401)
   })
 
   test('the public app never exposes /config', async () => {
-    const app = getApp(makeEnvs(undefined), config, { servers: [], peers: [makePeer()] } as any, { ...makeAuthRepos() })
+    const app = getApp(makeEnvs(undefined), config, {
+      servers: [],
+      peers: [
+        makePeer(),
+      ],
+    } as any, {
+      ...makeAuthRepos(),
+    })
     // Carry a valid peer API key so we get past requireApiKey and reach routing:
     // a true 404 proves the route is unregistered, not merely auth-blocked.
-    const res = await app.request('/config', { headers: { 'x-api-key': 'test-api-key' } })
+    const res = await app.request('/config', {
+      headers: { 'x-api-key': 'test-api-key' },
+    })
     expect(res.status).toBe(404)
   })
 
@@ -103,9 +122,19 @@ describe('Management API auth', () => {
 
 const mswServer = setupServer(
   http.get('http://bob.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
-  http.get('http://bob.test:3000/peer/search', () => HttpResponse.json({ items: [
-    { id: 'b:movie:1', title: 'Bob.Movie.1080p', filename: 'Bob.Movie.1080p.mkv', category: 2000, size: 1, imdbId: 'tt1', tmdbId: 1 },
-  ] })),
+  http.get('http://bob.test:3000/peer/search', () => HttpResponse.json({
+    items: [
+      {
+        id: 'b:movie:1',
+        title: 'Bob.Movie.1080p',
+        filename: 'Bob.Movie.1080p.mkv',
+        category: 2000,
+        size: 1,
+        imdbId: 'tt1',
+        tmdbId: 1,
+      },
+    ],
+  })),
   http.get('http://bob2.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   http.get('http://carol.test:3000/handshake', () => HttpResponse.json({ name: 'jack', version: PROTOCOL_VERSION })),
   // A peer that's reachable but rejects auth — its handshake 401s, so init fails.
@@ -142,9 +171,24 @@ async function makeMutableApp(managementKey = 'mgmt-secret') {
   const authRepos = makeAuthRepos(db)
   const downloadsRepository = new DownloadsRepository(db)
   const configService = await ConfigService.fromFile({ path, connectorManager, downloadsRepository })
-  const app = getManagementApp({ environment: 'test', managementKey, connectors: connectorManager, configService, apiKeysRepository: authRepos.apiKeysRepository })
+  const app = getManagementApp({
+    environment: 'test',
+    managementKey,
+    connectors: connectorManager,
+    configService,
+    apiKeysRepository: authRepos.apiKeysRepository,
+  })
   const mainApp = getApp(makeEnvs(managementKey), config, connectorManager, { downloadsRepository, ...authRepos })
-  return { app, mainApp, path, connectorManager, downloadsRepository, database, configService, apiKeysRepository: authRepos.apiKeysRepository }
+  return {
+    app,
+    mainApp,
+    path,
+    connectorManager,
+    downloadsRepository,
+    database,
+    configService,
+    apiKeysRepository: authRepos.apiKeysRepository,
+  }
 }
 
 const KEY = { 'X-Management-Key': 'mgmt-secret' } as const
@@ -174,7 +218,12 @@ describe('Management API addPeer', () => {
       method: 'POST',
       headers: { ...KEY, 'Content-Type': 'application/json' },
       // `bogus` is an unknown field — it must be stripped before persisting.
-      body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: { env: 'BOB_KEY' }, bogus: 'x' }),
+      body: JSON.stringify({
+        name: 'Bob',
+        url: 'http://bob.test:3000',
+        apiKey: { env: 'BOB_KEY' },
+        bogus: 'x',
+      }),
     })
     expect(res.status).toBe(201)
 
@@ -188,8 +237,16 @@ describe('Management API addPeer', () => {
     process.env.BOB_KEY = 'bob-secret'
     const { app } = await makeMutableApp()
     const body = JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' })
-    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body })
-    const res = await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob2', url: 'http://bob.test:3000', apiKey: 'k' }) })
+    await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body,
+    })
+    const res = await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob2', url: 'http://bob.test:3000', apiKey: 'k' }),
+    })
     expect(res.status).toBe(409)
   })
 
@@ -234,15 +291,27 @@ describe('Management API addPeer', () => {
 
   test('rejects an invalid body with 400', async () => {
     const { app } = await makeMutableApp()
-    const res = await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'NoUrl' }) })
+    const res = await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'NoUrl' }),
+    })
     expect(res.status).toBe(400)
   })
 
   test('serializes concurrent adds without losing an update', async () => {
     const { app, path } = await makeMutableApp()
     await Promise.all([
-      app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }) }),
-      app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Carol', url: 'http://carol.test:3000', apiKey: 'k' }) }),
+      app.request('/config/peers', {
+        method: 'POST',
+        headers: { ...KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }),
+      }),
+      app.request('/config/peers', {
+        method: 'POST',
+        headers: { ...KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Carol', url: 'http://carol.test:3000', apiKey: 'k' }),
+      }),
     ])
     const onDisk = jsonc.parse(await Bun.file(path).text()) as { peers: unknown[] }
     expect(onDisk.peers).toHaveLength(2)
@@ -254,7 +323,11 @@ describe('Management API remove/update peer', () => {
   const bobId = generateId(BOB.url)
 
   async function addBob(app: Awaited<ReturnType<typeof makeMutableApp>>['app']) {
-    return app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(BOB) })
+    return app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(BOB),
+    })
   }
 
   test('removePeer drops it from file and fan-out', async () => {
@@ -325,7 +398,11 @@ describe('Management API servers', () => {
 
   test('adds a server live and registers it as a source/destination', async () => {
     const { app, path, connectorManager } = await makeMutableApp()
-    const res = await app.request('/config/servers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(SERVER) })
+    const res = await app.request('/config/servers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(SERVER),
+    })
     expect(res.status).toBe(201)
 
     const onDisk = jsonc.parse(await Bun.file(path).text()) as { servers: unknown[] }
@@ -336,7 +413,11 @@ describe('Management API servers', () => {
 
   test('removes a server', async () => {
     const { app, connectorManager } = await makeMutableApp()
-    await app.request('/config/servers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(SERVER) })
+    await app.request('/config/servers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(SERVER),
+    })
     const res = await app.request(`/config/servers/${serverId}`, { method: 'DELETE', headers: KEY })
     expect(res.status).toBe(200)
     expect(connectorManager.servers).toHaveLength(0)
@@ -365,7 +446,11 @@ describe('Management API servers', () => {
 
   test('an update whose new url fails its status check rolls back', async () => {
     const { app, path, connectorManager } = await makeMutableApp()
-    await app.request('/config/servers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(SERVER) })
+    await app.request('/config/servers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(SERVER),
+    })
 
     const res = await app.request(`/config/servers/${serverId}`, {
       method: 'PATCH',
@@ -396,7 +481,10 @@ describe('Management API GET /config exposes refs-intact secrets', () => {
         name: 'Bob',
         url: 'http://bob.test:3000',
         apiKey: { env: 'PEER_KEY' },
-        headers: { 'X-Plain': 'literal', 'X-Secret': { env: 'PEER_HEADER' } },
+        headers: {
+          'X-Plain': 'literal',
+          'X-Secret': { env: 'PEER_HEADER' },
+        },
       }),
     })
 
@@ -405,7 +493,10 @@ describe('Management API GET /config exposes refs-intact secrets', () => {
     const body = await res.json() as { peers: Array<{ apiKey: unknown, headers: Record<string, unknown> }> }
     // Refs come back exactly as stored — never resolved into the secret value.
     expect(body.peers[0]?.apiKey).toEqual({ env: 'PEER_KEY' })
-    expect(body.peers[0]?.headers).toEqual({ 'X-Plain': 'literal', 'X-Secret': { env: 'PEER_HEADER' } })
+    expect(body.peers[0]?.headers).toEqual({
+      'X-Plain': 'literal',
+      'X-Secret': { env: 'PEER_HEADER' },
+    })
   })
 
   test('read-only app (no ConfigService) omits the secret fields', async () => {
@@ -455,7 +546,11 @@ describe('Management API live visibility', () => {
     expect(before).not.toContain('Bob.Movie.1080p')
 
     // Add via the MANAGEMENT app.
-    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }) })
+    await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }),
+    })
 
     // After add: the peer's catalog appears live on the public feed.
     const after = await (await mainApp.request('/torznab/api?t=search&apikey=test-api-key')).text()
@@ -477,7 +572,11 @@ describe('Management API live visibility', () => {
     const before = await (await app.request('/config/peers', { headers: KEY })).json() as { peers: Array<{ name: string }> }
     expect(before.peers.some(p => p.name === 'Bob')).toBe(false)
 
-    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }) })
+    await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob', url: 'http://bob.test:3000', apiKey: 'k' }),
+    })
 
     const after = await (await app.request('/config/peers', { headers: KEY })).json() as { peers: Array<{ name: string }> }
     expect(after.peers.some(p => p.name === 'Bob')).toBe(true)
@@ -492,7 +591,11 @@ describe('Management API updatePeer url change', () => {
     const idA = generateId(urlA)
     const idB = generateId(urlB)
 
-    await app.request('/config/peers', { method: 'POST', headers: { ...KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Bob', url: urlA, apiKey: 'k' }) })
+    await app.request('/config/peers', {
+      method: 'POST',
+      headers: { ...KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Bob', url: urlA, apiKey: 'k' }),
+    })
 
     const dl = downloadsRepository.create({
       torrentFilename: 'm.torrent',
@@ -503,7 +606,13 @@ describe('Management API updatePeer url change', () => {
       destPath: '/tmp/m.mkv',
       partPath: '/tmp/m.mkv.part',
       releaseSize: 1,
-      release: { id: 'r', title: 'm', filename: 'm.mkv', category: 2000, size: 1 } as any,
+      release: {
+        id: 'r',
+        title: 'm',
+        filename: 'm.mkv',
+        category: 2000,
+        size: 1,
+      } as any,
     })
 
     const res = await app.request(`/config/peers/${idA}`, {
@@ -537,17 +646,26 @@ describe('Management API jack config', () => {
     const patch = await app.request('/config/jack', {
       method: 'PATCH',
       headers: { ...KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ internalUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } }),
+      body: JSON.stringify({
+        internalUrl: 'http://jack.test:5225',
+        apiKey: { env: 'JACK_X' },
+      }),
     })
     expect(patch.status).toBe(200)
     expect(await patch.json()).toEqual({ ok: true })
 
     // The ref is preserved on disk — never resolved into the secret value.
     const onDisk = jsonc.parse(await Bun.file(path).text()) as { jack: { internalUrl: string, apiKey: unknown } }
-    expect(onDisk.jack).toEqual({ internalUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } })
+    expect(onDisk.jack).toEqual({
+      internalUrl: 'http://jack.test:5225',
+      apiKey: { env: 'JACK_X' },
+    })
 
     const get = await app.request('/config/jack', { headers: KEY })
-    expect(await get.json()).toEqual({ internalUrl: 'http://jack.test:5225', apiKey: { env: 'JACK_X' } })
+    expect(await get.json()).toEqual({
+      internalUrl: 'http://jack.test:5225',
+      apiKey: { env: 'JACK_X' },
+    })
   })
 
   test('PATCH preserves external header refs while the service resolves them on demand', async () => {
@@ -702,7 +820,9 @@ describe('Management API quick links', () => {
         external: {
           instanceName: 'Roz’s Jack',
           url: 'https://jack.example.com',
-          headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
+          headers: {
+            'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
+          },
         },
       }),
     })
@@ -766,7 +886,9 @@ describe('Management API quick links', () => {
         internalUrl: 'http://jack.test:5225',
         external: {
           url: 'https://jack.example.com',
-          headers: { Authorization: { env: 'TEMP_EXTERNAL_HEADER' } },
+          headers: {
+            Authorization: { env: 'TEMP_EXTERNAL_HEADER' },
+          },
         },
       }),
     })
@@ -791,7 +913,9 @@ describe('Management API quick links', () => {
         internalUrl: 'http://jack.test:5225',
         external: {
           url: 'https://jack.example.com',
-          headers: { Authorization: 'x'.repeat(30_000) },
+          headers: {
+            Authorization: 'x'.repeat(30_000),
+          },
         },
       }),
     })
@@ -808,7 +932,10 @@ describe('Management API quick links', () => {
 
   test('the public app never exposes /quick-links', async () => {
     const { mainApp } = await makeMutableApp()
-    const res = await mainApp.request('/quick-links', { method: 'POST', headers: { 'x-api-key': 'test-api-key' } })
+    const res = await mainApp.request('/quick-links', {
+      method: 'POST',
+      headers: { 'x-api-key': 'test-api-key' },
+    })
     expect(res.status).toBe(404)
   })
 })

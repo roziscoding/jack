@@ -76,7 +76,9 @@ describe('PeerConnector.downloadFile', () => {
             controller.close()
           },
         }), {
-          headers: { 'Content-Length': String(firstChunk.byteLength + secondChunk.byteLength) },
+          headers: {
+            'Content-Length': String(firstChunk.byteLength + secondChunk.byteLength),
+          },
         })
       }),
     )
@@ -117,7 +119,9 @@ describe('PeerConnector.downloadFile', () => {
   test('reports expected bytes from Content-Length and streamed progress', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
-        return new Response(streamOf([1, 2, 3, 4]), { headers: { 'Content-Length': '4' } })
+        return new Response(streamOf([1, 2, 3, 4]), {
+          headers: { 'Content-Length': '4' },
+        })
       }),
     )
 
@@ -132,7 +136,12 @@ describe('PeerConnector.downloadFile', () => {
         onProgress: (event) => { events.push(event) },
       })
 
-      expect(events).toContainEqual({ type: 'headers', expectedBytes: 4, expectedBytesSource: 'content_length', expectedBytesMismatch: false })
+      expect(events).toContainEqual({
+        type: 'headers',
+        expectedBytes: 4,
+        expectedBytesSource: 'content_length',
+        expectedBytesMismatch: false,
+      })
       // The first chunk always emits a progress event (lastLoggedBytes === 0).
       expect(events).toContainEqual({ type: 'progress', downloadedBytes: 4, expectedBytes: 4 })
       expect(events).toContainEqual({ type: 'completed', downloadedBytes: 4, expectedBytes: 4 })
@@ -147,7 +156,9 @@ describe('PeerConnector.downloadFile', () => {
       server.resetHandlers()
       server.use(
         http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
-          const headers = contentLength == null ? {} : { 'Content-Length': contentLength }
+          const headers = contentLength == null
+            ? {}
+            : { 'Content-Length': contentLength }
           return new Response(streamOf([1, 2]), { headers })
         }),
       )
@@ -162,7 +173,12 @@ describe('PeerConnector.downloadFile', () => {
           onProgress: (event) => { events.push(event) },
         })
 
-        expect(events).toContainEqual({ type: 'headers', expectedBytes: 2, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
+        expect(events).toContainEqual({
+          type: 'headers',
+          expectedBytes: 2,
+          expectedBytesSource: 'release_size',
+          expectedBytesMismatch: false,
+        })
         expect(events).toContainEqual({ type: 'completed', downloadedBytes: 2, expectedBytes: 2 })
       }
       finally {
@@ -197,7 +213,9 @@ describe('PeerConnector.downloadFile', () => {
   test('reports Content-Length mismatches against releaseSize', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
-        return new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+        return new Response(streamOf([1, 2, 3]), {
+          headers: { 'Content-Length': '3' },
+        })
       }),
     )
 
@@ -211,7 +229,12 @@ describe('PeerConnector.downloadFile', () => {
         onProgress: (event) => { events.push(event) },
       })
 
-      expect(events).toContainEqual({ type: 'headers', expectedBytes: 3, expectedBytesSource: 'content_length', expectedBytesMismatch: true })
+      expect(events).toContainEqual({
+        type: 'headers',
+        expectedBytes: 3,
+        expectedBytesSource: 'content_length',
+        expectedBytesMismatch: true,
+      })
     }
     finally {
       await rm(dir, { recursive: true, force: true })
@@ -221,7 +244,9 @@ describe('PeerConnector.downloadFile', () => {
   test('does not fail a completed file download when the completed progress callback throws', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
-        return new Response(streamOf([1, 2, 3, 4]), { headers: { 'Content-Length': '4' } })
+        return new Response(streamOf([1, 2, 3, 4]), {
+          headers: { 'Content-Length': '4' },
+        })
       }),
     )
 
@@ -249,7 +274,9 @@ describe('PeerConnector.downloadFile', () => {
   test('does not rename a completed part when cancelled during finalization', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
-        new Response(streamOf([1, 2, 3, 4]), { headers: { 'Content-Length': '4' } })),
+        new Response(streamOf([1, 2, 3, 4]), {
+          headers: { 'Content-Length': '4' },
+        })),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const controller = new AbortController()
@@ -278,7 +305,9 @@ describe('PeerConnector.downloadFile', () => {
   test('does not leave the response body locked when opening the .part file fails', async () => {
     let body: Response['body'] = null
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => {
-      const response = new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+      const response = new Response(streamOf([1, 2, 3]), {
+        headers: { 'Content-Length': '3' },
+      })
       body = response.body
       return response
     }) as unknown as typeof fetch)
@@ -304,7 +333,9 @@ describe('PeerConnector.downloadFile', () => {
       return
 
     const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => {
-      return new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })
+      return new Response(streamOf([1, 2, 3]), {
+        headers: { 'Content-Length': '3' },
+      })
     }) as unknown as typeof fetch)
     const getReaderSpy = spyOn(ReadableStream.prototype, 'getReader').mockImplementation(() => {
       throw new Error('reader failed')
@@ -339,7 +370,9 @@ describe('PeerConnector.downloadFile', () => {
           signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')))
         },
       })
-      return new Response(body, { headers: { 'Content-Length': '5' } })
+      return new Response(body, {
+        headers: { 'Content-Length': '5' },
+      })
     }) as typeof fetch)
 
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -371,7 +404,9 @@ describe('PeerConnector.downloadFile', () => {
             }
             controller.close()
           },
-        }), { headers: { 'Content-Length': '4' } })
+        }), {
+          headers: { 'Content-Length': '4' },
+        })
       }),
     )
 
@@ -400,7 +435,9 @@ describe('PeerConnector.downloadFile filesystem errors', () => {
           controller.enqueue(new Uint8Array([4, 5]))
           controller.close()
         },
-      }), { headers: { 'Content-Length': '5' } })),
+      }), {
+        headers: { 'Content-Length': '5' },
+      })),
     )
 
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -430,7 +467,9 @@ describe('PeerConnector.downloadFile filesystem errors', () => {
 
   test('fails with FileSystemError showing the nearest existing directory when the parent is missing', async () => {
     server.use(
-      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => new Response(streamOf([1, 2, 3]), { headers: { 'Content-Length': '3' } })),
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => new Response(streamOf([1, 2, 3]), {
+        headers: { 'Content-Length': '3' },
+      })),
     )
 
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -443,7 +482,11 @@ describe('PeerConnector.downloadFile filesystem errors', () => {
       const { message, details } = err as FileSystemError
       expect(message).toStartWith('Filesystem error ENOENT while creating the .part file.')
       expect(details.code).toBe('PART_DIR_MISSING')
-      expect(details.file_dir).toEqual({ path: join(dir, 'gone', 'deeper'), exists: false, stat_error: 'ENOENT' })
+      expect(details.file_dir).toEqual({
+        path: join(dir, 'gone', 'deeper'),
+        exists: false,
+        stat_error: 'ENOENT',
+      })
       expect(details.file_nearest_existing_dir).toMatchObject({ path: dir, exists: true, type: 'directory' })
     }
     finally {
@@ -505,7 +548,12 @@ describe('PeerConnector.downloadFile resume', () => {
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 3, 4]))
       expect(events.some(e => e.type === 'restart')).toBe(false)
       // On a 206 resume the size comes from Content-Range, not Content-Length.
-      expect(events).toContainEqual({ type: 'headers', expectedBytes: 5, expectedBytesSource: 'content_range', expectedBytesMismatch: false })
+      expect(events).toContainEqual({
+        type: 'headers',
+        expectedBytes: 5,
+        expectedBytesSource: 'content_range',
+        expectedBytesMismatch: false,
+      })
       expect(events).toContainEqual({ type: 'completed', downloadedBytes: 5, expectedBytes: 5 })
     }
     finally {
@@ -516,7 +564,9 @@ describe('PeerConnector.downloadFile resume', () => {
   test('restarts from byte 0 when the peer ignores Range and returns 200', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
-        new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })),
+        new Response(streamOf([0, 1, 2, 3, 4]), {
+          headers: { 'Content-Length': '5' },
+        })),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-resume-ignored-'))
@@ -544,9 +594,14 @@ describe('PeerConnector.downloadFile resume', () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
         if (request.headers.get('Range')) {
-          return new Response(streamOf([2, 3]), { status: 206, headers: { 'Content-Length': '2', 'Content-Range': 'bytes 2-3/4' } })
+          return new Response(streamOf([2, 3]), {
+            status: 206,
+            headers: { 'Content-Length': '2', 'Content-Range': 'bytes 2-3/4' },
+          })
         }
-        return new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })
+        return new Response(streamOf([0, 1, 2, 3, 4]), {
+          headers: { 'Content-Length': '5' },
+        })
       }),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -576,9 +631,15 @@ describe('PeerConnector.downloadFile resume', () => {
     // Range is actually sent — exercising the 416 restart path.
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
-        if (request.headers.get('Range'))
-          return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */5' } })
-        return new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })
+        if (request.headers.get('Range')) {
+          return new Response(null, {
+            status: 416,
+            headers: { 'Content-Range': 'bytes */5' },
+          })
+        }
+        return new Response(streamOf([0, 1, 2, 3, 4]), {
+          headers: { 'Content-Length': '5' },
+        })
       }),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -608,7 +669,9 @@ describe('PeerConnector.downloadFile resume', () => {
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
         if (request.headers.get('Range'))
           rangeSent = true
-        return new Response(streamOf([0, 1, 2, 3, 4]), { headers: { 'Content-Length': '5' } })
+        return new Response(streamOf([0, 1, 2, 3, 4]), {
+          headers: { 'Content-Length': '5' },
+        })
       }),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -639,7 +702,9 @@ describe('PeerConnector.downloadFile resume', () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => {
         fetched = true
-        return new Response(streamOf([0, 1, 2]), { headers: { 'Content-Length': '3' } })
+        return new Response(streamOf([0, 1, 2]), {
+          headers: { 'Content-Length': '3' },
+        })
       }),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
@@ -659,7 +724,12 @@ describe('PeerConnector.downloadFile resume', () => {
       expect(fetched).toBe(false) // no HTTP request at all
       expect(await Bun.file(partPath).exists()).toBe(false)
       expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([7, 8, 9]))
-      expect(events).toContainEqual({ type: 'headers', expectedBytes: 3, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
+      expect(events).toContainEqual({
+        type: 'headers',
+        expectedBytes: 3,
+        expectedBytesSource: 'release_size',
+        expectedBytesMismatch: false,
+      })
       expect(events).toContainEqual({ type: 'completed', downloadedBytes: 3, expectedBytes: 3 })
     }
     finally {
@@ -670,7 +740,11 @@ describe('PeerConnector.downloadFile resume', () => {
   test('rejects non-ok resume responses without appending the response body', async () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
-        new Response(streamOf([9, 9]), { status: 500, statusText: 'Server Error', headers: { 'Content-Length': '2' } })),
+        new Response(streamOf([9, 9]), {
+          status: 500,
+          statusText: 'Server Error',
+          headers: { 'Content-Length': '2' },
+        })),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-resume-non-ok-'))
@@ -693,7 +767,9 @@ describe('PeerConnector.downloadFile resume', () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
         // Declares 5 bytes but only delivers 3 → "Incomplete file download".
-        new Response(streamOf([0, 1, 2]), { headers: { 'Content-Length': '5' } })),
+        new Response(streamOf([0, 1, 2]), {
+          headers: { 'Content-Length': '5' },
+        })),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-resume-preserve-'))
@@ -715,7 +791,10 @@ describe('PeerConnector.downloadFile resume', () => {
     server.use(
       http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () =>
         // No .part exists, so no Range is sent — a 206 here is untrustworthy.
-        new Response(streamOf([2, 3, 4]), { status: 206, headers: { 'Content-Length': '3', 'Content-Range': 'bytes 2-4/5' } })),
+        new Response(streamOf([2, 3, 4]), {
+          status: 206,
+          headers: { 'Content-Length': '3', 'Content-Range': 'bytes 2-4/5' },
+        })),
     )
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
     const dir = await mkdtemp(join(tmpdir(), 'jack-resume-206-fresh-'))

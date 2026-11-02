@@ -76,7 +76,9 @@ async function confirmDelete() {
 
 function roleLabel(server: ServerItem): string {
   const roles = [server.source && 'source', server.destination && 'destination'].filter(Boolean)
-  return roles.length ? roles.join(' · ') : 'disabled'
+  return roles.length
+    ? roles.join(' · ')
+    : 'disabled'
 }
 
 function statusBadge(server: ServerItem): { color: BadgeProps['color'], label: string } {
@@ -96,7 +98,9 @@ function sortKey(server: ServerItem) {
     return 1
   return 2
 }
-const servers = computed(() => [...(settings.value?.servers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const servers = computed(() => [
+  ...(settings.value?.servers ?? []),
+].sort((a, b) => sortKey(a) - sortKey(b)))
 const connected = computed(() => servers.value.filter(s => s.initialized).length)
 const unreachable = computed(() => servers.value.filter(s => !s.initialized && s.initializationError).length)
 const sources = computed(() => servers.value.filter(s => s.source).length)

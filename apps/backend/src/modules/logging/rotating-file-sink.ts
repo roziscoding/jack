@@ -26,7 +26,9 @@ export class RotatingFileSink {
   constructor(private readonly options: RotatingFileSinkOptions) {
     mkdirSync(dirname(options.path), { recursive: true })
     this.fd = openSync(options.path, 'a')
-    this.bytes = existsSync(options.path) ? statSync(options.path).size : 0
+    this.bytes = existsSync(options.path)
+      ? statSync(options.path).size
+      : 0
   }
 
   /** pino calls this with the already-serialized (and redacted) NDJSON line. */
@@ -77,7 +79,9 @@ export class RotatingFileSink {
       // If rotation fails, reopen the active file so logging can continue.
       try {
         this.fd = openSync(path, 'a')
-        this.bytes = existsSync(path) ? statSync(path).size : 0
+        this.bytes = existsSync(path)
+          ? statSync(path).size
+          : 0
       }
       catch {
         // Nothing more we can safely do; drop further writes rather than throw.

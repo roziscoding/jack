@@ -22,8 +22,12 @@ export function parseRangeHeader(value: string | undefined | null): { start?: nu
   const [, rawStart, rawEnd] = match
   if (rawStart === '' && rawEnd === '')
     return null
-  const start = rawStart === '' ? undefined : Number(rawStart)
-  const end = rawEnd === '' ? undefined : Number(rawEnd)
+  const start = rawStart === ''
+    ? undefined
+    : Number(rawStart)
+  const end = rawEnd === ''
+    ? undefined
+    : Number(rawEnd)
   if ((start != null && !Number.isSafeInteger(start)) || (end != null && !Number.isSafeInteger(end)))
     return null
   return { start, end }
@@ -96,7 +100,12 @@ export class PeerController {
           })
         }
         catch (err) {
-          logger.error({ source: source.name, type: source.type, params, err }, 'Source search failed — skipping this source')
+          logger.error({
+            source: source.name,
+            type: source.type,
+            params,
+            err,
+          }, 'Source search failed — skipping this source')
           return []
         }
       }))
@@ -157,7 +166,12 @@ export class PeerController {
 
       const range = parseRangeHeader(rangeHeader)
       if (!range) {
-        return { type: 'full', body: file, size: totalSize, filename }
+        return {
+          type: 'full',
+          body: file,
+          size: totalSize,
+          filename,
+        }
       }
 
       let start: number
@@ -184,7 +198,15 @@ export class PeerController {
 
       setSpanAttributes(span, { 'range.satisfiable': true, 'range.start': start, 'range.end': end })
       // Bun.file().slice is half-open [start, end), so +1 to include `end`.
-      return { type: 'partial', body: file.slice(start, end + 1), size: end - start + 1, totalSize, start, end, filename }
+      return {
+        type: 'partial',
+        body: file.slice(start, end + 1),
+        size: end - start + 1,
+        totalSize,
+        start,
+        end,
+        filename,
+      }
     })
   }
 }

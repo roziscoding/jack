@@ -20,7 +20,10 @@ const queuedCount = computed(() => props.overview.downloads.byStatus.import_queu
 // backend total (`mismatched`); the rows are example detail from the capped lists.
 const mismatchCount = computed(() => props.overview.downloads.mismatched)
 const mismatches = computed(() =>
-  [...props.overview.downloads.active, ...props.overview.downloads.importQueued]
+  [
+    ...props.overview.downloads.active,
+    ...props.overview.downloads.importQueued,
+  ]
     .filter(d => d.expectedBytesMismatch))
 
 // Each unreachable connector is its own fixable thing; download problems collapse
@@ -42,7 +45,9 @@ watch(open, (v) => {
 })
 
 function plural(n: number, word: string) {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
+  return `${n} ${word}${n === 1
+    ? ''
+    : 's'}`
 }
 </script>
 

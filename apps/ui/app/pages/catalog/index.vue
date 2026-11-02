@@ -20,7 +20,9 @@ providePeerColors(computed(() => settings.value?.peerColors ?? new Map()))
 const typeFilter = ref<'all' | 'movie' | 'tv'>('all')
 const titles = computed(() => {
   const all = data.value?.titles ?? []
-  return typeFilter.value === 'all' ? all : all.filter(t => t.mediaType === typeFilter.value)
+  return typeFilter.value === 'all'
+    ? all
+    : all.filter(t => t.mediaType === typeFilter.value)
 })
 
 function titleName(title: CatalogTitle): string {

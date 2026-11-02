@@ -13,7 +13,9 @@ function buildApp() {
     servers: [],
     peers: [],
   })
-  return getApp(envs, config, { servers: [], peers: [] }, { ...makeAuthRepos() })
+  return getApp(envs, config, { servers: [], peers: [] }, {
+    ...makeAuthRepos(),
+  })
 }
 
 describe('GET /handshake', () => {

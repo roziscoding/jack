@@ -92,7 +92,9 @@ function toRecord(row: DownloadRow): DownloadRecord {
     qbSourceServer: row.qbSourceServer ?? null,
     sourceServerId: row.sourceServerId ?? null,
     importMode: row.importMode ?? null,
-    importTarget: row.importTarget ? (JSON.parse(row.importTarget) as ManualImportTarget) : null,
+    importTarget: row.importTarget
+      ? (JSON.parse(row.importTarget) as ManualImportTarget)
+      : null,
     manualImportCommandId: row.manualImportCommandId ?? null,
   }
 }
@@ -134,7 +136,9 @@ export class DownloadsRepository {
       qbSourceServer: input.qbSourceServer ?? null,
       sourceServerId: input.sourceServerId ?? null,
       importMode: input.importMode ?? null,
-      importTarget: input.importTarget ? JSON.stringify(input.importTarget) : null,
+      importTarget: input.importTarget
+        ? JSON.stringify(input.importTarget)
+        : null,
       manualImportCommandId: input.manualImportCommandId ?? null,
       downloadedBytes: 0,
       status: 'downloading',
@@ -151,7 +155,9 @@ export class DownloadsRepository {
 
   get(id: number): DownloadRecord | null {
     const row = this.db.select().from(downloads).where(eq(downloads.id, id)).get()
-    return row ? toRecord(row) : null
+    return row
+      ? toRecord(row)
+      : null
   }
 
   list(): DownloadRecord[] {
@@ -162,7 +168,12 @@ export class DownloadsRepository {
 
   setExpectedBytes(id: number, expectedBytes: number | null, source: ExpectedBytesSource | null, mismatch = false): void {
     this.db.update(downloads)
-      .set({ expectedBytes, expectedBytesSource: source, expectedBytesMismatch: mismatch, updatedAt: nowIso() })
+      .set({
+        expectedBytes,
+        expectedBytesSource: source,
+        expectedBytesMismatch: mismatch,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -170,7 +181,10 @@ export class DownloadsRepository {
 
   updateProgress(id: number, downloadedBytes: number): void {
     this.db.update(downloads)
-      .set({ downloadedBytes, updatedAt: nowIso() })
+      .set({
+        downloadedBytes,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -184,7 +198,9 @@ export class DownloadsRepository {
     this.db.update(downloads)
       .set({
         status: 'import_queued',
-        ...(downloadedBytes === undefined ? {} : { downloadedBytes }),
+        ...(downloadedBytes === undefined
+          ? {}
+          : { downloadedBytes }),
         completedAt: timestamp,
         updatedAt: timestamp,
         error: null,
@@ -202,7 +218,15 @@ export class DownloadsRepository {
   // is kept (not deleted) so the downloads list doubles as a history.
   markImported(id: number): void {
     this.db.update(downloads)
-      .set({ status: 'imported', lastOperation: 'import', operationFailed: false, error: null, errorCode: null, errorDetails: null, updatedAt: nowIso() })
+      .set({
+        status: 'imported',
+        lastOperation: 'import',
+        operationFailed: false,
+        error: null,
+        errorCode: null,
+        errorDetails: null,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -210,7 +234,10 @@ export class DownloadsRepository {
 
   setManualImportCommand(id: number, commandId: number): void {
     this.db.update(downloads)
-      .set({ manualImportCommandId: commandId, updatedAt: nowIso() })
+      .set({
+        manualImportCommandId: commandId,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -235,7 +262,15 @@ export class DownloadsRepository {
 
   markFailed(id: number, errorCode: DownloadErrorCode, error: string, operation: DownloadOperation = 'transfer', errorDetails: FileSystemErrorDetails | null = null): void {
     this.db.update(downloads)
-      .set({ status: 'failed', error, errorCode, errorDetails, lastOperation: operation, operationFailed: true, updatedAt: nowIso() })
+      .set({
+        status: 'failed',
+        error,
+        errorCode,
+        errorDetails,
+        lastOperation: operation,
+        operationFailed: true,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -243,7 +278,10 @@ export class DownloadsRepository {
 
   incrementAttempts(id: number): number {
     const row = this.db.update(downloads)
-      .set({ attempts: sql`${downloads.attempts} + 1`, updatedAt: nowIso() })
+      .set({
+        attempts: sql`${downloads.attempts} + 1`,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .returning()
       .get()
@@ -253,7 +291,15 @@ export class DownloadsRepository {
 
   markTransferStarted(id: number): void {
     this.db.update(downloads)
-      .set({ status: 'downloading', lastOperation: 'transfer', operationFailed: false, error: null, errorCode: null, errorDetails: null, updatedAt: nowIso() })
+      .set({
+        status: 'downloading',
+        lastOperation: 'transfer',
+        operationFailed: false,
+        error: null,
+        errorCode: null,
+        errorDetails: null,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -261,7 +307,11 @@ export class DownloadsRepository {
 
   markResumeReset(id: number): void {
     this.db.update(downloads)
-      .set({ downloadedBytes: 0, error: 'resume validation failed; restarted from byte 0', updatedAt: nowIso() })
+      .set({
+        downloadedBytes: 0,
+        error: 'resume validation failed; restarted from byte 0',
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -269,7 +319,10 @@ export class DownloadsRepository {
 
   setQbCategory(id: number, qbCategory: string): void {
     this.db.update(downloads)
-      .set({ qbCategory, updatedAt: nowIso() })
+      .set({
+        qbCategory,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.id, id))
       .run()
     this.notifyChanged()
@@ -283,7 +336,10 @@ export class DownloadsRepository {
   /** Manual ON UPDATE CASCADE: move every download row from one peer id to another. */
   reassignPeerId(oldPeerId: string, newPeerId: string): void {
     this.db.update(downloads)
-      .set({ peerId: newPeerId, updatedAt: nowIso() })
+      .set({
+        peerId: newPeerId,
+        updatedAt: nowIso(),
+      })
       .where(eq(downloads.peerId, oldPeerId))
       .run()
     this.notifyChanged()

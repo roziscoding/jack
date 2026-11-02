@@ -16,7 +16,9 @@ const mockMovie = {
     id: 11,
     path: '/media/The.Matrix.1999.mkv',
     size: 2_000_000_000,
-    quality: { quality: { name: 'Bluray-1080p' } },
+    quality: {
+      quality: { name: 'Bluray-1080p' },
+    },
   },
 }
 
@@ -133,7 +135,10 @@ describe('search resilience + lazy retry', () => {
       http.get('http://broken.test/api/v3/system/status', () => HttpResponse.json({ appName: 'Radarr', version: '5.0' })),
       http.get('http://broken.test/api/v3/movie', () => new HttpResponse('boom', { status: 500 })),
     )
-    const controller = new PeerController(() => [makeRadarr('http://good.test'), makeRadarr('http://broken.test')])
+    const controller = new PeerController(() => [
+      makeRadarr('http://good.test'),
+      makeRadarr('http://broken.test'),
+    ])
 
     const results = await controller.search({})
 

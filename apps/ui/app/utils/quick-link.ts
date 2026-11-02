@@ -16,7 +16,9 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 
 export function suggestQuickLinkKeyName(instanceName: string): string {
   const name = instanceName.trim()
-  return name ? `Quick link for ${name}`.slice(0, 100) : ''
+  return name
+    ? `Quick link for ${name}`.slice(0, 100)
+    : ''
 }
 
 function fail(message = 'Invalid Jack quick link'): never {
@@ -110,6 +112,8 @@ export function decodeQuickLink(input: string): PeerInput {
     name: payload.name.trim(),
     url: payload.url,
     apiKey: payload.apiKey,
-    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(Object.keys(headers).length
+      ? { headers }
+      : {}),
   }
 }

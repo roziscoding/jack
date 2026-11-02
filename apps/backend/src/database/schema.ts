@@ -4,7 +4,12 @@ import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-cor
 
 // Lifecycle: downloading → import_queued (file in completedPath, handed to *arr)
 // → imported (*arr finished importing; terminal). `failed` is terminal too.
-export const DOWNLOAD_STATUSES = ['downloading', 'import_queued', 'imported', 'failed'] as const
+export const DOWNLOAD_STATUSES = [
+  'downloading',
+  'import_queued',
+  'imported',
+  'failed',
+] as const
 export type DownloadStatus = typeof DOWNLOAD_STATUSES[number]
 export type ExpectedBytesSource = 'content_length' | 'content_range' | 'release_size'
 export type DownloadOperation = 'transfer' | 'import'

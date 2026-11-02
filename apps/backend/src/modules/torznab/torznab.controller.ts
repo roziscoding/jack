@@ -22,7 +22,9 @@ export interface TorznabItem {
 }
 
 function buildDownloadUrl(internalUrl: string, guid: string, apiKey: string): string {
-  const trimmedInternalUrl = internalUrl.endsWith('/') ? internalUrl.slice(0, -1) : internalUrl
+  const trimmedInternalUrl = internalUrl.endsWith('/')
+    ? internalUrl.slice(0, -1)
+    : internalUrl
   const url = new URL(`${trimmedInternalUrl}/torznab/download/${encodeURIComponent(guid)}.torrent`)
   url.searchParams.set('apikey', apiKey)
   return url.toString()

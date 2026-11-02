@@ -53,7 +53,9 @@ export function parseTorrentStub(data: Buffer): { peerId: string, itemId: string
     const raw = torrent.comment
     if (!raw)
       return null
-    const comment = raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw)
+    const comment = raw instanceof Uint8Array
+      ? new TextDecoder().decode(raw)
+      : String(raw)
     if (!comment.startsWith('jack:'))
       return null
 

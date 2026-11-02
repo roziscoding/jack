@@ -22,8 +22,15 @@ function catalogDoc(summary: string, description?: string) {
     tags: ['Catalog'],
     summary,
     description,
-    security: [{ 'X-Management-Key': [] }],
-    responses: { 200: { description: 'Success', content: { 'application/json': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Success',
+        content: { 'application/json': {} },
+      },
+    },
   })
 }
 

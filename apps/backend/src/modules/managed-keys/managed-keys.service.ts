@@ -12,7 +12,10 @@ export class ManagedApiKeys {
   /** Mint a fresh managed key for a destination; persist its hash; return plaintext + row id. */
   provision(serverId: string): { id: number, key: string } {
     const key = generateManagedKey()
-    const row = this.repository.create({ keyHash: hashKey(key), serverId })
+    const row = this.repository.create({
+      keyHash: hashKey(key),
+      serverId,
+    })
     return { id: row.id, key }
   }
 

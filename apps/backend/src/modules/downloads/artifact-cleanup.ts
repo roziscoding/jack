@@ -19,7 +19,10 @@ type ArtifactRecord = ReturnType<DownloadsRepository['list']>[number]
 function siblingNeedsFile(row: ArtifactRecord, resolvedPath: string): boolean {
   if (row.status === 'imported')
     return false
-  return [resolve(row.destPath), resolve(row.partPath)].includes(resolvedPath)
+  return [
+    resolve(row.destPath),
+    resolve(row.partPath),
+  ].includes(resolvedPath)
 }
 
 /**
@@ -50,7 +53,10 @@ export async function unlinkDownloadArtifact(
     return false
 
   const live = repository.get(id)
-  const stillOwned = live != null && [resolve(live.partPath), resolve(live.destPath)].includes(resolved)
+  const stillOwned = live != null && [
+    resolve(live.partPath),
+    resolve(live.destPath),
+  ].includes(resolved)
   if (!stillOwned)
     return false
 

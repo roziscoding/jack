@@ -71,7 +71,9 @@ export class LogHub {
     // i = 0 is the active file; i > 0 are the successively older rotated files.
     // Each rotated file is entirely older than the previous, so prepend its records.
     for (let i = 0; i < 1000 && collected.length < lines; i++) {
-      const path = i === 0 ? this.filePath : `${this.filePath}.${i}`
+      const path = i === 0
+        ? this.filePath
+        : `${this.filePath}.${i}`
       const file = Bun.file(path)
       if (!(await file.exists()))
         break

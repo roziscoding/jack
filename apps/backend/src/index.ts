@@ -24,7 +24,9 @@ function logRegistrationFailure(what: string, destName: string | undefined, err:
     logger.error({ destination: destName, status: err.extras.status, body: err.extras.body }, `Failed to register ${what}`)
     return
   }
-  const message = err instanceof Error ? err.message : String(err)
+  const message = err instanceof Error
+    ? err.message
+    : String(err)
   logger.error({ destination: destName, error: message }, `Failed to register ${what}`)
 }
 
@@ -45,14 +47,24 @@ const managedKeysRepository = new ManagedKeysRepository(database.db)
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
 const configService = envs.MANAGEMENT_KEY
-  ? new ConfigService({ path: envs.APP_CONFIG_PATH, raw: rawConfig, connectorManager, downloadsRepository })
+  ? new ConfigService({
+      path: envs.APP_CONFIG_PATH,
+      raw: rawConfig,
+      connectorManager,
+      downloadsRepository,
+    })
   : undefined
 
 const downloadsService = config.downloads
   ? new DownloadsService(config.downloads, connectorManager, downloadsRepository)
   : undefined
 
-const app = getApp(envs, config, connectorManager, { downloadsRepository, downloadsService, apiKeysRepository, managedKeysRepository })
+const app = getApp(envs, config, connectorManager, {
+  downloadsRepository,
+  downloadsService,
+  apiKeysRepository,
+  managedKeysRepository,
+})
 const server = Bun.serve({
   fetch: app.fetch,
 })

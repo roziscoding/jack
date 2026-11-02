@@ -5,15 +5,24 @@ import { z } from 'zod'
 import { RawDownloadsConfig, RawExternalJackConfig, RawJackConfig, RawPeerConfig, RawServerConfig } from '../../lib/config'
 import { streamSnapshots } from '../../lib/sse'
 
-const idParam = z.object({ id: z.string().min(1) })
+const idParam = z.object({
+  id: z.string().min(1),
+})
 
 function configDoc(summary: string, description?: string, status = 200) {
   return describeRoute({
     tags: ['Config'],
     summary,
     description,
-    security: [{ 'X-Management-Key': [] }],
-    responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      [status]: {
+        description: 'Success',
+        content: { 'application/json': {} },
+      },
+    },
   })
 }
 
@@ -29,8 +38,15 @@ export function getConfigRouter(controller: ConfigController) {
     tags: ['Config'],
     summary: 'Stream connector config',
     description: 'Server-Sent Events stream with an initial connector snapshot and immediate updates when connector state changes.',
-    security: [{ 'X-Management-Key': [] }],
-    responses: { 200: { description: 'Live connector snapshots', content: { 'text/event-stream': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Live connector snapshots',
+        content: { 'text/event-stream': {} },
+      },
+    },
   }), c => streamSnapshots(c, () => controller.listConfig(), subscriber => controller.subscribe(subscriber)))
 
   // Mutation routes only exist when a ConfigService is wired in. Without one, these

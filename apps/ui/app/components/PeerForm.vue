@@ -15,7 +15,9 @@ const state = reactive({
   name: props.initial?.name ?? '',
   url: props.initial?.url ?? '',
   apiKey: (props.initial?.apiKey ?? null) as SecretRef | null,
-  headers: { ...(props.initial?.headers ?? {}) } as Record<string, SecretRef>,
+  headers: {
+    ...(props.initial?.headers ?? {}),
+  } as Record<string, SecretRef>,
 })
 
 function validate(s: typeof state): FormError[] {
@@ -37,7 +39,11 @@ function onForceModifier(e: MouseEvent) {
 }
 
 function onSubmit() {
-  const input: PeerInput = { name: state.name.trim(), url: state.url.trim(), apiKey: state.apiKey! }
+  const input: PeerInput = {
+    name: state.name.trim(),
+    url: state.url.trim(),
+    apiKey: state.apiKey!,
+  }
   if (Object.keys(state.headers).length)
     input.headers = state.headers
   emit('submit', input, forceNext.value)

@@ -11,7 +11,9 @@ export function useFallbackImage(sources: () => Array<string | null | undefined>
   const index = ref(0)
   const exhausted = ref(false)
 
-  const src = computed(() => (exhausted.value ? null : candidates.value[index.value] ?? null))
+  const src = computed(() => (exhausted.value
+    ? null
+    : candidates.value[index.value] ?? null))
 
   function onError(): void {
     if (index.value < candidates.value.length - 1)

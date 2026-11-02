@@ -29,7 +29,10 @@ export default antfu(
     rules: {
       'markdown/no-space-in-emphasis': 'off',
       'markdown/no-missing-link-fragments': 'off',
-      'markdown-links/no-missing-fragments': ['error', { slugify: 'mdit-vue' }],
+      'markdown-links/no-missing-fragments': [
+        'error',
+        { slugify: 'mdit-vue' },
+      ],
     },
   },
   {

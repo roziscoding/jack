@@ -20,11 +20,19 @@ export function getPeerRouter(controller: PeerController) {
       tags: ['Peer'],
       summary: 'Search this library',
       description: 'Search the local Radarr/Sonarr libraries by external id. Only movies/episodes that have files are returned. Serves empty results when no local source is configured.',
-      security: [{ 'X-Api-Key': [] }],
+      security: [
+        { 'X-Api-Key': [] },
+      ],
       responses: {
         200: {
           description: 'Matching releases, mirroring the *arr file metadata',
-          content: { 'application/json': { schema: resolver(z.object({ items: z.array(z.record(z.string(), z.unknown())) })) } },
+          content: {
+            'application/json': {
+              schema: resolver(z.object({
+                items: z.array(z.record(z.string(), z.unknown())),
+              })),
+            },
+          },
         },
       },
     }),
@@ -45,7 +53,9 @@ export function getPeerRouter(controller: PeerController) {
   app.get('/items/:itemId', describeRoute({
     tags: ['Peer'],
     summary: 'Get release metadata',
-    security: [{ 'X-Api-Key': [] }],
+    security: [
+      { 'X-Api-Key': [] },
+    ],
     responses: {
       200: { description: 'Release metadata for the item' },
       404: { description: 'No item with this id' },
@@ -63,10 +73,18 @@ export function getPeerRouter(controller: PeerController) {
     tags: ['Peer'],
     summary: 'Stream the release file',
     description: 'Streams the file straight from disk at the path the local *arr reports. Supports HTTP Range requests for resumable transfers.',
-    security: [{ 'X-Api-Key': [] }],
+    security: [
+      { 'X-Api-Key': [] },
+    ],
     responses: {
-      200: { description: 'Full file stream', content: { 'application/octet-stream': {} } },
-      206: { description: 'Partial content for a satisfiable Range request', content: { 'application/octet-stream': {} } },
+      200: {
+        description: 'Full file stream',
+        content: { 'application/octet-stream': {} },
+      },
+      206: {
+        description: 'Partial content for a satisfiable Range request',
+        content: { 'application/octet-stream': {} },
+      },
       404: { description: 'No item with this id, or its file is missing on disk' },
       416: { description: 'Unsatisfiable Range request' },
     },

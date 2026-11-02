@@ -32,7 +32,9 @@ const count = computed(() => props.row._count)
 // the spread across the folded group.
 const lastMs = computed(() => {
   const d = props.row._durations
-  return d.length ? d.at(-1)! : undefined
+  return d.length
+    ? d.at(-1)!
+    : undefined
 })
 const latStats = computed(() => {
   const d = props.row._durations.filter(n => Number.isFinite(n))
@@ -53,10 +55,20 @@ function toggleRaw() {
 async function copyRaw() {
   try {
     await navigator.clipboard.writeText(rawJson(props.row))
-    toast.add({ title: 'Copied', description: 'Log record copied to clipboard.', color: 'success', icon: 'i-ph-check-circle' })
+    toast.add({
+      title: 'Copied',
+      description: 'Log record copied to clipboard.',
+      color: 'success',
+      icon: 'i-ph-check-circle',
+    })
   }
   catch {
-    toast.add({ title: 'Copy failed', description: 'Clipboard is unavailable in this context.', color: 'error', icon: 'i-ph-warning' })
+    toast.add({
+      title: 'Copy failed',
+      description: 'Clipboard is unavailable in this context.',
+      color: 'error',
+      icon: 'i-ph-warning',
+    })
   }
 }
 </script>

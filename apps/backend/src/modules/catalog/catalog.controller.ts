@@ -57,7 +57,10 @@ export class CatalogController {
     const results = await Promise.all(peers.map(async (peer): Promise<PeerReleases | null> => {
       try {
         const releases = await peer.listReleases()
-        return { peer: { id: peer.id, name: peer.name }, releases }
+        return {
+          peer: { id: peer.id, name: peer.name },
+          releases,
+        }
       }
       catch {
         return null
@@ -87,7 +90,9 @@ export class CatalogController {
           id: s.id,
           name: s.name,
           type,
-          mediaType: type === 'sonarr' ? 'tv' : 'movie',
+          mediaType: type === 'sonarr'
+            ? 'tv'
+            : 'movie',
           rootFolders,
         } satisfies RequestServerOption
       }
@@ -109,7 +114,9 @@ export class CatalogController {
     if (!server.canDestination)
       throw new BadRequestError(`Server "${server.name}" is not a destination`)
     // Defense in depth (the UI already filters): a movie must go to Radarr, tv to Sonarr.
-    const expectedType = input.mediaType === 'tv' ? 'sonarr' : 'radarr'
+    const expectedType = input.mediaType === 'tv'
+      ? 'sonarr'
+      : 'radarr'
     if (server.type !== expectedType)
       throw new BadRequestError(`Server "${server.name}" cannot handle ${input.mediaType} requests`)
 
@@ -176,7 +183,13 @@ export class CatalogController {
       return { configured: true, ok: await this.tmdb.ping() }
     }
     catch (err) {
-      return { configured: true, ok: false, error: err instanceof Error ? err.message : String(err) }
+      return {
+        configured: true,
+        ok: false,
+        error: err instanceof Error
+          ? err.message
+          : String(err),
+      }
     }
   }
 }

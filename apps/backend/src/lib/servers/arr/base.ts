@@ -34,7 +34,9 @@ export const DestinationServerHealthIssue = z.array(
 
 // *arr returns the saved download client on create; we only need its id to bind
 // the auto-registered indexer to it.
-const DownloadClientResource = z.object({ id: z.number().int() })
+const DownloadClientResource = z.object({
+  id: z.number().int(),
+})
 const CommandResource = z.object({
   id: z.number().int().optional(),
   status: z.string().nullable().optional(),
@@ -90,7 +92,9 @@ export function basename(path: string): string {
 
 export function stripExtension(name: string): string {
   const dot = name.lastIndexOf('.')
-  return dot > 0 ? name.slice(0, dot) : name
+  return dot > 0
+    ? name.slice(0, dot)
+    : name
 }
 
 /**
@@ -129,7 +133,10 @@ export abstract class ArrServerConnector extends ServerConnector {
   protected abstract get internalIndexerFlagValue(): number
 
   protected override async runInit(): Promise<void> {
-    const apiInfo = await this.ping(z.object({ appName: z.string(), version: z.string() }))
+    const apiInfo = await this.ping(z.object({
+      appName: z.string(),
+      version: z.string(),
+    }))
     if (apiInfo.appName !== this.expectedAppName) {
       throw new Error(`Invalid appName "${apiInfo.appName}" found for server type ${this.type}. Expected ${this.expectedAppName}`)
     }
@@ -220,14 +227,18 @@ export abstract class ArrServerConnector extends ServerConnector {
   @requiresDestination
   @requiresInitialization
   async getHealthIssues() {
-    return this.fetch('/api/v3/health', { schema: z.array(DestinationServerHealthIssue) })
+    return this.fetch('/api/v3/health', {
+      schema: z.array(DestinationServerHealthIssue),
+    })
   }
 
   @requiresDestination
   @requiresInitialization
   async getRootFolders(): Promise<Array<{ path: string, freeSpace?: number }>> {
     const folders = await this.arrGet<Array<{ path: string, freeSpace?: number }>>('/api/v3/rootfolder')
-    return (Array.isArray(folders) ? folders : [])
+    return (Array.isArray(folders)
+      ? folders
+      : [])
       .filter(f => typeof f.path === 'string')
       .map(f => ({ path: f.path, freeSpace: f.freeSpace }))
   }
@@ -281,7 +292,9 @@ export abstract class ArrServerConnector extends ServerConnector {
   /** First quality profile id — required to add a title (manual import detects real quality from the file). */
   protected async resolveQualityProfileId(): Promise<number> {
     const profiles = await this.arrGet<Array<{ id: number }>>('/api/v3/qualityprofile')
-    const first = Array.isArray(profiles) ? profiles[0] : undefined
+    const first = Array.isArray(profiles)
+      ? profiles[0]
+      : undefined
     if (!first)
       throw new BadRequestError(`No quality profile found on ${this.name}; cannot add a title`)
     return first.id
@@ -299,7 +312,12 @@ export abstract class ArrServerConnector extends ServerConnector {
   async recentlyImportedDownloadIds(limit = 200): Promise<Set<string>> {
     const res = await this.arrGet<{ records?: Array<{ downloadId?: string | null, eventType?: string | null }> }>(
       '/api/v3/history',
-      { page: '1', pageSize: String(limit), sortKey: 'date', sortDirection: 'descending' },
+      {
+        page: '1',
+        pageSize: String(limit),
+        sortKey: 'date',
+        sortDirection: 'descending',
+      },
     )
     const ids = new Set<string>()
     for (const record of res?.records ?? []) {
@@ -329,7 +347,9 @@ export abstract class ArrServerConnector extends ServerConnector {
       priority: indexerConfig.priority,
       // Bind grabs from this indexer to jack's own blackhole client (0 = "Any").
       // Without this, *arr may hand a Jack grab to an unrelated download client.
-      ...(indexerConfig.downloadClientId ? { downloadClientId: indexerConfig.downloadClientId } : {}),
+      ...(indexerConfig.downloadClientId
+        ? { downloadClientId: indexerConfig.downloadClientId }
+        : {}),
       fields: [
         { name: 'baseUrl', value: indexerConfig.internalUrl },
         { name: 'apiPath', value: '/api' },
@@ -366,7 +386,11 @@ export abstract class ArrServerConnector extends ServerConnector {
   public async registerDownloadClient(clientConfig: { name: string, internalUrl: string, username: string, password: string, category: string }): Promise<number> {
     const url = new URL(clientConfig.internalUrl)
     const host = url.hostname
-    const port = url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80)
+    const port = url.port
+      ? Number(url.port)
+      : (url.protocol === 'https:'
+          ? 443
+          : 80)
     const useSsl = url.protocol === 'https:'
     // urlBase is the path prefix BEFORE /api/v2 (qB's proxy appends /api/v2).
     const urlBase = url.pathname.replace(TRAILING_SLASH_REGEX, '')

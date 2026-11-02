@@ -13,7 +13,13 @@ import { DownloadsRepository as Repo } from '../modules/downloads/downloads.repo
 import { ImportWatcher } from '../modules/downloads/import-watcher'
 import { deriveHash } from '../modules/qbittorrent/qbittorrent.mapper'
 
-const release = { id: 'r', title: 'Movie.2024.1080p', filename: 'Movie.2024.1080p.mkv', category: 2000, size: 100 } as any
+const release = {
+  id: 'r',
+  title: 'Movie.2024.1080p',
+  filename: 'Movie.2024.1080p.mkv',
+  category: 2000,
+  size: 100,
+} as any
 const HASH = deriveHash(release.title, release.size)
 
 function makeRepo(): DownloadsRepository {
@@ -55,7 +61,13 @@ describe('ImportWatcher', () => {
     const repo = makeRepo()
     const row = queuedRow(repo, 'My Radarr')
     // *arr reports the infohash uppercased — the watcher must still match it.
-    const watcher = new ImportWatcher(repo, { servers: [fakeServer('My Radarr', [HASH.toUpperCase()])] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        fakeServer('My Radarr', [
+          HASH.toUpperCase(),
+        ]),
+      ],
+    }, 1000)
 
     expect(await watcher.tick()).toBe(1)
     expect(repo.get(row.id)?.status).toBe('imported')
@@ -64,7 +76,11 @@ describe('ImportWatcher', () => {
   test('leaves the row at import_queued until *arr imports it', async () => {
     const repo = makeRepo()
     const row = queuedRow(repo, 'My Radarr')
-    const watcher = new ImportWatcher(repo, { servers: [fakeServer('My Radarr', [])] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        fakeServer('My Radarr', []),
+      ],
+    }, 1000)
 
     expect(await watcher.tick()).toBe(0)
     expect(repo.get(row.id)?.status).toBe('import_queued')
@@ -75,7 +91,9 @@ describe('ImportWatcher', () => {
     const blackhole = queuedRow(repo, null)
     const down = queuedRow(repo, 'Down Radarr')
     const watcher = new ImportWatcher(repo, {
-      servers: [fakeServer('Down Radarr', [HASH], { initialized: false })],
+      servers: [
+        fakeServer('Down Radarr', [HASH], { initialized: false }),
+      ],
     }, 1000)
 
     expect(await watcher.tick()).toBe(0)
@@ -91,7 +109,9 @@ describe('ImportWatcher', () => {
       isInitialized: true,
       recentlyImportedDownloadIds: async () => { throw new Error('upstream down') },
     } as any
-    const watcher = new ImportWatcher(repo, { servers: [server] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [server],
+    }, 1000)
 
     expect(await watcher.tick()).toBe(0)
     expect(repo.get(row.id)?.status).toBe('import_queued')
@@ -141,7 +161,11 @@ describe('ImportWatcher jack_manual trigger', () => {
       await finish.promise
       return 106
     })
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000)
 
     const first = watcher.tick()
     await started.promise
@@ -164,7 +188,11 @@ describe('ImportWatcher jack_manual trigger', () => {
       await finish.promise
       return 107
     })
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000)
 
     const retrying = watcher.retry(row.id)
     await started.promise
@@ -182,7 +210,11 @@ describe('ImportWatcher jack_manual trigger', () => {
     repo.updateProgress(row.id, release.size)
     repo.markFailed(row.id, 'IMPORT_REJECTED', 'manual import rejected', 'import')
     const manualImport = mock(async () => 105)
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000)
 
     await watcher.retry(row.id)
 
@@ -200,7 +232,11 @@ describe('ImportWatcher jack_manual trigger', () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
     const manualImport = mock(async () => 101)
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000)
 
     await watcher.tick()
     await watcher.tick()
@@ -220,7 +256,11 @@ describe('ImportWatcher jack_manual trigger', () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
     const manualImport = mock(async () => 102)
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [HASH], manualImport)] }, 1000)
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [HASH], manualImport),
+      ],
+    }, 1000)
 
     expect(await watcher.tick()).toBe(1)
     expect(repo.get(row.id)?.status).toBe('imported')
@@ -231,11 +271,19 @@ describe('ImportWatcher jack_manual trigger', () => {
     const repo = makeRepo()
     manualRow(repo, 'My Radarr')
     const manualImport = mock(async () => 103)
-    const first = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    const first = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000)
     await first.tick()
     expect(manualImport).toHaveBeenCalledTimes(1)
 
-    const second = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000)
+    const second = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000)
     await second.tick()
     expect(manualImport).toHaveBeenCalledTimes(1)
   })
@@ -251,7 +299,11 @@ describe('ImportWatcher jack_manual trigger', () => {
       return 104
     })
     // backoffBaseMs: 0 → retry immediately on the next tick.
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000, {
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000, {
       maxAttempts: 6,
       backoffBaseMs: 0,
       backoffMaxMs: 0,
@@ -267,7 +319,11 @@ describe('ImportWatcher jack_manual trigger', () => {
     const row = manualRow(repo, 'My Radarr')
     const manualImport = mock(() => Promise.reject(new Error('arr 500')))
     // A long back-off window means the second, immediate tick must skip the trigger.
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000, {
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000, {
       maxAttempts: 6,
       backoffBaseMs: 60_000,
       backoffMaxMs: 60_000,
@@ -284,7 +340,11 @@ describe('ImportWatcher jack_manual trigger', () => {
     const repo = makeRepo()
     const row = manualRow(repo, 'My Radarr')
     const manualImport = mock(() => Promise.reject(new Error('arr 500')))
-    const watcher = new ImportWatcher(repo, { servers: [manualServer('My Radarr', [], manualImport)] }, 1000, {
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        manualServer('My Radarr', [], manualImport),
+      ],
+    }, 1000, {
       maxAttempts: 3,
       backoffBaseMs: 0,
       backoffMaxMs: 0,
@@ -449,7 +509,10 @@ describe('ImportWatcher imported-file cleanup', () => {
       qbSourceServer: 'My Radarr',
       sourceServerId: 'radarr-1',
       ...(opts.mode === 'jack_manual'
-        ? { importMode: 'jack_manual' as const, importTarget: { kind: 'movie' as const, movieId: 42 } }
+        ? {
+            importMode: 'jack_manual' as const,
+            importTarget: { kind: 'movie' as const, movieId: 42 },
+          }
         : {}),
     })
     repo.markImportQueued(row.id)
@@ -466,7 +529,12 @@ describe('ImportWatcher imported-file cleanup', () => {
   test('unlinks the file once *arr history confirms the import', async () => {
     const repo = makeRepo()
     const row = await queuedRowWithFile(repo)
-    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+    const watcher = cleanupWatcher(repo, [
+      {
+        ...fakeServer('My Radarr', [HASH]),
+        id: 'radarr-1',
+      },
+    ], () => true)
 
     expect(await watcher.tick()).toBe(1)
     expect(repo.get(row.id)?.status).toBe('imported')
@@ -504,9 +572,13 @@ describe('ImportWatcher imported-file cleanup', () => {
       name: 'My Radarr',
       isInitialized: true,
       recentlyImportedDownloadIds: async () => new Set(),
-      manualImport: async params => (params.paths[0] === failing.destPath ? 46 : 45),
+      manualImport: async params => (params.paths[0] === failing.destPath
+        ? 46
+        : 45),
       manualImportCommandStatus: async commandId =>
-        (commandId === 46 ? { state: 'failed', error: 'arr rejected it' } : { state: 'pending' }),
+        (commandId === 46
+          ? { state: 'failed', error: 'arr rejected it' }
+          : { state: 'pending' }),
     }
     const watcher = cleanupWatcher(repo, [server], () => true)
 
@@ -522,7 +594,12 @@ describe('ImportWatcher imported-file cleanup', () => {
   test('keeps the file when the option is off', async () => {
     const repo = makeRepo()
     const row = await queuedRowWithFile(repo)
-    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => false)
+    const watcher = cleanupWatcher(repo, [
+      {
+        ...fakeServer('My Radarr', [HASH]),
+        id: 'radarr-1',
+      },
+    ], () => false)
 
     expect(await watcher.tick()).toBe(1)
     expect(repo.get(row.id)?.status).toBe('imported')
@@ -533,7 +610,12 @@ describe('ImportWatcher imported-file cleanup', () => {
     const repo = makeRepo()
     const kept = await queuedRowWithFile(repo, { name: 'kept.mkv' })
     let enabled = false
-    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => enabled)
+    const watcher = cleanupWatcher(repo, [
+      {
+        ...fakeServer('My Radarr', [HASH]),
+        id: 'radarr-1',
+      },
+    ], () => enabled)
 
     await watcher.tick()
     expect(await Bun.file(kept.destPath).exists()).toBe(true)
@@ -551,7 +633,12 @@ describe('ImportWatcher imported-file cleanup', () => {
     // A directory where the file is expected: unlink(2) fails with EISDIR/EPERM.
     await rm(row.destPath)
     await mkdir(row.destPath)
-    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+    const watcher = cleanupWatcher(repo, [
+      {
+        ...fakeServer('My Radarr', [HASH]),
+        id: 'radarr-1',
+      },
+    ], () => true)
 
     expect(await watcher.tick()).toBe(1)
     expect(repo.get(row.id)?.status).toBe('imported')
@@ -620,7 +707,12 @@ describe('ImportWatcher imported-file cleanup', () => {
     repo.markImportQueued(waiting.id)
 
     // Only radarr-1 is connected, so only `importing` can flip to imported this tick.
-    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+    const watcher = cleanupWatcher(repo, [
+      {
+        ...fakeServer('My Radarr', [HASH]),
+        id: 'radarr-1',
+      },
+    ], () => true)
 
     expect(await watcher.tick()).toBe(1)
     expect(repo.get(importing.id)?.status).toBe('imported')
@@ -647,7 +739,12 @@ describe('ImportWatcher imported-file cleanup', () => {
       sourceServerId: 'radarr-1',
     })
     repo.markImportQueued(row.id)
-    const watcher = cleanupWatcher(repo, [{ ...fakeServer('My Radarr', [HASH]), id: 'radarr-1' }], () => true)
+    const watcher = cleanupWatcher(repo, [
+      {
+        ...fakeServer('My Radarr', [HASH]),
+        id: 'radarr-1',
+      },
+    ], () => true)
 
     expect(await watcher.tick()).toBe(1)
     expect(await Bun.file(destPath).exists()).toBe(true)

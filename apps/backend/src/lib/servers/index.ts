@@ -30,11 +30,18 @@ async function initializeConnector(connector: ServerConnector, { rethrow = false
   connector.init()
   await connector.initialization
     .then(() => {
-      logger.debug({ connector: { name: connector.name, url: connector.url } }, `Initialized connector ${connector.name}`)
+      logger.debug({
+        connector: { name: connector.name, url: connector.url },
+      }, `Initialized connector ${connector.name}`)
     })!
     .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      logger.error({ error, connector: { name: connector.name, url: connector.url } }, `Failed to initialize connector ${connector.name}: ${message}`)
+      const message = error instanceof Error
+        ? error.message
+        : String(error)
+      logger.error({
+        error,
+        connector: { name: connector.name, url: connector.url },
+      }, `Failed to initialize connector ${connector.name}: ${message}`)
       if (rethrow)
         throw error
     })
@@ -128,13 +135,18 @@ export class ConnectorManager {
   }
 
   public get connectors() {
-    return [...this._serverMap.values(), ...this._peerMap.values()].filter(c => c.enabled)
+    return [
+      ...this._serverMap.values(),
+      ...this._peerMap.values(),
+    ].filter(c => c.enabled)
   }
 
   public async initAll() {
     await Promise.allSettled(
       this.connectors.map(async (connector) => {
-        logger.info({ connector: { name: connector.name, url: connector.url } }, `Initializing connector ${connector.name}`)
+        logger.info({
+          connector: { name: connector.name, url: connector.url },
+        }, `Initializing connector ${connector.name}`)
         await initializeConnector(connector)
       }),
     )
@@ -179,7 +191,9 @@ export class ConnectorManager {
       if (previous)
         this.track(previous)
       this.notifyChanged()
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       throw new ConnectorInitializationError(`Could not connect to server "${connector.name}": ${message}`, err)
     }
   }
@@ -206,7 +220,9 @@ export class ConnectorManager {
       if (previous)
         this.track(previous)
       this.notifyChanged()
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       throw new ConnectorInitializationError(`Could not connect to peer "${connector.name}": ${message}`, err)
     }
   }

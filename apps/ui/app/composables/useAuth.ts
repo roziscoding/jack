@@ -31,7 +31,10 @@ export function useAuth() {
   }
 
   async function login(key: string): Promise<void> {
-    await $fetch('/api/login', { method: 'POST', body: { key } })
+    await $fetch('/api/login', {
+      method: 'POST',
+      body: { key },
+    })
     await refresh()
   }
 

@@ -49,7 +49,9 @@ function controllerForFile() {
 // `body` is now a BunFile/Blob (served via Bun's native backpressure) rather than a
 // hand-pumped ReadableStream, so read its bytes directly.
 async function bodyBytes(body: Blob): Promise<number[]> {
-  return [...new Uint8Array(await body.arrayBuffer())]
+  return [
+    ...new Uint8Array(await body.arrayBuffer()),
+  ]
 }
 
 describe('PeerController.streamFile range handling', () => {
@@ -58,7 +60,17 @@ describe('PeerController.streamFile range handling', () => {
     expect(result?.type).toBe('partial')
     if (result?.type !== 'partial')
       throw new Error('expected partial')
-    expect({ start: result.start, end: result.end, size: result.size, totalSize: result.totalSize }).toEqual({ start: 2, end: 4, size: 3, totalSize: 10 })
+    expect({
+      start: result.start,
+      end: result.end,
+      size: result.size,
+      totalSize: result.totalSize,
+    }).toEqual({
+      start: 2,
+      end: 4,
+      size: 3,
+      totalSize: 10,
+    })
     expect(await bodyBytes(result.body)).toEqual([2, 3, 4])
   })
 
@@ -111,7 +123,9 @@ describe('GET /peer/items/:id/file range responses', () => {
   })
 
   test('serves 206 + Content-Range for a valid range', async () => {
-    const res = await appForFile().request('/peer/items/remote1:movie:1/file', { headers: { Range: 'bytes=2-4' } })
+    const res = await appForFile().request('/peer/items/remote1:movie:1/file', {
+      headers: { Range: 'bytes=2-4' },
+    })
     expect(res.status).toBe(206)
     expect(res.headers.get('Content-Range')).toBe('bytes 2-4/10')
     expect(res.headers.get('Content-Length')).toBe('3')
@@ -119,13 +133,17 @@ describe('GET /peer/items/:id/file range responses', () => {
   })
 
   test('serves 416 for an unsatisfiable range', async () => {
-    const res = await appForFile().request('/peer/items/remote1:movie:1/file', { headers: { Range: 'bytes=50-60' } })
+    const res = await appForFile().request('/peer/items/remote1:movie:1/file', {
+      headers: { Range: 'bytes=50-60' },
+    })
     expect(res.status).toBe(416)
     expect(res.headers.get('Content-Range')).toBe('bytes */10')
   })
 
   test('returns 404 for an unknown item', async () => {
-    const res = await appForFile().request('/peer/items/unknown:movie:1/file', { headers: { Range: 'bytes=0-1' } })
+    const res = await appForFile().request('/peer/items/unknown:movie:1/file', {
+      headers: { Range: 'bytes=0-1' },
+    })
     expect(res.status).toBe(404)
   })
 })

@@ -26,7 +26,10 @@ export function requiresInitialization(
 
     const connector = this as any
     if (!connector.isInitialized) {
-      logger.debug({ connector: connector.name, method: String(context.name) }, 'Connector not initialized yet; triggering init before call')
+      logger.debug({
+        connector: connector.name,
+        method: String(context.name),
+      }, 'Connector not initialized yet; triggering init before call')
       connector.init()
     }
     // Await the initialization PROMISE, not the `isInitialized` boolean — awaiting

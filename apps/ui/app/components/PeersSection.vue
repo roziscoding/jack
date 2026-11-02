@@ -39,7 +39,9 @@ function sortKey(peer: PeerItem) {
     return 1
   return 2
 }
-const peers = computed(() => [...(settings.value?.peers ?? [])].sort((a, b) => sortKey(a) - sortKey(b)))
+const peers = computed(() => [
+  ...(settings.value?.peers ?? []),
+].sort((a, b) => sortKey(a) - sortKey(b)))
 const peerTextClass = (id: string) => settings.value?.peerColors.get(id)?.text ?? peerColorTextClass(id)
 const connected = computed(() => peers.value.filter(p => p.initialized).length)
 const unreachable = computed(() => peers.value.filter(p => !p.initialized && p.initializationError).length)
@@ -89,7 +91,9 @@ async function submit(input: PeerInput, force = false) {
   formError.value = null
   // force (shift-click): persist the peer even if its handshake fails — the
   // backend keeps it resident and retries lazily instead of rejecting the add.
-  const query = force ? { force: 'true' } : undefined
+  const query = force
+    ? { force: 'true' }
+    : undefined
   try {
     if (editTarget.value)
       await request(`config/peers/${editTarget.value.id}`, { method: 'PATCH', body: input, query })

@@ -20,7 +20,10 @@ export class LogsController {
   }
 
   backfill(params: { lines: number, level?: LogLevelName }): Promise<LogRecord[]> {
-    return this.hub.backfill({ lines: params.lines, minLevel: this.minLevelFor(params.level) })
+    return this.hub.backfill({
+      lines: params.lines,
+      minLevel: this.minLevelFor(params.level),
+    })
   }
 
   subscribe(subscriber: LogSubscriber): () => void {

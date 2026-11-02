@@ -15,7 +15,9 @@ import { withSpan } from '../tracing'
 import { isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION } from '../version'
 import { ServerConnector } from './base'
 
-const PeerSearchResponse = z.object({ items: z.array(Release) })
+const PeerSearchResponse = z.object({
+  items: z.array(Release),
+})
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
 const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
 const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
@@ -81,7 +83,9 @@ export class PeerConnector extends ServerConnector {
     // in transit to anything on the path. Warn so the operator can switch to https.
     if (config.url.startsWith('http://')) {
       logger.warn(
-        { peer: { name: config.name, url: config.url } },
+        {
+          peer: { name: config.name, url: config.url },
+        },
         `Peer "${config.name}" is configured over plain HTTP — its API key is sent in cleartext. Use an https:// URL where possible.`,
       )
     }
@@ -139,7 +143,11 @@ export class PeerConnector extends ServerConnector {
       'peer.id': this.id,
       'search.imdb_id': imdbId,
     }, async (span) => {
-      const { items } = await this.fetch('/peer/search', { method: 'GET', query: { imdbId }, schema: PeerSearchResponse })
+      const { items } = await this.fetch('/peer/search', {
+        method: 'GET',
+        query: { imdbId },
+        schema: PeerSearchResponse,
+      })
       // Defensive: an older/over-eager peer may return more than asked (e.g. its
       // whole catalog), so keep only the releases that actually match the id.
       const target = normalizeImdbId(imdbId)
@@ -156,7 +164,11 @@ export class PeerConnector extends ServerConnector {
       'peer.id': this.id,
       'search.tmdb_id': tmdbId,
     }, async (span) => {
-      const { items } = await this.fetch('/peer/search', { method: 'GET', query: { tmdbId }, schema: PeerSearchResponse })
+      const { items } = await this.fetch('/peer/search', {
+        method: 'GET',
+        query: { tmdbId },
+        schema: PeerSearchResponse,
+      })
       const matched = items.filter(r => r.tmdbId != null && String(r.tmdbId) === tmdbId)
       setSpanAttributes(span, { 'release.returned_count': items.length, 'release.matched_count': matched.length })
       return matched
@@ -225,7 +237,9 @@ export class PeerConnector extends ServerConnector {
       // trips it. The abort carries a sentinel reason so only it — not a later real
       // error — is reclassified as a retryable IdleTimeoutError.
       const controller = new AbortController()
-      const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
+      const signal = options.signal
+        ? AbortSignal.any([controller.signal, options.signal])
+        : controller.signal
       const IDLE_ABORT_REASON = 'jack:idle-timeout'
       let idleTimer: ReturnType<typeof setTimeout> | undefined
       const clearIdle = () => {
@@ -243,14 +257,18 @@ export class PeerConnector extends ServerConnector {
       const idleTimeout = () => new IdleTimeoutError(`Peer download stalled: no data received for ${idleTimeoutMs}ms`)
 
       const partFile = Bun.file(partPath)
-      let existingBytes = await partFile.exists() ? partFile.size : 0
+      let existingBytes = await partFile.exists()
+        ? partFile.size
+        : 0
 
       const doFetch = async (withRange: boolean): Promise<Response> => {
         signal.throwIfAborted()
         armIdle()
         try {
           return await fetch(url, {
-            headers: withRange ? { ...baseHeaders, Range: `bytes=${existingBytes}-` } : baseHeaders,
+            headers: withRange
+              ? { ...baseHeaders, Range: `bytes=${existingBytes}-` }
+              : baseHeaders,
             signal,
           })
         }
@@ -265,13 +283,27 @@ export class PeerConnector extends ServerConnector {
       }
 
       const emitRestart = async (reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number) => {
-        logger.warn({ id, torrentFilename, partPath, discardedBytes, reason, peer: this.name }, 'Resume validation failed; restarting download from byte 0')
+        logger.warn({
+          id,
+          torrentFilename,
+          partPath,
+          discardedBytes,
+          reason,
+          peer: this.name,
+        }, 'Resume validation failed; restarting download from byte 0')
         try {
           await options.onProgress?.({ type: 'restart', reason, discardedBytes })
         }
         catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          logger.error({ id, torrentFilename, reason, error: message }, 'Restart progress callback failed')
+          const message = err instanceof Error
+            ? err.message
+            : String(err)
+          logger.error({
+            id,
+            torrentFilename,
+            reason,
+            error: message,
+          }, 'Restart progress callback failed')
         }
       }
 
@@ -301,7 +333,12 @@ export class PeerConnector extends ServerConnector {
           setSpanAttribute(span, 'download.downloaded_bytes', existingBytes)
           // Emit headers too so the service persists expectedBytes/source (the
           // fast path otherwise skips the headers event).
-          await options.onProgress?.({ type: 'headers', expectedBytes: options.releaseSize, expectedBytesSource: 'release_size', expectedBytesMismatch: false })
+          await options.onProgress?.({
+            type: 'headers',
+            expectedBytes: options.releaseSize,
+            expectedBytesSource: 'release_size',
+            expectedBytesMismatch: false,
+          })
           await options.onProgress?.({ type: 'completed', downloadedBytes: existingBytes, expectedBytes: options.releaseSize })
           return
         }
@@ -366,7 +403,11 @@ export class PeerConnector extends ServerConnector {
       // (206), else Content-Length; 'release_size' means it came only from *arr
       // metadata (the peer advertised no size).
       const expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null
-        = transferSize != null ? (resuming ? 'content_range' : 'content_length') : (expectedBytes != null ? 'release_size' : null)
+        = transferSize != null
+          ? (resuming ? 'content_range' : 'content_length')
+          : (expectedBytes != null
+              ? 'release_size'
+              : null)
       const expectedBytesMismatch = transferSize != null && options.releaseSize != null && transferSize !== options.releaseSize
       setSpanAttributes(span, {
         'download.resuming': resuming,
@@ -382,7 +423,13 @@ export class PeerConnector extends ServerConnector {
       setSpanAttribute(span, 'download.expected_bytes', expectedBytes)
 
       if (expectedBytesMismatch) {
-        logger.warn({ id, torrentFilename, releaseSize: options.releaseSize, expectedBytes: transferSize, peer: this.name }, 'Peer file total size differs from release metadata size')
+        logger.warn({
+          id,
+          torrentFilename,
+          releaseSize: options.releaseSize,
+          expectedBytes: transferSize,
+          peer: this.name,
+        }, 'Peer file total size differs from release metadata size')
       }
 
       await options.onProgress?.({
@@ -397,7 +444,9 @@ export class PeerConnector extends ServerConnector {
 
       const handle = await withFsContext(
         resuming ? 'resume_part' : 'create_part',
-        resuming ? `opening the .part to resume at byte ${existingBytes}` : 'creating the .part file',
+        resuming
+          ? `opening the .part to resume at byte ${existingBytes}`
+          : 'creating the .part file',
         [partPath],
         () => open(partPath, resuming ? 'a' : 'w'),
       )
@@ -466,7 +515,15 @@ export class PeerConnector extends ServerConnector {
           if (lastLoggedBytes === existingBytes || shouldLogProgress) {
             await syncPart(`flushing the .part to disk after ${downloadedBytes} bytes were written`)
             await assertHandleAtPath(handle, partPath, `checking the .part is still on disk after ${downloadedBytes} bytes were written`)
-            logger.debug({ id, torrentFilename, destPath, partPath, downloadedBytes, expectedBytes, peer: this.name }, 'Download progress from peer')
+            logger.debug({
+              id,
+              torrentFilename,
+              destPath,
+              partPath,
+              downloadedBytes,
+              expectedBytes,
+              peer: this.name,
+            }, 'Download progress from peer')
             await options.onProgress?.({ type: 'progress', downloadedBytes, expectedBytes })
             lastLoggedAt = now
             lastLoggedBytes = downloadedBytes
@@ -492,8 +549,18 @@ export class PeerConnector extends ServerConnector {
           await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
         }
         catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          logger.error({ id, torrentFilename, destPath, downloadedBytes, expectedBytes, peer: this.name, error: message }, 'Completed download progress callback failed')
+          const message = err instanceof Error
+            ? err.message
+            : String(err)
+          logger.error({
+            id,
+            torrentFilename,
+            destPath,
+            downloadedBytes,
+            expectedBytes,
+            peer: this.name,
+            error: message,
+          }, 'Completed download progress callback failed')
         }
       }
       catch (err) {

@@ -18,10 +18,16 @@ const { src: heroImage, onError: onHeroError } = useFallbackImage(() => [
 
 onMounted(() => load(props.title))
 
-const pluralReleases = (n: number) => `${n} release${n === 1 ? '' : 's'}`
+function pluralReleases(n: number) {
+  return `${n} release${n === 1
+    ? ''
+    : 's'}`
+}
 // A single-peer title gets a friendlier phrasing; otherwise we render a card per peer
 // so the user can pick which one to download from.
-const singlePeer = computed(() => props.title.peers.length === 1 ? props.title.peers[0]! : null)
+const singlePeer = computed(() => props.title.peers.length === 1
+  ? props.title.peers[0]!
+  : null)
 const { dotClass } = usePeerColors()
 
 function formatResolution(res?: number): string | null {
@@ -43,8 +49,12 @@ function peerResolutions(peer: CatalogTitlePeer): string[] {
   const nums = peer.releases
     .map(r => r.quality?.resolution)
     .filter((n): n is number => n != null)
-  const labels = [...new Set(nums)].sort((a, b) => b - a).map(formatResolution)
-  return [...new Set(labels.filter((l): l is string => l != null))]
+  const labels = [
+    ...new Set(nums),
+  ].sort((a, b) => b - a).map(formatResolution)
+  return [
+    ...new Set(labels.filter((l): l is string => l != null)),
+  ]
 }
 const canRequest = computed(() => props.title.mediaType === 'tv'
   ? props.title.tvdbId != null

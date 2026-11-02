@@ -12,7 +12,11 @@ describe('redactObject', () => {
   })
 
   test('leaves non-sensitive fields untouched', () => {
-    const input = { userId: 42, action: 'login', nested: { count: 1 } }
+    const input = {
+      userId: 42,
+      action: 'login',
+      nested: { count: 1 },
+    }
     expect(redactObject(input)).toEqual(input)
   })
 
@@ -22,24 +26,34 @@ describe('redactObject', () => {
         headers: { cookie: 'session=abcdefghijklmnop' },
         body: { ok: true },
       },
-      items: [{ apiKey: 'abcdefghijklmnop' }, { id: 7 }],
+      items: [
+        { apiKey: 'abcdefghijklmnop' },
+        { id: 7 },
+      ],
     })
     expect(result).toEqual({
       request: {
         headers: { cookie: 'sess…mnop' },
         body: { ok: true },
       },
-      items: [{ apiKey: 'abcd…mnop' }, { id: 7 }],
+      items: [
+        { apiKey: 'abcd…mnop' },
+        { id: 7 },
+      ],
     })
   })
 
   test('hides non-string values under sensitive keys entirely', () => {
-    expect(redactObject<Record<string, unknown>>({ password: { hash: 'x' } }).password).toBe(REDACTED)
+    expect(redactObject<Record<string, unknown>>({
+      password: { hash: 'x' },
+    }).password).toBe(REDACTED)
     expect(redactObject<Record<string, unknown>>({ secret: 12345 }).secret).toBe(REDACTED)
   })
 
   test('masks each element of a sensitive array', () => {
-    const result = redactObject({ token: ['abcdefghijklmnop', 'short'] })
+    const result = redactObject({
+      token: ['abcdefghijklmnop', 'short'],
+    })
     expect(result.token).toEqual(['abcd…mnop', REDACTED])
   })
 })

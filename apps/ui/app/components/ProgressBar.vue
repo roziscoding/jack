@@ -2,7 +2,9 @@
 const props = defineProps<{ value: number | null }>()
 // null progress → UProgress renders its indeterminate animation; the label
 // falls back to an em dash.
-const pct = computed(() => (props.value == null ? null : Math.round(props.value * 100)))
+const pct = computed(() => (props.value == null
+  ? null
+  : Math.round(props.value * 100)))
 </script>
 
 <template>

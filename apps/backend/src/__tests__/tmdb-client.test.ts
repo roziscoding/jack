@@ -29,7 +29,9 @@ describe('mapTmdbDetail', () => {
       vote_average: 8.4,
       poster_path: '/poster.jpg',
       backdrop_path: '/backdrop.jpg',
-      genres: [{ id: 18, name: 'Drama' }],
+      genres: [
+        { id: 18, name: 'Drama' },
+      ],
     })
 
     expect(meta.tmdbId).toBe(550)

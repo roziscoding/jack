@@ -43,7 +43,12 @@ function traceContextMixin() {
   if (!span)
     return { environment: envs.ENVIRONMENT }
   const { traceId, spanId, traceFlags } = span.spanContext()
-  return { environment: envs.ENVIRONMENT, trace_id: traceId, span_id: spanId, trace_flags: traceFlags.toString(16) }
+  return {
+    environment: envs.ENVIRONMENT,
+    trace_id: traceId,
+    span_id: spanId,
+    trace_flags: traceFlags.toString(16),
+  }
 }
 
 // In-process bridge from pino to the OpenTelemetry Logs API. Each finished pino
@@ -62,12 +67,25 @@ const otelLogStream = {
       return
     }
 
-    const level = typeof record.level === 'number' ? record.level : 30
+    const level = typeof record.level === 'number'
+      ? record.level
+      : 30
 
     // Everything that isn't a standard pino field becomes a log attribute. The
     // trace ids are dropped — the active span is attached natively below.
     const attributes = { ...record }
-    for (const key of ['time', 'level', 'severity', 'message', 'msg', 'hostname', 'pid', 'trace_id', 'span_id', 'trace_flags'])
+    for (const key of [
+      'time',
+      'level',
+      'severity',
+      'message',
+      'msg',
+      'hostname',
+      'pid',
+      'trace_id',
+      'span_id',
+      'trace_flags',
+    ])
       delete attributes[key]
 
     const body = typeof record.message === 'string'
@@ -77,7 +95,9 @@ const otelLogStream = {
         : undefined
 
     logs.getLogger(envs.OTEL_SERVICE_NAME).emit({
-      timestamp: typeof record.time === 'number' ? record.time : undefined,
+      timestamp: typeof record.time === 'number'
+        ? record.time
+        : undefined,
       severityNumber: PINO_LEVEL_TO_SEVERITY[level] ?? SeverityNumber.UNSPECIFIED,
       severityText: levels.labels[level],
       body,
@@ -95,7 +115,12 @@ function consoleStream(): DestinationStream {
     return process.stdout
   const nodeRequire = createRequire(import.meta.url)
   const pretty = nodeRequire('pino-pretty') as (opts: Record<string, unknown>) => DestinationStream
-  return pretty({ colorize: true, singleLine: true, messageKey: 'message', ignore: 'pid,hostname,severity' })
+  return pretty({
+    colorize: true,
+    singleLine: true,
+    messageKey: 'message',
+    ignore: 'pid,hostname,severity',
+  })
 }
 
 // Everything fans out through one in-process multistream: console, the rotating
@@ -103,7 +128,10 @@ function consoleStream(): DestinationStream {
 // is on — the OTel bridge. No worker threads anywhere.
 function getLogger() {
   const streams: StreamEntry[] = [
-    { stream: consoleStream(), level: envs.LOG_LEVEL },
+    {
+      stream: consoleStream(),
+      level: envs.LOG_LEVEL,
+    },
   ]
   if (otelEnabled)
     streams.push({ stream: otelLogStream, level: envs.LOG_LEVEL })

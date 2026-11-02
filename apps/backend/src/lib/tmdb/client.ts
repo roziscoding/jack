@@ -37,13 +37,19 @@ export function buildImageUrl(path: string | null | undefined, size = 'w500', ba
 /** Normalize a TMDB movie/tv detail payload into our flat metadata shape. */
 export function mapTmdbDetail(raw: TmdbRawDetail): TmdbMetadata {
   const date = raw.release_date ?? raw.first_air_date ?? null
-  const yearNum = date && date.length >= 4 ? Number(date.slice(0, 4)) : Number.NaN
+  const yearNum = date && date.length >= 4
+    ? Number(date.slice(0, 4))
+    : Number.NaN
   return {
     tmdbId: raw.id,
     title: raw.title ?? raw.name ?? 'Untitled',
     overview: raw.overview || null,
-    year: Number.isFinite(yearNum) ? yearNum : null,
-    rating: typeof raw.vote_average === 'number' ? raw.vote_average : null,
+    year: Number.isFinite(yearNum)
+      ? yearNum
+      : null,
+    rating: typeof raw.vote_average === 'number'
+      ? raw.vote_average
+      : null,
     posterUrl: buildImageUrl(raw.poster_path),
     backdropUrl: buildImageUrl(raw.backdrop_path, 'w780'),
     genres: (raw.genres ?? []).map(g => g.name).filter((n): n is string => Boolean(n)),

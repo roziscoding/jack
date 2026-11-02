@@ -19,7 +19,11 @@ describe('handleError', () => {
       const app = createApp()
 
       for (const accept of [undefined, 'application/json', '*/*']) {
-        const res = await app.request('/protected', accept ? { headers: { Accept: accept } } : undefined)
+        const res = await app.request('/protected', accept
+          ? {
+              headers: { Accept: accept },
+            }
+          : undefined)
         expect(res.status).toBe(401)
         expect(res.headers.get('Content-Type')).toContain('application/json')
 
@@ -36,8 +40,15 @@ describe('handleError', () => {
     test('returns Torznab-compatible XML 200 with a generic description for requests that accept XML', async () => {
       const app = createApp()
 
-      for (const accept of ['application/rss+xml', 'application/xml+rss', 'application/xml', 'text/xml']) {
-        const res = await app.request('/protected', { headers: { Accept: accept } })
+      for (const accept of [
+        'application/rss+xml',
+        'application/xml+rss',
+        'application/xml',
+        'text/xml',
+      ]) {
+        const res = await app.request('/protected', {
+          headers: { Accept: accept },
+        })
         expect(res.status).toBe(200)
         expect(res.headers.get('Content-Type')).toContain('application/xml')
 
@@ -54,7 +65,11 @@ describe('handleError', () => {
       const app = createApp({ exposeDetails: true })
 
       for (const accept of [undefined, 'application/json', '*/*']) {
-        const res = await app.request('/protected', accept ? { headers: { Accept: accept } } : undefined)
+        const res = await app.request('/protected', accept
+          ? {
+              headers: { Accept: accept },
+            }
+          : undefined)
         expect(res.status).toBe(401)
         expect(res.headers.get('Content-Type')).toContain('application/json')
 
@@ -68,8 +83,15 @@ describe('handleError', () => {
     test('returns the full message in Torznab XML for requests that accept XML', async () => {
       const app = createApp({ exposeDetails: true })
 
-      for (const accept of ['application/rss+xml', 'application/xml+rss', 'application/xml', 'text/xml']) {
-        const res = await app.request('/protected', { headers: { Accept: accept } })
+      for (const accept of [
+        'application/rss+xml',
+        'application/xml+rss',
+        'application/xml',
+        'text/xml',
+      ]) {
+        const res = await app.request('/protected', {
+          headers: { Accept: accept },
+        })
         expect(res.status).toBe(200)
         expect(res.headers.get('Content-Type')).toContain('application/xml')
 

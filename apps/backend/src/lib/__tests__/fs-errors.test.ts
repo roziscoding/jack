@@ -47,9 +47,27 @@ describe('withFsContext', () => {
       code: 'PART_RESUME_DENIED',
       errno: 'EACCES',
       operation: 'opening the .part to resume at byte 7',
-      file: { path: file, exists: true, type: 'file', mode: '-r--r--r--', mode_octal: '0444', uid: process.getuid?.(), gid: process.getgid?.(), size_bytes: 7 },
-      file_dir: { path: dir, exists: true, type: 'directory', mode: 'drwx------', mode_octal: '0700' },
-      process: { uid: process.getuid?.(), gid: process.getgid?.() },
+      file: {
+        path: file,
+        exists: true,
+        type: 'file',
+        mode: '-r--r--r--',
+        mode_octal: '0444',
+        uid: process.getuid?.(),
+        gid: process.getgid?.(),
+        size_bytes: 7,
+      },
+      file_dir: {
+        path: dir,
+        exists: true,
+        type: 'directory',
+        mode: 'drwx------',
+        mode_octal: '0700',
+      },
+      process: {
+        uid: process.getuid?.(),
+        gid: process.getgid?.(),
+      },
     })
     expect(err.details.explanation).toStartWith('permission denied')
     expect(err.details.occurred_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
@@ -87,7 +105,11 @@ describe('withFsContext', () => {
     expect(err.summary).toEndWith(`${from} -> ${to}`)
     expect(err.details.file).toMatchObject({ path: from, exists: true })
     expect(err.details.destination).toEqual({ path: to, exists: false, stat_error: 'ENOENT' })
-    expect(err.details.destination_dir).toEqual({ path: join(dir, 'missing'), exists: false, stat_error: 'ENOENT' })
+    expect(err.details.destination_dir).toEqual({
+      path: join(dir, 'missing'),
+      exists: false,
+      stat_error: 'ENOENT',
+    })
     // dir was already inspected as the file's folder, so it is not repeated.
     expect(err.details.destination_nearest_existing_dir).toBeUndefined()
     expect(err.message).toContain(`Destination folder: ${join(dir, 'missing')}\n  does not exist`)
@@ -105,28 +127,43 @@ describe('withFsContext', () => {
     const err = await fsRejection(withFsContext('create_part', 'creating the .part file', [file], () => open(file, 'w')))
 
     expect(err.code).toBe('PART_DIR_MISSING')
-    expect(err.details.file_dir).toEqual({ path: join(dir, 'gone', 'deeper'), exists: false, stat_error: 'ENOENT' })
+    expect(err.details.file_dir).toEqual({
+      path: join(dir, 'gone', 'deeper'),
+      exists: false,
+      stat_error: 'ENOENT',
+    })
     expect(err.details.file_nearest_existing_dir).toMatchObject({ path: dir, exists: true, type: 'directory' })
     expect(err.message).toContain(`Nearest existing folder: ${dir}`)
   })
 
   test('adds free space for ENOSPC', async () => {
-    const err = await fsRejection(withFsContext('write_part', 'writing', [join(dir, 'x.part')], () => Promise.reject(errnoError('ENOSPC'))))
+    const err = await fsRejection(withFsContext('write_part', 'writing', [
+      join(dir, 'x.part'),
+    ], () => Promise.reject(errnoError('ENOSPC'))))
 
     expect(err.code).toBe('DISK_FULL')
-    expect(err.details.free_space).toMatchObject({ dir, bytes_available: expect.any(Number), inodes_free: expect.any(Number) })
+    expect(err.details.free_space).toMatchObject({
+      dir,
+      bytes_available: expect.any(Number),
+      inodes_free: expect.any(Number),
+    })
     expect(err.message).toContain('No space left on device')
     expect(err.message).toMatch(new RegExp(`Free space on ${dir}: .+, \\d+ free inodes`))
   })
 
   test('handles EPERM', async () => {
-    const err = await fsRejection(withFsContext('move_completed', 'moving', [join(dir, 'x'), join(dir, 'y')], () => Promise.reject(errnoError('EPERM'))))
+    const err = await fsRejection(withFsContext('move_completed', 'moving', [
+      join(dir, 'x'),
+      join(dir, 'y'),
+    ], () => Promise.reject(errnoError('EPERM'))))
     expect(err.code).toBe('COMPLETED_MOVE_DENIED')
     expect(err.details.explanation).toStartWith('operation not permitted')
   })
 
   test('keeps unknown errno codes', async () => {
-    const err = await fsRejection(withFsContext('write_part', 'writing', [join(dir, 'x')], () => Promise.reject(errnoError('EWEIRD'))))
+    const err = await fsRejection(withFsContext('write_part', 'writing', [
+      join(dir, 'x'),
+    ], () => Promise.reject(errnoError('EWEIRD'))))
     expect(err.code).toBe('FILESYSTEM_ERROR')
     expect(err.errno).toBe('EWEIRD')
     expect(err.details.explanation).toBe('unrecognized filesystem error')
@@ -134,7 +171,9 @@ describe('withFsContext', () => {
 
   test('passes errors without an errno code through unchanged', async () => {
     const original = new Error('nope')
-    const err = await withFsContext('write_part', 'writing', [join(dir, 'x')], () => Promise.reject(original)).then(() => null, (e: unknown) => e)
+    const err = await withFsContext('write_part', 'writing', [
+      join(dir, 'x'),
+    ], () => Promise.reject(original)).then(() => null, (e: unknown) => e)
     expect(err).toBe(original)
   })
 })
@@ -165,7 +204,14 @@ describe('jack codes', () => {
   ]
 
   test.each(cases)('%s + %s -> %s', async (stage, errno, code) => {
-    const paths = stage === 'move_completed' ? [join(dir, 'x.part'), join(dir, 'x.mkv')] : [join(dir, 'x.part')]
+    const paths = stage === 'move_completed'
+      ? [
+          join(dir, 'x.part'),
+          join(dir, 'x.mkv'),
+        ]
+      : [
+          join(dir, 'x.part'),
+        ]
     const err = await fsRejection(withFsContext(stage, 'doing it', paths, () => Promise.reject(errnoError(errno))))
     expect(err.code).toBe(code)
     expect(err.summary).toStartWith(`[${code}] Filesystem error ${errno} while doing it: `)

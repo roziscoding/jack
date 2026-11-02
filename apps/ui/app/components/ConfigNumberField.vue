@@ -19,10 +19,16 @@ const props = withDefaults(defineProps<{
 
 const model = defineModel<number | null>()
 
-const readable = (value: number) => (props.unit === 'ms' ? formatDurationMs(value) : String(value))
+function readable(value: number) {
+  return props.unit === 'ms'
+    ? formatDurationMs(value)
+    : String(value)
+}
 
 const hint = computed(() =>
-  model.value == null ? `Default · ${readable(props.defaultValue)}` : readable(model.value),
+  model.value == null
+    ? `Default · ${readable(props.defaultValue)}`
+    : readable(model.value),
 )
 </script>
 

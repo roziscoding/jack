@@ -19,8 +19,11 @@ const modeItems = [
 ]
 
 function detectMode(v: SecretRef | null): Mode {
-  if (v && typeof v === 'object')
-    return 'env' in v ? 'env' : 'file'
+  if (v && typeof v === 'object') {
+    return 'env' in v
+      ? 'env'
+      : 'file'
+  }
   return 'literal'
 }
 function detectValue(v: SecretRef | null): string {
@@ -38,7 +41,9 @@ const value = ref(detectValue(props.modelValue))
 // Literal secrets are masked by default; the user opts into revealing the stored
 // plaintext. Env/file refs aren't secret (just a name/path) so they always show.
 const reveal = ref(false)
-const inputType = computed(() => (mode.value === 'literal' && !reveal.value ? 'password' : 'text'))
+const inputType = computed(() => (mode.value === 'literal' && !reveal.value
+  ? 'password'
+  : 'text'))
 
 const placeholder = computed(() => {
   if (mode.value === 'env')

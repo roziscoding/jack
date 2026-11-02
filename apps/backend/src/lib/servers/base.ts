@@ -154,7 +154,9 @@ export abstract class ServerConnector {
       'http.request.headers': redactRecord(initWithAuth.headers as Record<string, string>),
       'server.address': url.hostname,
       'url.path': url.pathname,
-      'url.query': url.search ? url.search.slice(1) : undefined,
+      'url.query': url.search
+        ? url.search.slice(1)
+        : undefined,
     }, async (span) => {
       let response: Response
       try {
@@ -163,7 +165,16 @@ export abstract class ServerConnector {
       catch (err) {
         const timedOut = err instanceof DOMException && err.name === 'TimeoutError'
         setSpanAttribute(span, 'error.timeout', timedOut)
-        logger.warn({ connector: this.name, method, url: url.toString(), timeoutMs, timedOut, err }, timedOut ? `Request timed out after ${timeoutMs}ms` : 'Request failed (network error)')
+        logger.warn({
+          connector: this.name,
+          method,
+          url: url.toString(),
+          timeoutMs,
+          timedOut,
+          err,
+        }, timedOut
+          ? `Request timed out after ${timeoutMs}ms`
+          : 'Request failed (network error)')
         throw err
       }
 
@@ -176,7 +187,13 @@ export abstract class ServerConnector {
       if (!response.ok) {
         const body = await response.text().catch(() => 'Could not fetch body')
         setSpanAttribute(span, 'http.response.body', redactBody(body))
-        logger.warn({ connector: this.name, method, url: url.toString(), status: response.status, body: truncateBody(body) }, 'Request failed (non-2xx)')
+        logger.warn({
+          connector: this.name,
+          method,
+          url: url.toString(),
+          status: response.status,
+          body: truncateBody(body),
+        }, 'Request failed (non-2xx)')
         throw new FetchError(`Failed to fetch url: ${response.statusText}`, response, { body, method: init.method, headers: initWithAuth.headers })
       }
 
@@ -193,8 +210,16 @@ export abstract class ServerConnector {
           'schema.validation.success': false,
           'schema.validation.error': prettyError,
         })
-        logger.warn({ connector: this.name, method, url: url.pathname, error: prettyError }, 'Response failed schema validation')
-        throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${prettyError}`, response, { body: JSON.stringify(body), method: init.method })
+        logger.warn({
+          connector: this.name,
+          method,
+          url: url.pathname,
+          error: prettyError,
+        }, 'Response failed schema validation')
+        throw new FetchError(`Invalid response from ${this.name} when fetching ${init.method ?? 'GET'} ${url.pathname}: ${prettyError}`, response, {
+          body: JSON.stringify(body),
+          method: init.method,
+        })
       }
 
       setSpanAttribute(span, 'schema.validation.success', true)
@@ -254,7 +279,9 @@ export abstract class ServerConnector {
         this.notifyChanged()
       })
       .catch((err: unknown) => {
-        this._initializationError = err instanceof Error ? err.message : String(err)
+        this._initializationError = err instanceof Error
+          ? err.message
+          : String(err)
         this._initState = 'failed'
         this._initialization.reject(err)
         this.notifyChanged()

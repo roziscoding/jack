@@ -15,7 +15,9 @@ const status = computed<'loading' | 'unavailable' | 'ready'>(() => {
     return 'ready'
   if (props.title.tmdbId == null)
     return 'unavailable'
-  return entry.value === null || entry.value.status === 'loading' ? 'loading' : 'unavailable'
+  return entry.value === null || entry.value.status === 'loading'
+    ? 'loading'
+    : 'unavailable'
 })
 
 const name = computed(() => metadata.value?.title ?? props.title.displayTitle)
@@ -27,8 +29,12 @@ const { src: poster, onError: onPosterError } = useFallbackImage(() => [
 ])
 const year = computed(() => metadata.value?.year ?? null)
 const rating = computed(() => metadata.value?.rating ?? null)
-const typeLabel = computed(() => props.title.mediaType === 'tv' ? 'TV' : 'Movie')
-const mediaIcon = computed(() => props.title.mediaType === 'tv' ? 'i-ph-television' : 'i-ph-film-strip')
+const typeLabel = computed(() => props.title.mediaType === 'tv'
+  ? 'TV'
+  : 'Movie')
+const mediaIcon = computed(() => props.title.mediaType === 'tv'
+  ? 'i-ph-television'
+  : 'i-ph-film-strip')
 
 // Peer chips along the poster's bottom edge: up to two name badges (CSS-truncated to
 // stay legible, and to shrink rather than overflow on small posters) then a "+N" badge

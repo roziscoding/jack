@@ -19,7 +19,9 @@ function capString(value: string): string {
 }
 
 function maskString(key: string, value: string): string {
-  return capString(isSensitiveField(key) ? redactValue(value) : value)
+  return capString(isSensitiveField(key)
+    ? redactValue(value)
+    : value)
 }
 
 // Turn an arbitrary value into something OTel can store, redacting on the way.
@@ -105,7 +107,9 @@ export function redactUrl(rawUrl: string): string {
     return rawUrl
   }
 
-  const entries = [...url.searchParams.entries()]
+  const entries = [
+    ...url.searchParams.entries(),
+  ]
   if (!entries.some(([key]) => isSensitiveField(key))) {
     return rawUrl
   }
@@ -113,7 +117,9 @@ export function redactUrl(rawUrl: string): string {
   // Rebuild the query in place so parameter order is preserved.
   url.search = ''
   for (const [key, value] of entries) {
-    url.searchParams.append(key, isSensitiveField(key) ? redactValue(value) : value)
+    url.searchParams.append(key, isSensitiveField(key)
+      ? redactValue(value)
+      : value)
   }
   return url.toString()
 }

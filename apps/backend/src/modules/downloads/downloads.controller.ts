@@ -34,7 +34,9 @@ export class DownloadsManagementController {
       return { download: await this.importWatcher.retry(id) }
     }
 
-    return { download: this.requireDownloadsService().retry(id) }
+    return {
+      download: this.requireDownloadsService().retry(id),
+    }
   }
 
   async delete(id: number) {

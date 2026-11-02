@@ -36,7 +36,9 @@ export interface PeerReleases {
 }
 
 function mediaTypeOf(release: Release): 'movie' | 'tv' {
-  return release.category === ReleaseCategory.Tv ? 'tv' : 'movie'
+  return release.category === ReleaseCategory.Tv
+    ? 'tv'
+    : 'movie'
 }
 
 /** The strong (id-based) grouping key for a release, or null when it carries no id. */
@@ -45,13 +47,17 @@ function strongKey(release: Release): string | null {
   const id = mediaType === 'tv'
     ? (release.tvdbId ?? release.tmdbId)
     : (release.tmdbId ?? release.imdbId)
-  return id == null ? null : `${mediaType}:id:${id}`
+  return id == null
+    ? null
+    : `${mediaType}:id:${id}`
 }
 
 /** The fallback (name-based) key for a release with no usable id. */
 function nameKey(release: Release): string {
   const mediaType = mediaTypeOf(release)
-  const name = (mediaType === 'tv' ? (release.seriesTitle ?? release.title) : release.title).toLowerCase()
+  const name = (mediaType === 'tv'
+    ? (release.seriesTitle ?? release.title)
+    : release.title).toLowerCase()
   return `${mediaType}:name:${name}`
 }
 
@@ -102,7 +108,9 @@ export function groupReleasesIntoUnifiedTitles(peerReleases: PeerReleases[]): Un
           tmdbId: release.tmdbId,
           imdbId: release.imdbId,
           tvdbId: release.tvdbId,
-          displayTitle: mediaTypeOf(release) === 'tv' ? (release.seriesTitle ?? release.title) : release.title,
+          displayTitle: mediaTypeOf(release) === 'tv'
+            ? (release.seriesTitle ?? release.title)
+            : release.title,
           releaseCount: 0,
           totalSize: 0,
           peers: [],
@@ -119,7 +127,13 @@ export function groupReleasesIntoUnifiedTitles(peerReleases: PeerReleases[]): Un
 
       let bucket = title.peers.find(p => p.id === peer.id)
       if (!bucket) {
-        bucket = { id: peer.id, name: peer.name, releaseCount: 0, totalSize: 0, releases: [] }
+        bucket = {
+          id: peer.id,
+          name: peer.name,
+          releaseCount: 0,
+          totalSize: 0,
+          releases: [],
+        }
         title.peers.push(bucket)
       }
       bucket.releaseCount += 1
@@ -136,7 +150,9 @@ export function groupReleasesIntoUnifiedTitles(peerReleases: PeerReleases[]): Un
     }
   }
 
-  return [...byKey.values()].sort((a, b) => a.displayTitle.localeCompare(b.displayTitle))
+  return [
+    ...byKey.values(),
+  ].sort((a, b) => a.displayTitle.localeCompare(b.displayTitle))
 }
 
 /**
@@ -155,16 +171,22 @@ function isBetterRelease(candidate: Release, current: Release): boolean {
 }
 
 export function pickBestRelease(releases: Release[]): Release | undefined {
-  return releases.reduce<Release | undefined>((best, r) => (!best || isBetterRelease(r, best)) ? r : best, undefined)
+  return releases.reduce<Release | undefined>((best, r) => (!best || isBetterRelease(r, best))
+    ? r
+    : best, undefined)
 }
 
 export function pickBestPerEpisode(releases: Release[]): Release[] {
   const byEpisode = new Map<string, Release>()
   for (const r of releases) {
-    const key = r.season != null && r.episode != null ? `${r.season}:${r.episode}` : `unparsed:${r.id}`
+    const key = r.season != null && r.episode != null
+      ? `${r.season}:${r.episode}`
+      : `unparsed:${r.id}`
     const current = byEpisode.get(key)
     if (!current || isBetterRelease(r, current))
       byEpisode.set(key, r)
   }
-  return [...byEpisode.values()]
+  return [
+    ...byEpisode.values(),
+  ]
 }

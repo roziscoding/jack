@@ -53,7 +53,9 @@ export class DownloadsService {
     coordinator?: DownloadOperationCoordinator,
   ) {
     this.semaphore = new Semaphore(config.maxConcurrentDownloads)
-    this.coordinator = coordinator ?? (downloadsRepository ? coordinatorFor(downloadsRepository) : undefined)
+    this.coordinator = coordinator ?? (downloadsRepository
+      ? coordinatorFor(downloadsRepository)
+      : undefined)
   }
 
   private get peers() {
@@ -181,7 +183,9 @@ export class DownloadsService {
       outcome = await this.createDownload({ ...input, torrentFilename })
     }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       logger.error({ peerId: input.peerId, itemId: input.itemId, error: message }, 'Failed to create qB download')
       return 'failed'
     }
@@ -191,7 +195,9 @@ export class DownloadsService {
     if (outcome.kind === 'duplicate')
       return 'duplicate'
     void this.enqueue(outcome.record).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       logger.error({ itemId: input.itemId, error: message }, 'qB download failed')
     })
     return 'started'
@@ -223,7 +229,9 @@ export class DownloadsService {
       })
     }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       logger.error({ peerId: input.peerId, itemId: input.itemId, error: message }, 'Failed to create direct download')
       return 'failed'
     }
@@ -232,7 +240,9 @@ export class DownloadsService {
     if (outcome.kind === 'duplicate')
       return 'duplicate'
     void this.enqueue(outcome.record).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       logger.error({ itemId: input.itemId, error: message }, 'Direct download failed')
     })
     return 'started'
@@ -260,7 +270,9 @@ export class DownloadsService {
     for (const record of resumable) {
       // Fire-and-forget: the semaphore caps concurrency.
       void this.enqueue(record).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = err instanceof Error
+          ? err.message
+          : String(err)
         logger.error({ torrentFilename: record.torrentFilename, error: message }, 'Failed to resume stale download')
       })
     }
@@ -310,7 +322,9 @@ export class DownloadsService {
       throw new ConflictError(`Download ${id} is already active`)
     repo.markTransferStarted(id)
     void this.enqueue(record).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       logger.error({ id, error: message }, 'Retried download failed')
     })
     return repo.get(id) ?? record
@@ -321,7 +335,10 @@ export class DownloadsService {
     const record = repo.get(id)
     if (!record)
       throw new NotFoundError(`Download ${id} not found`)
-    const paths = [resolve(record.partPath), resolve(record.destPath)]
+    const paths = [
+      resolve(record.partPath),
+      resolve(record.destPath),
+    ]
     const operation = async () => {
       const current = repo.get(id)
       if (!current)
@@ -350,7 +367,9 @@ export class DownloadsService {
       await this.semaphore.run(() => this.downloadWithRetry(record, controller.signal), controller.signal)
     }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       this.downloadsRepository?.markFailed(record.id, transferErrorCode(err, controller.signal), message, 'transfer')
     }
     finally {
@@ -404,7 +423,12 @@ export class DownloadsService {
         isRetryable: isTransientDownloadError,
         retryAfterMs: downloadRetryAfterMs,
         onRetry: ({ attempt, delayMs, error }) => {
-          logger.warn({ torrentFilename: record.torrentFilename, attempt, delayMs, ...transferErrorLogFields(error) }, 'Retrying peer download after transient failure')
+          logger.warn({
+            torrentFilename: record.torrentFilename,
+            attempt,
+            delayMs,
+            ...transferErrorLogFields(error),
+          }, 'Retrying peer download after transient failure')
         },
         signal,
       })
@@ -414,11 +438,19 @@ export class DownloadsService {
       logger.info({ torrentFilename: record.torrentFilename, filename: record.filename }, 'Download complete')
     }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       // The .part file is preserved by downloadFile on failure, so a later
       // restart re-enqueue can resume from it.
-      repo?.markFailed(record.id, transferErrorCode(err, signal), message, 'transfer', err instanceof FileSystemError ? err.details : null)
-      logger.error({ torrentFilename: record.torrentFilename, filename: record.filename, ...transferErrorLogFields(err, signal) }, 'Download failed')
+      repo?.markFailed(record.id, transferErrorCode(err, signal), message, 'transfer', err instanceof FileSystemError
+        ? err.details
+        : null)
+      logger.error({
+        torrentFilename: record.torrentFilename,
+        filename: record.filename,
+        ...transferErrorLogFields(err, signal),
+      }, 'Download failed')
     }
   }
 }

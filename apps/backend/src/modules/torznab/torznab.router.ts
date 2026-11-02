@@ -81,8 +81,12 @@ function itemToObject(item: TorznabItem): Record<string, any> {
   if (item.episode != null)
     attrs.push({ '@name': 'episode', '@value': item.episode })
 
-  const pubDate = item.publishDate ? new Date(item.publishDate) : new Date()
-  const pubDateStr = Number.isNaN(pubDate.getTime()) ? new Date().toUTCString() : pubDate.toUTCString()
+  const pubDate = item.publishDate
+    ? new Date(item.publishDate)
+    : new Date()
+  const pubDateStr = Number.isNaN(pubDate.getTime())
+    ? new Date().toUTCString()
+    : pubDate.toUTCString()
 
   return {
     'title': item.title,
@@ -131,20 +135,72 @@ export function getTorznabRouter(controller: TorznabController) {
     tags: ['Torznab'],
     summary: 'Torznab entrypoint',
     description: 'Single Torznab endpoint dispatching on the `t` query param: `caps` (capabilities), `search` (catalog/RSS), `movie` (imdbid/tmdbid), and `tvsearch` (tvdbid + season/ep). Id searches fan out to every configured peer; text (`q`) searches return empty results by design.',
-    security: [{ apikey: [] }],
+    security: [
+      { apikey: [] },
+    ],
     parameters: [
-      { name: 't', in: 'query', required: true, schema: { type: 'string', enum: ['caps', 'search', 'movie', 'tvsearch'] }, description: 'Torznab function to run' },
-      { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Free-text term. Non-empty terms return empty results; jack only searches by id.' },
-      { name: 'cat', in: 'query', schema: { type: 'string' }, description: 'Comma-separated Torznab category ids (2000 Movies, 5000 TV; subcategories roll up)' },
-      { name: 'imdbid', in: 'query', schema: { type: 'string' }, description: 'IMDb id for movie search' },
-      { name: 'tmdbid', in: 'query', schema: { type: 'string' }, description: 'TMDB id for movie search' },
-      { name: 'tvdbid', in: 'query', schema: { type: 'string' }, description: 'TVDB id for TV search' },
-      { name: 'season', in: 'query', schema: { type: 'string' }, description: 'Season number for TV search' },
-      { name: 'ep', in: 'query', schema: { type: 'string' }, description: 'Episode number for TV search' },
+      {
+        name: 't',
+        in: 'query',
+        required: true,
+        schema: {
+          type: 'string',
+          enum: ['caps', 'search', 'movie', 'tvsearch'],
+        },
+        description: 'Torznab function to run',
+      },
+      {
+        name: 'q',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Free-text term. Non-empty terms return empty results; jack only searches by id.',
+      },
+      {
+        name: 'cat',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Comma-separated Torznab category ids (2000 Movies, 5000 TV; subcategories roll up)',
+      },
+      {
+        name: 'imdbid',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'IMDb id for movie search',
+      },
+      {
+        name: 'tmdbid',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'TMDB id for movie search',
+      },
+      {
+        name: 'tvdbid',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'TVDB id for TV search',
+      },
+      {
+        name: 'season',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Season number for TV search',
+      },
+      {
+        name: 'ep',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Episode number for TV search',
+      },
     ],
     responses: {
-      200: { description: 'Torznab XML: caps document or an RSS feed of releases', content: { 'application/xml': {} } },
-      400: { description: 'Torznab XML error envelope (missing or unknown `t`)', content: { 'application/xml': {} } },
+      200: {
+        description: 'Torznab XML: caps document or an RSS feed of releases',
+        content: { 'application/xml': {} },
+      },
+      400: {
+        description: 'Torznab XML error envelope (missing or unknown `t`)',
+        content: { 'application/xml': {} },
+      },
     },
   }), async (c) => {
     const t = c.req.query('t')
@@ -171,7 +227,9 @@ export function getTorznabRouter(controller: TorznabController) {
       // self-test, which *arr requires to return results).
       case 'search': {
         const q = c.req.query('q')?.trim()
-        const items = q ? [] : await controller.catalog(apiKey)
+        const items = q
+          ? []
+          : await controller.catalog(apiKey)
         const body = buildSearchResultXml(filterByCategory(items, c.req.query('cat')))
         return xml(c, body)
       }
@@ -181,10 +239,14 @@ export function getTorznabRouter(controller: TorznabController) {
         const imdbId = c.req.query('imdbid')
         const q = c.req.query('q')?.trim()
         let items: TorznabItem[]
-        if (tmdbId || imdbId)
+        if (tmdbId || imdbId) {
           items = await controller.searchMovie({ tmdbId, imdbId }, apiKey)
-        else
-          items = q ? [] : await controller.catalog(apiKey)
+        }
+        else {
+          items = q
+            ? []
+            : await controller.catalog(apiKey)
+        }
         const body = buildSearchResultXml(filterByCategory(items, c.req.query('cat')))
         return xml(c, body)
       }
@@ -198,13 +260,19 @@ export function getTorznabRouter(controller: TorznabController) {
           const ep = c.req.query('ep')
           items = await controller.searchTv(
             tvdbId,
-            season ? Number(season) : undefined,
-            ep ? Number(ep) : undefined,
+            season
+              ? Number(season)
+              : undefined,
+            ep
+              ? Number(ep)
+              : undefined,
             apiKey,
           )
         }
         else {
-          items = q ? [] : await controller.catalog(apiKey)
+          items = q
+            ? []
+            : await controller.catalog(apiKey)
         }
         const body = buildSearchResultXml(filterByCategory(items, c.req.query('cat')))
         return xml(c, body)
