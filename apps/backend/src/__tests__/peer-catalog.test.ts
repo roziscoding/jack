@@ -330,6 +330,16 @@ describe('GET /peer/search from the catalog cache', () => {
     })
   }
 
+  test('asks the sources until every enabled source has been read', async () => {
+    const { own, search, liveSearch } = serve(mock(async () => [matrixRelease]))
+    // Sonarr (empty) finished its first read; Radarr's is still running.
+    own.replaceSource('sonarr', new Map())
+
+    await search('?tmdbId=603')
+
+    expect(liveSearch).toHaveBeenCalled()
+  })
+
   test('asks the sources before the first sync', async () => {
     const { search, liveSearch } = serve(mock(async () => [matrixRelease]))
 

@@ -1,7 +1,6 @@
 CREATE TABLE `own_catalog_meta` (
 	`id` integer PRIMARY KEY NOT NULL,
-	`generation` text NOT NULL,
-	`sources_read_at` text
+	`generation` text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `own_catalog_releases` (
@@ -23,6 +22,11 @@ CREATE INDEX `own_catalog_releases_title_key_idx` ON `own_catalog_releases` (`ti
 CREATE INDEX `own_catalog_releases_tmdb_id_idx` ON `own_catalog_releases` (`tmdb_id`);--> statement-breakpoint
 CREATE INDEX `own_catalog_releases_imdb_id_idx` ON `own_catalog_releases` (`imdb_id`);--> statement-breakpoint
 CREATE INDEX `own_catalog_releases_tvdb_id_idx` ON `own_catalog_releases` (`tvdb_id`);--> statement-breakpoint
+CREATE TABLE `own_catalog_source_reads` (
+	`source_id` text PRIMARY KEY NOT NULL,
+	`read_at` text NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `own_catalog_source_titles` (
 	`source_id` text NOT NULL,
 	`title_key` text NOT NULL,

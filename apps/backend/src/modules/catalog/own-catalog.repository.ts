@@ -3,7 +3,7 @@ import type { PeerCatalogResponse, PeerCatalogTitle } from '../../lib/peer-catal
 import type { Release } from '../../lib/release'
 import type { PeerCatalogDiff } from './catalog.lib'
 import { and, eq, gt, inArray, max, notInArray } from 'drizzle-orm'
-import { ownCatalogMeta, ownCatalogReleases, ownCatalogSourceTitles, ownCatalogTitles } from '../../database/schema'
+import { ownCatalogMeta, ownCatalogReleases, ownCatalogSourceReads, ownCatalogSourceTitles, ownCatalogTitles } from '../../database/schema'
 import { normalizeImdbId, ReleaseCategory } from '../../lib/release'
 import { DELETE_CHUNK_SIZE, titleColumns, titleFromRow } from './catalog-cache.repository'
 import { diffPeerCatalog, mergeTitle } from './catalog.lib'
@@ -86,12 +86,19 @@ export class OwnCatalogRepository {
    * otherwise the whole source is. Only rows that changed are written.
    */
   replaceSource(sourceId: string, entries: Map<string, OwnCatalogEntry>, onlyKeys?: string[]): void {
-    // Make sure the meta row exists before recording the read in it.
-    this.generation()
     this.db.transaction((tx) => {
-      tx.update(ownCatalogMeta).set({
-        sourcesReadAt: new Date().toISOString(),
-      }).where(eq(ownCatalogMeta.id, 1)).run()
+      // Only a full read makes this source's cache complete enough to answer
+      // searches; a single-title refresh doesn't.
+      if (!onlyKeys) {
+        const readAt = new Date().toISOString()
+        tx.insert(ownCatalogSourceReads)
+          .values({ sourceId, readAt })
+          .onConflictDoUpdate({
+            target: ownCatalogSourceReads.sourceId,
+            set: { readAt },
+          })
+          .run()
+      }
       const scope = onlyKeys
         ? and(eq(ownCatalogSourceTitles.sourceId, sourceId), inArray(ownCatalogSourceTitles.titleKey, onlyKeys))
         : eq(ownCatalogSourceTitles.sourceId, sourceId)
@@ -129,10 +136,12 @@ export class OwnCatalogRepository {
       if (sourceIds.length === 0) {
         tx.delete(ownCatalogSourceTitles).run()
         tx.delete(ownCatalogReleases).run()
+        tx.delete(ownCatalogSourceReads).run()
         return
       }
       tx.delete(ownCatalogSourceTitles).where(notInArray(ownCatalogSourceTitles.sourceId, sourceIds)).run()
       tx.delete(ownCatalogReleases).where(notInArray(ownCatalogReleases.sourceId, sourceIds)).run()
+      tx.delete(ownCatalogSourceReads).where(notInArray(ownCatalogSourceReads.sourceId, sourceIds)).run()
     })
   }
 
@@ -234,13 +243,18 @@ export class OwnCatalogRepository {
    * Releases from `sourceIds` matching a `/peer/search` query, mirroring what the
    * sources answer live: a tmdb or imdb id finds movies, a tvdb id (optionally
    * narrowed to a season and episode) finds episodes, and no id lists everything.
-   * Null until a source has been read, so the caller asks the sources instead.
+   * Null while any of `sourceIds` hasn't been read in full yet (right after
+   * boot, or a source just added), so the caller asks the sources instead.
    */
   searchReleases(sourceIds: string[], params: ReleaseSearch): Release[] | null {
-    if (!this.db.select().from(ownCatalogMeta).where(eq(ownCatalogMeta.id, 1)).get()?.sourcesReadAt)
-      return null
     if (sourceIds.length === 0)
       return []
+    const read = this.db.select({ sourceId: ownCatalogSourceReads.sourceId })
+      .from(ownCatalogSourceReads)
+      .where(inArray(ownCatalogSourceReads.sourceId, sourceIds))
+      .all()
+    if (read.length < new Set(sourceIds).size)
+      return null
 
     let condition
     if (params.tmdbId) {

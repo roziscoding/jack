@@ -807,7 +807,9 @@ describe('catalogSyncService', () => {
     await sync.sync()
 
     expect(own.changesSince([]).titles).toEqual([])
-    expect(own.searchReleases(['radarr'], {})).toEqual([])
+    // Its releases are gone, and so is the record of having read it: if it comes
+    // back as a source, searches ask it until it has been read again.
+    expect(own.searchReleases(['radarr'], {})).toBeNull()
   })
 
   test('an emptied catalog is still answered from the cache', async () => {

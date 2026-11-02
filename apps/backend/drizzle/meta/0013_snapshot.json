@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "eaa57d45-c178-4268-8f20-7583ce45c634",
+  "id": "7a0a25df-a2e9-4f9a-b477-42d28d9a01fc",
   "prevId": "98a73f51-7c4b-4de6-9869-9a1939f29413",
   "tables": {
     "api_keys": {
@@ -386,13 +386,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "sources_read_at": {
-          "name": "sources_read_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {},
@@ -521,6 +514,30 @@
           "value": "\"own_catalog_releases\".\"media_type\" in ('movie', 'tv')"
         }
       }
+    },
+    "own_catalog_source_reads": {
+      "name": "own_catalog_source_reads",
+      "columns": {
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "own_catalog_source_titles": {
       "name": "own_catalog_source_titles",

@@ -146,10 +146,14 @@ export const peerCatalogSync = sqliteTable('peer_catalog_sync', {
 export const ownCatalogMeta = sqliteTable('own_catalog_meta', {
   id: integer('id').primaryKey(),
   generation: text('generation').notNull(),
-  // When a source was last read successfully; null before the first read, while
-  // `/peer/search` still asks the sources directly. An empty catalog that was
-  // read is a real answer.
-  sourcesReadAt: text('sources_read_at'),
+})
+
+// When each source was last read successfully. `/peer/search` answers from the
+// cache only once every enabled source has a row here; until then it asks the
+// sources directly. A source read as empty is a real answer.
+export const ownCatalogSourceReads = sqliteTable('own_catalog_source_reads', {
+  sourceId: text('source_id').primaryKey(),
+  readAt: text('read_at').notNull(),
 })
 
 // Each source's own titles as of its last successful read. The served catalog
