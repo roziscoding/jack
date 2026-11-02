@@ -6,7 +6,15 @@ const BASE_URL = process.env.JACK_URL ?? 'http://localhost:5225'
 const API_KEY = process.env.JACK_API_KEY ?? ''
 const BASE_HEADERS = JSON.parse(process.env.JACK_HEADERS ?? '{}') as Record<string, string>
 
-const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
+const HTTP_METHODS = new Set([
+  'GET',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'HEAD',
+  'OPTIONS',
+])
 
 // httpie-style request items, matched in priority order:
 //   key==value  -> query param
@@ -21,17 +29,29 @@ const ABSOLUTE_URL_RE = /^https?:\/\//
 
 // Minimal ANSI JSON highlighter — strings, keys, numbers, booleans, null.
 const JSON_TOKEN_RE = /"(?:\\.|[^"\\])*"(?:\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g
-const COLOR = { key: '\x1B[34m', string: '\x1B[32m', number: '\x1B[36m', boolean: '\x1B[33m', null: '\x1B[90m', reset: '\x1B[0m' }
+const COLOR = {
+  key: '\x1B[34m',
+  string: '\x1B[32m',
+  number: '\x1B[36m',
+  boolean: '\x1B[33m',
+  null: '\x1B[90m',
+  reset: '\x1B[0m',
+}
 
 function colorizeJson(json: string): string {
   return json.replace(JSON_TOKEN_RE, (token) => {
     let color = COLOR.number
-    if (token.startsWith('"'))
-      color = token.endsWith(':') ? COLOR.key : COLOR.string
-    else if (token === 'true' || token === 'false')
+    if (token.startsWith('"')) {
+      color = token.endsWith(':')
+        ? COLOR.key
+        : COLOR.string
+    }
+    else if (token === 'true' || token === 'false') {
       color = COLOR.boolean
-    else if (token === 'null')
+    }
+    else if (token === 'null') {
       color = COLOR.null
+    }
     return `${color}${token}${COLOR.reset}`
   })
 }
@@ -75,7 +95,9 @@ function parseItems(items: string[]): ParsedItems {
 }
 
 function buildUrl(path: string, query: Record<string, string>): URL {
-  const url = ABSOLUTE_URL_RE.test(path) ? new URL(path) : new URL(path, BASE_URL)
+  const url = ABSOLUTE_URL_RE.test(path)
+    ? new URL(path)
+    : new URL(path, BASE_URL)
   for (const [key, value] of Object.entries(query))
     url.searchParams.append(key, value)
   return url
@@ -83,8 +105,12 @@ function buildUrl(path: string, query: Record<string, string>): URL {
 
 async function request(method: string, url: URL, headers: Record<string, string>, body?: string) {
   const finalHeaders: Record<string, string> = {
-    ...(API_KEY ? { 'X-Api-Key': API_KEY } : {}),
-    ...(body != null ? { 'Content-Type': 'application/json' } : {}),
+    ...(API_KEY
+      ? { 'X-Api-Key': API_KEY }
+      : {}),
+    ...(body != null
+      ? { 'Content-Type': 'application/json' }
+      : {}),
     ...headers,
   }
 
@@ -97,7 +123,9 @@ async function request(method: string, url: URL, headers: Record<string, string>
     try {
       const pretty = JSON.stringify(JSON.parse(text), null, 2)
       // Colorize only for a terminal, so piped output stays valid JSON.
-      process.stdout.write(`${process.stdout.isTTY ? colorizeJson(pretty) : pretty}\n`)
+      process.stdout.write(`${process.stdout.isTTY
+        ? colorizeJson(pretty)
+        : pretty}\n`)
       if (!res.ok)
         process.exitCode = 1
       return
@@ -130,10 +158,18 @@ async function cmdApi(args: string[]) {
   const { query, headers, body } = parseItems(rest)
   const hasBody = Object.keys(body).length > 0
   method ??= hasBody ? 'POST' : 'GET'
-  await request(method, buildUrl(path, query), headers, hasBody ? JSON.stringify(body) : undefined)
+  await request(method, buildUrl(path, query), headers, hasBody
+    ? JSON.stringify(body)
+    : undefined)
 }
 
-const PEER_SEARCH_FLAGS = ['imdbId', 'tmdbId', 'tvdbId', 'season', 'episode']
+const PEER_SEARCH_FLAGS = [
+  'imdbId',
+  'tmdbId',
+  'tvdbId',
+  'season',
+  'episode',
+]
 
 function parseFlags(args: string[]): Record<string, string> {
   const out: Record<string, string> = {}
@@ -246,6 +282,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+  process.stderr.write(`error: ${err instanceof Error
+    ? err.message
+    : String(err)}\n`)
   process.exit(1)
 })

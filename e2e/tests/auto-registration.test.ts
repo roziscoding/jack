@@ -12,7 +12,9 @@ describe('Auto-registration (e2e)', () => {
   test('Jack Alpha does NOT register as indexer (source-only: no destination servers)', async () => {
     const indexers = await fetchJson<Array<{ name: string, fields: Array<{ name: string, value: unknown }> }>>(
       `${env.radarrUrl}/api/v3/indexer`,
-      { headers: { 'X-Api-Key': env.radarrApiKey } },
+      {
+        headers: { 'X-Api-Key': env.radarrApiKey },
+      },
     )
 
     const alphaIndexer = indexers.find(idx =>
@@ -25,7 +27,9 @@ describe('Auto-registration (e2e)', () => {
     const jackIndexer = await retry(async () => {
       const indexers = await fetchJson<Array<{ name: string, fields: Array<{ name: string, value: unknown }> }>>(
         `${env.radarrUrl}/api/v3/indexer`,
-        { headers: { 'X-Api-Key': env.radarrApiKey } },
+        {
+          headers: { 'X-Api-Key': env.radarrApiKey },
+        },
       )
 
       const registered = indexers.find(idx =>
@@ -44,7 +48,9 @@ describe('Auto-registration (e2e)', () => {
     const jackClient = await retry(async () => {
       const clients = await fetchJson<Array<{ name: string, implementation: string, fields: Array<{ name: string, value: unknown }> }>>(
         `${env.radarrUrl}/api/v3/downloadclient`,
-        { headers: { 'X-Api-Key': env.radarrApiKey } },
+        {
+          headers: { 'X-Api-Key': env.radarrApiKey },
+        },
       )
 
       const registered = clients.find(client =>

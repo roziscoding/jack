@@ -9,9 +9,15 @@ const hasFailure = computed(() => Boolean(props.download.error || props.download
 // With structured details, the explanation leads and the raw message is
 // redundant. Without them, the message's first line leads and the rest follows.
 const messageLines = computed(() => (props.download.error ?? '').split('\n').map(line => line.trim()).filter(Boolean))
-const headline = computed(() => details.value ? asSentence(details.value.explanation) : (messageLines.value[0] ?? ''))
-const extraLines = computed(() => details.value ? [] : messageLines.value.slice(1))
-const rows = computed(() => details.value ? inspectionRows(details.value) : [])
+const headline = computed(() => details.value
+  ? asSentence(details.value.explanation)
+  : (messageLines.value[0] ?? ''))
+const extraLines = computed(() => details.value
+  ? []
+  : messageLines.value.slice(1))
+const rows = computed(() => details.value
+  ? inspectionRows(details.value)
+  : [])
 
 const SIZE_SOURCES: Record<NonNullable<DownloadItem['expectedBytesSource']>, string> = {
   content_length: 'the peer (Content-Length)',
@@ -23,8 +29,11 @@ const requestedBy = computed(() => {
   const d = props.download
   if (d.importMode === 'jack_manual')
     return 'Catalog request'
-  if (d.qbSourceServer)
-    return d.qbCategory ? `${d.qbSourceServer}, category ${d.qbCategory}` : d.qbSourceServer
+  if (d.qbSourceServer) {
+    return d.qbCategory
+      ? `${d.qbSourceServer}, category ${d.qbCategory}`
+      : d.qbSourceServer
+  }
   return 'Unknown'
 })
 </script>

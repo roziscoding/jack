@@ -83,7 +83,9 @@ export function assertSameOrigin(event: H3Event): void {
 export async function probeUpstream(event: H3Event, key: string | null): Promise<{ reachable: boolean, status: number }> {
   try {
     const res = await fetch(upstreamUrl(event, '/ping'), {
-      headers: key ? { 'X-Management-Key': key } : {},
+      headers: key
+        ? { 'X-Management-Key': key }
+        : {},
     })
     return { reachable: true, status: res.status }
   }

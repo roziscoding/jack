@@ -37,7 +37,9 @@ function attrValue(item: Record<string, any>, name: string): unknown {
 
 describe('Torznab XML helpers', () => {
   test('buildSearchResultXml returns RSS with items', () => {
-    const result = buildSearchResultXml([releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
+    const result = buildSearchResultXml([
+      releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY),
+    ])
     expect(result.rss['@version']).toBe('2.0')
     expect(result.rss['@xmlns:torznab']).toContain('torznab')
 
@@ -57,7 +59,9 @@ describe('Torznab XML helpers', () => {
   test('buildSearchResultXml tags every item as an internal release', () => {
     // *arr's TorznabRssParser maps `tag=internal` to the Internal indexer flag,
     // so a custom format (IndexerFlagSpecification) can target Jack releases.
-    const result = buildSearchResultXml([releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
+    const result = buildSearchResultXml([
+      releaseToTorznab(movieRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY),
+    ])
     const tags = (result.rss.channel.item[0]['torznab:attr'] as Array<Record<string, any>>)
       .filter(a => a['@name'] === 'tag')
       .map(a => a['@value'])
@@ -65,7 +69,9 @@ describe('Torznab XML helpers', () => {
   })
 
   test('buildSearchResultXml emits tv attrs for episodes', () => {
-    const result = buildSearchResultXml([releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY)])
+    const result = buildSearchResultXml([
+      releaseToTorznab(episodeRelease, 'peer1', 'Friend', 'http://localhost:3000', JACK_API_KEY),
+    ])
     const item = result.rss.channel.item[0]
     expect(attrValue(item, 'category')).toBe(5000)
     expect(attrValue(item, 'tvdbid')).toBe(654321)
@@ -93,7 +99,9 @@ describe('Torznab XML helpers', () => {
       size: 100,
     }
 
-    const result = buildSearchResultXml([releaseToTorznab(release, 'peer1', undefined, 'http://localhost', JACK_API_KEY)])
+    const result = buildSearchResultXml([
+      releaseToTorznab(release, 'peer1', undefined, 'http://localhost', JACK_API_KEY),
+    ])
     expect(result.rss.channel.item[0].title).toBe('Movie <with> "special" & \'chars\'')
   })
 })
@@ -116,20 +124,26 @@ describe('TorznabController embeds the requester key in download URLs', () => {
   }
 
   test('searchMovie embeds the passed request key, not the main key', async () => {
-    const controller = new TorznabController(() => [fakePeer([movieRelease])], jackConfig)
+    const controller = new TorznabController(() => [
+      fakePeer([movieRelease]),
+    ], jackConfig)
     const items = await controller.searchMovie({ tmdbId: '12345' }, 'jack_managed_abc')
     expect(items).toHaveLength(1)
     expect(new URL(items[0]!.downloadUrl).searchParams.get('apikey')).toBe('jack_managed_abc')
   })
 
   test('searchTv embeds the passed request key', async () => {
-    const controller = new TorznabController(() => [fakePeer([episodeRelease])], jackConfig)
+    const controller = new TorznabController(() => [
+      fakePeer([episodeRelease]),
+    ], jackConfig)
     const items = await controller.searchTv('654321', 1, 2, 'jack_managed_tv')
     expect(new URL(items[0]!.downloadUrl).searchParams.get('apikey')).toBe('jack_managed_tv')
   })
 
   test('catalog embeds the passed request key', async () => {
-    const controller = new TorznabController(() => [fakePeer([movieRelease])], jackConfig)
+    const controller = new TorznabController(() => [
+      fakePeer([movieRelease]),
+    ], jackConfig)
     const items = await controller.catalog('jack_managed_xyz')
     expect(new URL(items[0]!.downloadUrl).searchParams.get('apikey')).toBe('jack_managed_xyz')
   })

@@ -47,7 +47,9 @@ export async function retry<T>(fn: () => Promise<T>, opts?: { retries?: number, 
       return await fn()
     }
     catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
+      lastError = err instanceof Error
+        ? err
+        : new Error(String(err))
       if (i < retries - 1)
         await Bun.sleep(delay)
     }
@@ -60,7 +62,9 @@ export async function fetchJson<T = unknown>(url: string, opts?: RequestInit): P
   const res = await fetch(url, opts)
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`${res.status} ${res.statusText}: ${url}${body ? ` — ${body.slice(0, 500)}` : ''}`)
+    throw new Error(`${res.status} ${res.statusText}: ${url}${body
+      ? ` — ${body.slice(0, 500)}`
+      : ''}`)
   }
   return res.json() as Promise<T>
 }

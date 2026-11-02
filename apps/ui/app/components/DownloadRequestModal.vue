@@ -6,7 +6,10 @@ const emit = defineEmits<{ 'update:open': [boolean], 'confirm': [CatalogRequestP
 
 // Codebase convention (see settings.vue) is a computed get/set bridge for v-model,
 // not defineModel (which this app does not use).
-const open = computed({ get: () => props.open, set: v => emit('update:open', v) })
+const open = computed({
+  get: () => props.open,
+  set: v => emit('update:open', v),
+})
 
 const { request } = useManagement()
 const { data, pending } = await useAsyncData('request-options', () =>
@@ -27,7 +30,10 @@ const server = computed(() => candidates.value.find(s => s.id === serverId.value
 // Honor a peer picked from the detail view's per-peer cards (lockedPeerId); otherwise
 // reset to the first peer whenever the title changes, so a multi-peer title always
 // opens on its first peer regardless of a prior selection (matches the AC).
-watch([() => props.title?.key, () => props.lockedPeerId], () => {
+watch([
+  () => props.title?.key,
+  () => props.lockedPeerId,
+], () => {
   peerId.value = props.lockedPeerId ?? peers.value[0]?.id
 }, { immediate: true })
 

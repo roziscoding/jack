@@ -13,8 +13,15 @@ function apiKeysDoc(summary: string, description?: string, status = 200) {
     tags: ['API keys'],
     summary,
     description,
-    security: [{ 'X-Management-Key': [] }],
-    responses: { [status]: { description: 'Success', content: { 'application/json': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      [status]: {
+        description: 'Success',
+        content: { 'application/json': {} },
+      },
+    },
   })
 }
 

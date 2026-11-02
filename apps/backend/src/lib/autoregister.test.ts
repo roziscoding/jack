@@ -54,7 +54,9 @@ describe('registerManagedForDestination', () => {
   test('partial failure (indexer fails) keeps both old and new keys', async () => {
     const old = service.provision('srv-a')
     await registerManagedForDestination(
-      stubDest({ registerIndexer: async () => { throw new Error('boom') } }),
+      stubDest({
+        registerIndexer: async () => { throw new Error('boom') },
+      }),
       deps(),
     )
     const ids = repo.findByServerId('srv-a').map(r => r.id)
@@ -65,7 +67,9 @@ describe('registerManagedForDestination', () => {
   test('partial failure (download client fails) keeps both old and new keys', async () => {
     const old = service.provision('srv-a')
     await registerManagedForDestination(
-      stubDest({ registerDownloadClient: async () => { throw new Error('dc') } }),
+      stubDest({
+        registerDownloadClient: async () => { throw new Error('dc') },
+      }),
       deps(),
     )
     const ids = repo.findByServerId('srv-a').map(r => r.id)
@@ -88,8 +92,13 @@ describe('registerManagedForDestination', () => {
   test('downloads disabled + indexer failure discards the new key', async () => {
     const old = service.provision('srv-a')
     await registerManagedForDestination(
-      stubDest({ registerIndexer: async () => { throw new Error('ix') } }),
-      { ...deps(), downloads: false },
+      stubDest({
+        registerIndexer: async () => { throw new Error('ix') },
+      }),
+      {
+        ...deps(),
+        downloads: false,
+      },
     )
     expect(repo.findByServerId('srv-a').map(r => r.id)).toEqual([old.id])
   })

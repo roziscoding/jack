@@ -6,7 +6,12 @@ const { state, logout } = useAuth()
 // Peers and *arr servers are managed as sections under Settings, so the nav is
 // just the three live views plus configuration.
 const items: NavigationMenuItem[] = [
-  { label: 'Dashboard', icon: 'i-ph-gauge', to: '/', exact: true },
+  {
+    label: 'Dashboard',
+    icon: 'i-ph-gauge',
+    to: '/',
+    exact: true,
+  },
   { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
   { label: 'Peer Catalog', icon: 'i-ph-film-reel', to: '/catalog' },
   { label: 'Logs', icon: 'i-ph-scroll', to: '/logs' },

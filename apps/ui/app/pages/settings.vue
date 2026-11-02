@@ -141,7 +141,9 @@ function expiryInfo(key: ApiKey): { label: string, color: BadgeProps['color'] } 
 // One muted meta line per key: its description (if any) then when it was created.
 function keyMeta(key: ApiKey): string {
   const created = `Created ${formatAgo(key.createdAt)} ago`
-  return key.description ? `${key.description} · ${created}` : created
+  return key.description
+    ? `${key.description} · ${created}`
+    : created
 }
 
 function openAdd() {

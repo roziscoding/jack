@@ -29,7 +29,13 @@ function seed(repo: DownloadsRepository, peerId: string, filename: string) {
     destPath: `/tmp/${filename}`,
     partPath: `/tmp/${filename}.part`,
     releaseSize: 1,
-    release: { id: 'r', title: filename, filename, category: 2000, size: 1 } as any,
+    release: {
+      id: 'r',
+      title: filename,
+      filename,
+      category: 2000,
+      size: 1,
+    } as any,
   })
 }
 

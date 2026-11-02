@@ -9,12 +9,19 @@ type SpanAttributes = Record<string, unknown>
 const tracer = trace.getTracer('jack-backend')
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  return err instanceof Error
+    ? err.message
+    : String(err)
 }
 
 function recordSpanError(span: Span, err: unknown) {
-  span.recordException(err instanceof Error ? err : String(err))
-  span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage(err) })
+  span.recordException(err instanceof Error
+    ? err
+    : String(err))
+  span.setStatus({
+    code: SpanStatusCode.ERROR,
+    message: errorMessage(err),
+  })
 }
 
 export async function withSpan<T>(
@@ -22,7 +29,9 @@ export async function withSpan<T>(
   attributes: SpanAttributes,
   fn: (span: Span) => Promise<T> | T,
 ): Promise<T> {
-  return tracer.startActiveSpan(name, { attributes: sanitizeAttributes(attributes) }, async (span) => {
+  return tracer.startActiveSpan(name, {
+    attributes: sanitizeAttributes(attributes),
+  }, async (span) => {
     try {
       const result = await fn(span)
       span.setStatus({ code: SpanStatusCode.OK })

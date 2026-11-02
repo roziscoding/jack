@@ -53,8 +53,18 @@ describe('errorCodeGroups', () => {
       { errorCode: 'DISK_FULL' },
       { errorCode: null },
     ])).toEqual([
-      { group: 'Download file', codes: [{ code: 'DISK_FULL', count: 2 }] },
-      { group: 'Import', codes: [{ code: 'IMPORT_REJECTED', count: 1 }] },
+      {
+        group: 'Download file',
+        codes: [
+          { code: 'DISK_FULL', count: 2 },
+        ],
+      },
+      {
+        group: 'Import',
+        codes: [
+          { code: 'IMPORT_REJECTED', count: 1 },
+        ],
+      },
     ])
   })
 })
@@ -68,7 +78,16 @@ describe('inspectionRows', () => {
       operation: 'moving the completed .part into place',
       occurred_at: '2026-11-02T12:00:00.000Z',
       destination_dir: { path: '/media', exists: false, stat_error: 'ENOENT' },
-      file: { path: '/dl/a.part', exists: true, type: 'file', mode: '-rw-r--r--', mode_octal: '0644', uid: 1000, gid: 1000, size_bytes: 3 },
+      file: {
+        path: '/dl/a.part',
+        exists: true,
+        type: 'file',
+        mode: '-rw-r--r--',
+        mode_octal: '0644',
+        uid: 1000,
+        gid: 1000,
+        size_bytes: 3,
+      },
     }
     expect(inspectionRows(details).map(row => [row.label, row.entry.path])).toEqual([
       ['File', '/dl/a.part'],

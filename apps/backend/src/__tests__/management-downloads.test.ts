@@ -22,7 +22,13 @@ function setup() {
     destPath: '/tmp/one.mkv',
     partPath: '/tmp/one.mkv.part',
     releaseSize: 10,
-    release: { id: 'r', title: 'one', filename: 'one.mkv', category: 2000, size: 10 } as any,
+    release: {
+      id: 'r',
+      title: 'one',
+      filename: 'one.mkv',
+      category: 2000,
+      size: 10,
+    } as any,
   })
   const cancel = mock(async (id: number) => repository.get(id)!)
   const retryTransfer = mock((id: number) => repository.get(id)!)
@@ -37,7 +43,16 @@ function setup() {
     downloadsService,
     importWatcher: { retry: retryImport } as any,
   })
-  return { app, cancel, retryTransfer, retryImport, deleteDownload, repository, row, sqlite }
+  return {
+    app,
+    cancel,
+    retryTransfer,
+    retryImport,
+    deleteDownload,
+    repository,
+    row,
+    sqlite,
+  }
 }
 
 describe('management download actions', () => {

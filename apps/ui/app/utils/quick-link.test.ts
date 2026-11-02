@@ -39,17 +39,65 @@ describe('decodeQuickLink', () => {
 
   test.each([
     ['wrong prefix', 'https://jack.friend.example'],
-    ['unsupported version', link({ ...validPayload, v: 2 })],
-    ['unsupported type', link({ ...validPayload, type: 'server' })],
-    ['invalid URL scheme', link({ ...validPayload, url: 'file:///etc/passwd' })],
-    ['URL username credentials', link({ ...validPayload, url: 'https://user@jack.friend.example' })],
-    ['URL password credentials', link({ ...validPayload, url: 'https://user:password@jack.friend.example' })],
-    ['empty API key', link({ ...validPayload, apiKey: '' })],
-    ['non-string header', link({ ...validPayload, headers: { Test: 42 } })],
-    ['reserved API key header', link({ ...validPayload, headers: { 'x-api-key': 'override' } })],
-    ['hop-by-hop header', link({ ...validPayload, headers: { Connection: 'close' } })],
-    ['header value with line breaks', link({ ...validPayload, headers: { Authorization: 'safe\r\nInjected: value' } })],
-    ['case-insensitive duplicate headers', link({ ...validPayload, headers: { Authorization: 'first', authorization: 'second' } })],
+    [
+      'unsupported version',
+      link({ ...validPayload, v: 2 }),
+    ],
+    [
+      'unsupported type',
+      link({ ...validPayload, type: 'server' }),
+    ],
+    [
+      'invalid URL scheme',
+      link({ ...validPayload, url: 'file:///etc/passwd' }),
+    ],
+    [
+      'URL username credentials',
+      link({ ...validPayload, url: 'https://user@jack.friend.example' }),
+    ],
+    [
+      'URL password credentials',
+      link({ ...validPayload, url: 'https://user:password@jack.friend.example' }),
+    ],
+    [
+      'empty API key',
+      link({ ...validPayload, apiKey: '' }),
+    ],
+    [
+      'non-string header',
+      link({
+        ...validPayload,
+        headers: { Test: 42 },
+      }),
+    ],
+    [
+      'reserved API key header',
+      link({
+        ...validPayload,
+        headers: { 'x-api-key': 'override' },
+      }),
+    ],
+    [
+      'hop-by-hop header',
+      link({
+        ...validPayload,
+        headers: { Connection: 'close' },
+      }),
+    ],
+    [
+      'header value with line breaks',
+      link({
+        ...validPayload,
+        headers: { Authorization: 'safe\r\nInjected: value' },
+      }),
+    ],
+    [
+      'case-insensitive duplicate headers',
+      link({
+        ...validPayload,
+        headers: { Authorization: 'first', authorization: 'second' },
+      }),
+    ],
   ])('rejects %s', (_case, input) => {
     expect(() => decodeQuickLink(input)).toThrow()
   })

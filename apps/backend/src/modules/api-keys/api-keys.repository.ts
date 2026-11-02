@@ -71,9 +71,15 @@ export class ApiKeysRepository {
   update(id: number, input: UpdateApiKeyInput): ApiKeyRow | null {
     return this.db.update(apiKeys)
       .set({
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.description !== undefined ? { description: input.description } : {}),
-        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+        ...(input.name !== undefined
+          ? { name: input.name }
+          : {}),
+        ...(input.description !== undefined
+          ? { description: input.description }
+          : {}),
+        ...(input.expiresAt !== undefined
+          ? { expiresAt: input.expiresAt }
+          : {}),
         updatedAt: nowIso(),
       })
       .where(eq(apiKeys.id, id))

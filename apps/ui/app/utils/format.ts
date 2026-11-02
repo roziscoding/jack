@@ -6,7 +6,9 @@ export function formatBytes(bytes: number | null | undefined): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
   const value = bytes / 1024 ** exponent
-  return `${value.toFixed(value >= 100 || exponent === 0 ? 0 : 1)} ${units[exponent]}`
+  return `${value.toFixed(value >= 100 || exponent === 0
+    ? 0
+    : 1)} ${units[exponent]}`
 }
 
 export function formatPercent(fraction: number | null | undefined): string {
@@ -46,7 +48,9 @@ export function formatDurationMs(ms: number | null | undefined): string {
   // Round first, then drop a trailing ".0" — otherwise 59_999 ms reads "60.0 s".
   const trim = (n: number) => {
     const rounded = Math.round(n * 10) / 10
-    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+    return Number.isInteger(rounded)
+      ? String(rounded)
+      : rounded.toFixed(1)
   }
   if (ms < 1000)
     return `${ms} ms`

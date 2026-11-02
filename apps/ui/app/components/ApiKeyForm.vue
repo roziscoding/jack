@@ -28,7 +28,9 @@ const state = reactive({
   // An existing key already carries an absolute instant, so editing always lands in
   // "custom" with that date prefilled; new keys default to never-expiring.
   preset: (props.initial?.expiresAt ? 'custom' : 'never') as Preset,
-  customAt: props.initial?.expiresAt ? toDatetimeLocal(props.initial.expiresAt) : '',
+  customAt: props.initial?.expiresAt
+    ? toDatetimeLocal(props.initial.expiresAt)
+    : '',
 })
 
 // datetime-local wants local wall-clock `YYYY-MM-DDTHH:mm`, not an ISO instant.
@@ -45,11 +47,17 @@ const nowLocal = computed(() => toDatetimeLocal(new Date().toISOString()))
 function validate(s: typeof state): FormError[] {
   if (s.preset !== 'custom')
     return []
-  if (!s.customAt)
-    return [{ name: 'customAt', message: 'Pick an expiration date.' }]
+  if (!s.customAt) {
+    return [
+      { name: 'customAt', message: 'Pick an expiration date.' },
+    ]
+  }
   const t = new Date(s.customAt).getTime()
-  if (Number.isNaN(t) || t <= Date.now())
-    return [{ name: 'customAt', message: 'Pick a date in the future.' }]
+  if (Number.isNaN(t) || t <= Date.now()) {
+    return [
+      { name: 'customAt', message: 'Pick a date in the future.' },
+    ]
+  }
   return []
 }
 

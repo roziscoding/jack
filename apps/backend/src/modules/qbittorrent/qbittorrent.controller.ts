@@ -130,7 +130,11 @@ export class QbittorrentController {
 
   torrentFiles(hash: string): { name: string }[] {
     const record = this.findByHash(hash)
-    return record ? [{ name: record.filename }] : []
+    return record
+      ? [
+          { name: record.filename },
+        ]
+      : []
   }
 
   /**
@@ -213,7 +217,9 @@ export class QbittorrentController {
   // shared release yields the SAME infohash across servers, an unscoped delete
   // could remove another server's (or a blackhole) row.
   async deleteTorrents(session: QbSession, hashesParam: string, deleteFiles: boolean): Promise<void> {
-    const mine = (r: DownloadRecord) => r.sourceServerId ? r.sourceServerId === session.serverId : r.qbSourceServer === session.serverName
+    const mine = (r: DownloadRecord) => r.sourceServerId
+      ? r.sourceServerId === session.serverId
+      : r.qbSourceServer === session.serverName
     const records = hashesParam === 'all'
       ? this.deps.repository.list().filter(mine)
       : hashesParam.split('|').flatMap(h => this.findAllByHash(h)).filter(mine)
@@ -229,8 +235,11 @@ export class QbittorrentController {
   setCategory(session: QbSession, hashes: string[], category: string): void {
     for (const hash of hashes) {
       for (const record of this.findAllByHash(hash)) {
-        if (record.sourceServerId ? record.sourceServerId === session.serverId : record.qbSourceServer === session.serverName)
+        if (record.sourceServerId
+          ? record.sourceServerId === session.serverId
+          : record.qbSourceServer === session.serverName) {
           this.deps.repository.setQbCategory(record.id, category)
+        }
       }
     }
   }

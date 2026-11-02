@@ -32,7 +32,10 @@ export const Release = z.object({
   title: z.string(),
   // The real file basename, with extension — used to name the completed download.
   filename: z.string(),
-  category: z.union([z.literal(2000), z.literal(5000)]),
+  category: z.union([
+    z.literal(2000),
+    z.literal(5000),
+  ]),
   size: z.number(),
   imdbId: z.string().optional(),
   tmdbId: z.number().optional(),

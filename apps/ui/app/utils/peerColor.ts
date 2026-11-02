@@ -44,7 +44,9 @@ function paletteFor(id: string): PeerColor {
 // across restarts; a peer's color only shifts when the set of peers itself changes.
 export function buildPeerColorMap(ids: Iterable<string>): Map<string, PeerColor> {
   const map = new Map<string, PeerColor>()
-  const unique = [...new Set(ids)].sort()
+  const unique = [
+    ...new Set(ids),
+  ].sort()
   unique.forEach((id, i) => {
     map.set(id, PEER_PALETTE[i % PEER_PALETTE.length]!)
   })

@@ -25,7 +25,9 @@ const state = reactive({
   destination: props.initial?.destination ?? true,
   autoEnable: props.initial?.autoregister?.enable ?? true,
   autoPriority: props.initial?.autoregister?.priority ?? 1,
-  headers: { ...(props.initial?.headers ?? {}) } as Record<string, SecretRef>,
+  headers: {
+    ...(props.initial?.headers ?? {}),
+  } as Record<string, SecretRef>,
 })
 
 function validate(s: typeof state): FormError[] {

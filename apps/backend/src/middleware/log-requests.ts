@@ -52,7 +52,9 @@ function queryToRecord(url: string): Record<string, string | string[]> {
 
   for (const key of params.keys()) {
     const values = params.getAll(key)
-    record[key] = values.length > 1 ? values : values[0] ?? ''
+    record[key] = values.length > 1
+      ? values
+      : values[0] ?? ''
   }
 
   return record
@@ -78,11 +80,23 @@ function setFlattenedAttributes(span: Span, prefix: string, record: Record<strin
 }
 
 function emptyBody(size: string): CapturedBody {
-  return { text: '', truncated: false, readable: true, omitted: false, size }
+  return {
+    text: '',
+    truncated: false,
+    readable: true,
+    omitted: false,
+    size,
+  }
 }
 
 function omittedBody(size: string): CapturedBody {
-  return { text: OMITTED_BINARY_BODY, truncated: false, readable: true, omitted: true, size }
+  return {
+    text: OMITTED_BINARY_BODY,
+    truncated: false,
+    readable: true,
+    omitted: true,
+    size,
+  }
 }
 
 async function readBody(stream: ReadableStream<Uint8Array> | null, size: string, maxBytes = MAX_CAPTURED_BODY_BYTES): Promise<CapturedBody> {
@@ -137,7 +151,13 @@ async function captureBody(body: ReadableStream<Uint8Array> | null, contentType:
   }
 
   return readBody(body, size)
-    .catch(() => ({ text: UNREADABLE_BODY, truncated: false, readable: false, omitted: false, size }))
+    .catch(() => ({
+      text: UNREADABLE_BODY,
+      truncated: false,
+      readable: false,
+      omitted: false,
+      size,
+    }))
 }
 
 async function captureRequestBody(ctx: Context): Promise<CapturedBody | undefined> {
@@ -228,7 +248,9 @@ async function addHttpSpanAttributes(span: Span, ctx: Context, durationMs: numbe
 export const logRequests = createMiddleware<{ Variables: AuthVariables }>(async (ctx, next) => {
   const span = trace.getActiveSpan()
   const start = performance.now()
-  const requestBody = span ? await captureRequestBody(ctx) : undefined
+  const requestBody = span
+    ? await captureRequestBody(ctx)
+    : undefined
   await next()
   const durationMs = Math.round((performance.now() - start) * 100) / 100
 

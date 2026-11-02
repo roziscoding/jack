@@ -31,7 +31,9 @@ function createFileSink(): RotatingFileSink | undefined {
   }
   catch (err) {
     // Can't use `logger` here (it imports this module).
-    console.error(`[jack] file logging disabled: could not open ${logFilePath}: ${err instanceof Error ? err.message : String(err)}`)
+    console.error(`[jack] file logging disabled: could not open ${logFilePath}: ${err instanceof Error
+      ? err.message
+      : String(err)}`)
     return undefined
   }
 }

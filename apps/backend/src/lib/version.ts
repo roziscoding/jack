@@ -12,7 +12,11 @@ function parseVersion(version: string): [number, number, number] | null {
   const match = VERSION_PATTERN.exec(version.trim())
   if (!match)
     return null
-  return [Number(match[1]), Number(match[2]), Number(match[3])]
+  return [
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3]),
+  ]
 }
 
 /**

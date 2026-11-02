@@ -64,12 +64,23 @@ export function handleError(environment: string, { exposeDetails = false }: Hand
     const contentType = accepts(c, {
       default: 'application/json',
       header: 'Accept',
-      supports: ['application/json', 'application/rss+xml', 'application/xml+rss', 'application/xml', 'text/xml'],
+      supports: [
+        'application/json',
+        'application/rss+xml',
+        'application/xml+rss',
+        'application/xml',
+        'text/xml',
+      ],
     })
 
     if (!status) {
       const payload = exposeDetails && environment === 'development'
-        ? { name: error.name, message: error.message, stack: error.stack, cause: error.cause }
+        ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+            cause: error.cause,
+          }
         : { message: GENERIC_INTERNAL_MESSAGE }
 
       return c.json(redactObject({
@@ -85,7 +96,9 @@ export function handleError(environment: string, { exposeDetails = false }: Hand
       return xml(c, {
         error: {
           '@code': 100,
-          '@description': exposeDetails ? error.message : (GENERIC_MESSAGE_BY_STATUS[401] ?? 'Unauthorized'),
+          '@description': exposeDetails
+            ? error.message
+            : (GENERIC_MESSAGE_BY_STATUS[401] ?? 'Unauthorized'),
         },
       })
     }
@@ -94,7 +107,9 @@ export function handleError(environment: string, { exposeDetails = false }: Hand
       return c.json({
         ok: false,
         error: {
-          code: error instanceof AppError ? error.code : 'ERROR',
+          code: error instanceof AppError
+            ? error.code
+            : 'ERROR',
           message: GENERIC_MESSAGE_BY_STATUS[status] ?? 'Request failed',
         },
       }, status)

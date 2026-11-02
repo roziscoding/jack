@@ -106,9 +106,18 @@ describe('peer version is surfaced on the management API', () => {
 
     // Connector listing lives only on the management API (it exposes peer
     // names/urls, which the peer-facing app must not).
-    const app = getManagementApp({ environment: 'test', managementKey: 'mgmt-secret', connectors: { servers: [], peers: [peer] } })
+    const app = getManagementApp({
+      environment: 'test',
+      managementKey: 'mgmt-secret',
+      connectors: {
+        servers: [],
+        peers: [peer],
+      },
+    })
 
-    const res = await app.request('/config/peers', { headers: { 'X-Management-Key': 'mgmt-secret' } })
+    const res = await app.request('/config/peers', {
+      headers: { 'X-Management-Key': 'mgmt-secret' },
+    })
     expect(res.status).toBe(200)
     const body = await res.json() as { peers: Array<{ name: string, version: string | null }> }
     expect(body.peers).toHaveLength(1)

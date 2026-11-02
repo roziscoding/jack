@@ -111,8 +111,22 @@ async function writeJackConfigs(radarrApiKey: string, sonarrApiKey: string) {
   const alphaConfig = {
     jack: { baseUrl: 'http://jack-alpha:3000', apiKey: 'alpha-test-key' },
     servers: [
-      { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr', source: true, destination: false },
-      { type: 'sonarr', url: 'http://sonarr:8989', apiKey: sonarrApiKey, name: 'Test Sonarr', source: true, destination: false },
+      {
+        type: 'radarr',
+        url: 'http://radarr:7878',
+        apiKey: radarrApiKey,
+        name: 'Test Radarr',
+        source: true,
+        destination: false,
+      },
+      {
+        type: 'sonarr',
+        url: 'http://sonarr:8989',
+        apiKey: sonarrApiKey,
+        name: 'Test Sonarr',
+        source: true,
+        destination: false,
+      },
     ],
     peers: [],
   }
@@ -122,7 +136,14 @@ async function writeJackConfigs(radarrApiKey: string, sonarrApiKey: string) {
     jack: { baseUrl: 'http://jack-beta:3000', apiKey: 'beta-test-key' },
     downloads: { completedPath: '/downloads/completed' },
     servers: [
-      { type: 'radarr', url: 'http://radarr:7878', apiKey: radarrApiKey, name: 'Test Radarr', source: false, destination: true },
+      {
+        type: 'radarr',
+        url: 'http://radarr:7878',
+        apiKey: radarrApiKey,
+        name: 'Test Radarr',
+        source: false,
+        destination: true,
+      },
     ],
     peers: [
       { url: 'http://jack-alpha:3000', apiKey: 'alpha-test-key', name: 'Jack Alpha' },

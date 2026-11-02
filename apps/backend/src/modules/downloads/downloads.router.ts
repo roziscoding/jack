@@ -19,9 +19,14 @@ function downloadsDoc(summary: string, description: string) {
     tags: ['Downloads'],
     summary,
     description,
-    security: [{ 'X-Management-Key': [] }],
+    security: [
+      { 'X-Management-Key': [] },
+    ],
     responses: {
-      200: { description: 'The updated download record', content: { 'application/json': {} } },
+      200: {
+        description: 'The updated download record',
+        content: { 'application/json': {} },
+      },
       400: { description: 'Id is not a positive integer' },
     },
   })

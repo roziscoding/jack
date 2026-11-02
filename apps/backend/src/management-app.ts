@@ -58,9 +58,20 @@ export function getManagementApp(params: {
     tags: ['System'],
     summary: 'Health check',
     description: 'Key-guarded probe: a 200 proves the key is valid and the management API is up.',
-    security: [{ 'X-Management-Key': [] }],
+    security: [
+      { 'X-Management-Key': [] },
+    ],
     responses: {
-      200: { description: 'The management API is up and the key is valid', content: { 'application/json': { schema: resolver(z.object({ ok: z.literal(true) })) } } },
+      200: {
+        description: 'The management API is up and the key is valid',
+        content: {
+          'application/json': {
+            schema: resolver(z.object({
+              ok: z.literal(true),
+            })),
+          },
+        },
+      },
     },
   }), c => c.json({ ok: true }))
 
@@ -80,7 +91,9 @@ export function getManagementApp(params: {
   // instance), so this exposes the running process's own logs.
   app.route('/logs', getLogsRouter(new LogsController(logHub)))
 
-  const tmdbClient = params.tmdbApiKey ? new TmdbClient(params.tmdbApiKey) : undefined
+  const tmdbClient = params.tmdbApiKey
+    ? new TmdbClient(params.tmdbApiKey)
+    : undefined
   const catalogController = new CatalogController(params.connectors, tmdbClient, params.downloadsService)
   app.route('/catalog', getCatalogRouter(catalogController))
 

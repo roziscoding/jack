@@ -27,7 +27,9 @@ function baseConnector(c: ServerConnector) {
 
 export function enrichDownload(d: DownloadRecord) {
   // Prefer the negotiated expected size; fall back to the release-advertised size.
-  const totalBytes = d.expectedBytes ?? (d.releaseSize > 0 ? d.releaseSize : null)
+  const totalBytes = d.expectedBytes ?? (d.releaseSize > 0
+    ? d.releaseSize
+    : null)
   const progress = totalBytes && totalBytes > 0
     ? Math.min(1, d.downloadedBytes / totalBytes)
     : null
@@ -83,14 +85,21 @@ export class StatusController {
       peers: {
         total: peers.length,
         initialized: peers.filter(p => p.isInitialized).length,
-        items: peers.map(p => ({ ...baseConnector(p), version: p.peerVersion })),
+        items: peers.map(p => ({
+          ...baseConnector(p),
+          version: p.peerVersion,
+        })),
       },
       servers: {
         total: servers.length,
         initialized: servers.filter(s => s.isInitialized).length,
         sources: servers.filter(s => s.canSource).length,
         destinations: servers.filter(s => s.canDestination).length,
-        items: servers.map(s => ({ ...baseConnector(s), source: s.canSource, destination: s.canDestination })),
+        items: servers.map(s => ({
+          ...baseConnector(s),
+          source: s.canSource,
+          destination: s.canDestination,
+        })),
       },
       downloads: {
         total: records.length,
@@ -107,6 +116,8 @@ export class StatusController {
 
   listDownloads() {
     const records = this.downloads?.list() ?? []
-    return { downloads: records.map(enrichDownload) }
+    return {
+      downloads: records.map(enrichDownload),
+    }
   }
 }

@@ -55,7 +55,9 @@ const GROUP_ORDER: ErrorCodeGroup[] = ['Download file', 'Transfer', 'Import']
 export function errorCodeGroup(code: string): ErrorCodeGroup {
   if (code.startsWith('IMPORT_'))
     return 'Import'
-  return FILE_CODES.has(code) ? 'Download file' : 'Transfer'
+  return FILE_CODES.has(code)
+    ? 'Download file'
+    : 'Transfer'
 }
 
 /**
@@ -65,7 +67,10 @@ export function errorCodeGroup(code: string): ErrorCodeGroup {
 export function errorCodeGroups(downloads: Pick<DownloadItem, 'errorCode'>[]): Array<{ group: ErrorCodeGroup, codes: Array<{ code: string, count: number }> }> {
   const counts = errorCodeCounts(downloads)
   return GROUP_ORDER
-    .map(group => ({ group, codes: counts.filter(({ code }) => errorCodeGroup(code) === group) }))
+    .map(group => ({
+      group,
+      codes: counts.filter(({ code }) => errorCodeGroup(code) === group),
+    }))
     .filter(({ codes }) => codes.length > 0)
 }
 
@@ -82,7 +87,11 @@ const ROLE_LABELS: Array<[keyof FileSystemErrorDetails, string]> = [
 export function inspectionRows(details: FileSystemErrorDetails): Array<{ label: string, entry: InspectedPath }> {
   return ROLE_LABELS.flatMap(([key, label]) => {
     const entry = details[key] as InspectedPath | undefined
-    return entry ? [{ label, entry }] : []
+    return entry
+      ? [
+          { label, entry },
+        ]
+      : []
   })
 }
 
@@ -94,5 +103,7 @@ export function asSentence(text: string): string {
   if (!trimmed)
     return trimmed
   const capitalized = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
-  return ENDS_WITH_PUNCTUATION.test(capitalized) ? capitalized : `${capitalized}.`
+  return ENDS_WITH_PUNCTUATION.test(capitalized)
+    ? capitalized
+    : `${capitalized}.`
 }

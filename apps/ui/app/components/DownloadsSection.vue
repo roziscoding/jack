@@ -70,8 +70,11 @@ const adding = ref(false)
 const justAdded = ref(false)
 
 function validate(s: State): FormError[] {
-  if (!s.completedPath.trim())
-    return [{ name: 'completedPath', message: 'Enter the folder where finished downloads land.' }]
+  if (!s.completedPath.trim()) {
+    return [
+      { name: 'completedPath', message: 'Enter the folder where finished downloads land.' },
+    ]
+  }
   return []
 }
 
@@ -125,8 +128,18 @@ function revert() {
 // The two collapsed groups. `custom` counts the keys in a group that carry a value
 // other than jack's default, so a collapsed group still says whether it holds
 // anything you set yourself.
-const transferKeys = ['maxDownloadAttempts', 'idleTimeoutMs', 'retryBaseDelayMs', 'retryMaxDelayMs'] as const
-const importKeys = ['importPollIntervalMs', 'maxManualImportAttempts', 'manualImportBackoffBaseMs', 'manualImportBackoffMaxMs'] as const
+const transferKeys = [
+  'maxDownloadAttempts',
+  'idleTimeoutMs',
+  'retryBaseDelayMs',
+  'retryMaxDelayMs',
+] as const
+const importKeys = [
+  'importPollIntervalMs',
+  'maxManualImportAttempts',
+  'manualImportBackoffBaseMs',
+  'manualImportBackoffMaxMs',
+] as const
 
 const DEFAULTS: Record<string, number> = {
   maxConcurrentDownloads: 3,

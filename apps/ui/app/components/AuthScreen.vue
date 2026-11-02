@@ -8,7 +8,11 @@ const submitting = ref(false)
 const error = ref<string | null>(null)
 
 function validate(s: typeof form): FormError[] {
-  return s.key.trim() ? [] : [{ name: 'key', message: 'Enter your management key.' }]
+  return s.key.trim()
+    ? []
+    : [
+        { name: 'key', message: 'Enter your management key.' },
+      ]
 }
 
 async function onSubmit() {

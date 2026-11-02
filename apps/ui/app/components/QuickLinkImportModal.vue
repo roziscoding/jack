@@ -19,7 +19,11 @@ watch(open, (isOpen) => {
 })
 
 function validate(s: typeof state): FormError[] {
-  return s.link.trim() ? [] : [{ name: 'link', message: 'Paste a Jack quick link.' }]
+  return s.link.trim()
+    ? []
+    : [
+        { name: 'link', message: 'Paste a Jack quick link.' },
+      ]
 }
 
 function importLink() {

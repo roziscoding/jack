@@ -127,16 +127,26 @@ describe('external Jack config', () => {
     expect(RawExternalJackConfig.parse({
       instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
-      headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
+      headers: {
+        'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
+      },
       ignored: true,
     })).toEqual({
       instanceName: 'Roz’s Jack',
       url: 'https://jack.example.com',
-      headers: { 'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' } },
+      headers: {
+        'CF-Access-Client-Id': { env: 'CF_ACCESS_ID' },
+      },
     })
   })
 
-  test.each(['X-Api-Key', 'Host', 'Content-Length', 'Connection', 'Transfer-Encoding'])(
+  test.each([
+    'X-Api-Key',
+    'Host',
+    'Content-Length',
+    'Connection',
+    'Transfer-Encoding',
+  ])(
     'rejects the reserved header %s',
     (header) => {
       expect(RawExternalJackConfig.safeParse({
@@ -195,8 +205,16 @@ describe('migrateConfig', () => {
   })
 
   test('preserves the existing fields while migrating', () => {
-    const result = migrateConfig({ servers: ['a'], peers: ['b'], extra: 'kept' })
-    expect(result).toMatchObject({ servers: ['a'], peers: ['b'], extra: 'kept' })
+    const result = migrateConfig({
+      servers: ['a'],
+      peers: ['b'],
+      extra: 'kept',
+    })
+    expect(result).toMatchObject({
+      servers: ['a'],
+      peers: ['b'],
+      extra: 'kept',
+    })
   })
 
   test('treats an explicit version of 0 as unmigrated and runs every migration', () => {

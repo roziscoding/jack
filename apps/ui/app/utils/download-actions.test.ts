@@ -31,7 +31,11 @@ describe('downloadActionsFor', () => {
 
   test('offers retry for transfer failures and supported manual import failures', () => {
     expect(downloadActionsFor(item())).toEqual(['retry', 'delete'])
-    expect(downloadActionsFor(item({ lastOperation: 'import', importMode: 'jack_manual', importTarget: { kind: 'movie', movieId: 42 } }))).toEqual(['retry', 'delete'])
+    expect(downloadActionsFor(item({
+      lastOperation: 'import',
+      importMode: 'jack_manual',
+      importTarget: { kind: 'movie', movieId: 42 },
+    }))).toEqual(['retry', 'delete'])
   })
 
   test('does not offer retry for an import failure the backend cannot re-trigger', () => {

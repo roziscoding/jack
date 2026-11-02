@@ -23,8 +23,14 @@ export default withMermaid({
   lastUpdated: true,
   ignoreDeadLinks: 'localhostLinks',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo-light.svg' }],
-    ['meta', { name: 'theme-color', content: '#6366f1' }],
+    [
+      'link',
+      { rel: 'icon', type: 'image/svg+xml', href: '/logo-light.svg' },
+    ],
+    [
+      'meta',
+      { name: 'theme-color', content: '#6366f1' },
+    ],
   ],
   sitemap: {
     hostname: siteUrl,
@@ -46,7 +52,10 @@ export default withMermaid({
   transformHead({ page, pageData, title, description }) {
     if (pageData.isNotFound) {
       return [
-        ['meta', { name: 'robots', content: 'noindex, nofollow' }],
+        [
+          'meta',
+          { name: 'robots', content: 'noindex, nofollow' },
+        ],
       ]
     }
 
@@ -85,24 +94,82 @@ export default withMermaid({
         }
 
     return [
-      ['link', { rel: 'canonical', href: url }],
-      ['meta', { property: 'og:type', content: isHome ? 'website' : 'article' }],
-      ['meta', { property: 'og:locale', content: 'en_US' }],
-      ['meta', { property: 'og:site_name', content: 'jack' }],
-      ['meta', { property: 'og:title', content: title }],
-      ['meta', { property: 'og:description', content: description }],
-      ['meta', { property: 'og:url', content: url }],
-      ['meta', { property: 'og:image', content: socialImageUrl }],
-      ['meta', { property: 'og:image:type', content: 'image/png' }],
-      ['meta', { property: 'og:image:width', content: '1200' }],
-      ['meta', { property: 'og:image:height', content: '630' }],
-      ['meta', { property: 'og:image:alt', content: 'jack private media sharing for Radarr and Sonarr' }],
-      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-      ['meta', { name: 'twitter:title', content: title }],
-      ['meta', { name: 'twitter:description', content: description }],
-      ['meta', { name: 'twitter:image', content: socialImageUrl }],
-      ['meta', { name: 'twitter:image:alt', content: 'jack private media sharing for Radarr and Sonarr' }],
-      ['script', { type: 'application/ld+json' }, JSON.stringify(structuredData)],
+      [
+        'link',
+        { rel: 'canonical', href: url },
+      ],
+      [
+        'meta',
+        {
+          property: 'og:type',
+          content: isHome ? 'website' : 'article',
+        },
+      ],
+      [
+        'meta',
+        { property: 'og:locale', content: 'en_US' },
+      ],
+      [
+        'meta',
+        { property: 'og:site_name', content: 'jack' },
+      ],
+      [
+        'meta',
+        { property: 'og:title', content: title },
+      ],
+      [
+        'meta',
+        { property: 'og:description', content: description },
+      ],
+      [
+        'meta',
+        { property: 'og:url', content: url },
+      ],
+      [
+        'meta',
+        { property: 'og:image', content: socialImageUrl },
+      ],
+      [
+        'meta',
+        { property: 'og:image:type', content: 'image/png' },
+      ],
+      [
+        'meta',
+        { property: 'og:image:width', content: '1200' },
+      ],
+      [
+        'meta',
+        { property: 'og:image:height', content: '630' },
+      ],
+      [
+        'meta',
+        { property: 'og:image:alt', content: 'jack private media sharing for Radarr and Sonarr' },
+      ],
+      [
+        'meta',
+        { name: 'twitter:card', content: 'summary_large_image' },
+      ],
+      [
+        'meta',
+        { name: 'twitter:title', content: title },
+      ],
+      [
+        'meta',
+        { name: 'twitter:description', content: description },
+      ],
+      [
+        'meta',
+        { name: 'twitter:image', content: socialImageUrl },
+      ],
+      [
+        'meta',
+        { name: 'twitter:image:alt', content: 'jack private media sharing for Radarr and Sonarr' },
+      ],
+      [
+        'script',
+        { type: 'application/ld+json' },
+        JSON.stringify(structuredData),
+      ],
     ]
   },
 

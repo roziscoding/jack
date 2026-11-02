@@ -31,8 +31,11 @@ export function transferErrorCode(err: unknown, signal?: AbortSignal): DownloadE
     return 'CANCELLED'
   if (err instanceof FileSystemError || err instanceof IdleTimeoutError || err instanceof IncompleteDownloadError || err instanceof UnknownSizeError)
     return err.code as DownloadErrorCode
-  if (err instanceof FetchError)
-    return (err.response?.status ?? err.extras.status) == null ? 'PEER_UNREACHABLE' : 'PEER_HTTP_ERROR'
+  if (err instanceof FetchError) {
+    return (err.response?.status ?? err.extras.status) == null
+      ? 'PEER_UNREACHABLE'
+      : 'PEER_HTTP_ERROR'
+  }
   // A failed fetch (DNS, connection refused, reset) rejects with a TypeError;
   // AbortSignal.timeout rejects with a TimeoutError.
   if (err instanceof TypeError || (err instanceof Error && err.name === 'TimeoutError'))
@@ -49,5 +52,10 @@ export function transferErrorLogFields(err: unknown, signal?: AbortSignal): Reco
   const error_code = transferErrorCode(err, signal)
   if (err instanceof FileSystemError)
     return { error_code, error: err.summary, filesystem: err.details }
-  return { error_code, error: err instanceof Error ? err.message : String(err) }
+  return {
+    error_code,
+    error: err instanceof Error
+      ? err.message
+      : String(err),
+  }
 }

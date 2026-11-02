@@ -28,7 +28,9 @@ describe('LogHub live fan-out', () => {
 
     hub.write(`${JSON.stringify({ level: 30, message: 'hi' })}\n`)
 
-    expect(seen).toEqual([{ level: 30, message: 'hi' }])
+    expect(seen).toEqual([
+      { level: 30, message: 'hi' },
+    ])
   })
 
   test('is a no-op with no subscribers and ignores malformed lines', () => {
@@ -113,7 +115,9 @@ describe('LogHub backfill', () => {
   })
 
   test('does not read older files once enough recent lines are collected', async () => {
-    await writeFile(`${path}.1`, ndjson([{ level: 30, message: 'old' }]))
+    await writeFile(`${path}.1`, ndjson([
+      { level: 30, message: 'old' },
+    ]))
     await writeFile(path, ndjson([
       { level: 30, message: 'x' },
       { level: 30, message: 'y' },

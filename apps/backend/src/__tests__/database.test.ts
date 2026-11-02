@@ -57,7 +57,9 @@ const release: Release = {
 
 describe('DownloadsRepository', () => {
   test('creates rows after release metadata is available and lists newest first', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
 
     const first = repository.create({
@@ -81,7 +83,12 @@ describe('DownloadsRepository', () => {
       destPath: join(tempDir, 'Second.mkv'),
       partPath: join(tempDir, 'Second.mkv.part'),
       releaseSize: 200,
-      release: { ...release, id: 'remote:movie:2', filename: 'Second.mkv', size: 200 },
+      release: {
+        ...release,
+        id: 'remote:movie:2',
+        filename: 'Second.mkv',
+        size: 200,
+      },
     })
 
     expect(first.status).toBe('downloading')
@@ -91,7 +98,9 @@ describe('DownloadsRepository', () => {
   })
 
   test('updates expected bytes, progress, completion, import queue, and failure', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
     const created = repository.create({
       torrentFilename: 'movie.torrent',
@@ -126,7 +135,9 @@ describe('DownloadsRepository', () => {
   })
 
   test('persists release_size as an expected-bytes source (CHECK accepts it)', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
     const created = repository.create({
       torrentFilename: 'movie.torrent',
@@ -149,7 +160,9 @@ describe('DownloadsRepository', () => {
   })
 
   test('reconciles stale downloading rows using .part file size', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
     const partPath = join(tempDir, 'Movie.mkv.part')
     await writeFile(partPath, new Uint8Array([1, 2, 3, 4]))
@@ -179,7 +192,9 @@ describe('DownloadsRepository', () => {
   })
 
   test('increments attempts and records a resume reset', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
     const created = repository.create({
       torrentFilename: 'movie.torrent',
@@ -207,7 +222,9 @@ describe('DownloadsRepository', () => {
   })
 
   test('persists qB source and manual import command fields round-trip; defaults to null', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
 
     const withQb = repository.create({
@@ -244,7 +261,12 @@ describe('DownloadsRepository', () => {
       destPath: join(tempDir, 'Second.mkv'),
       partPath: join(tempDir, 'Second.mkv.part'),
       releaseSize: 200,
-      release: { ...release, id: 'remote:movie:2', filename: 'Second.mkv', size: 200 },
+      release: {
+        ...release,
+        id: 'remote:movie:2',
+        filename: 'Second.mkv',
+        size: 200,
+      },
     })
 
     expect(withoutQb.qbCategory).toBeNull()
@@ -255,7 +277,9 @@ describe('DownloadsRepository', () => {
   })
 
   test('lists stale downloading rows without mutating them', async () => {
-    const handle = await openDatabase({ appConfigPath: join(tempDir, 'config.jsonc') })
+    const handle = await openDatabase({
+      appConfigPath: join(tempDir, 'config.jsonc'),
+    })
     const repository = new DownloadsRepository(handle.db)
     const a = repository.create({
       torrentFilename: 'a.torrent',

@@ -68,7 +68,12 @@ describe('Torrent stub', () => {
 
   test('parseTorrentStub returns null for non-jack torrent', () => {
     const data = Buffer.from(bencode.encode({
-      info: { 'name': Buffer.from('test'), 'piece length': 256, 'length': 100, 'pieces': Buffer.alloc(20) },
+      info: {
+        'name': Buffer.from('test'),
+        'piece length': 256,
+        'length': 100,
+        'pieces': Buffer.alloc(20),
+      },
       comment: Buffer.from('not-jack-format'),
     }))
 

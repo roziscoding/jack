@@ -23,12 +23,17 @@ export function redactIfSensitive(key: string, value: string | string[]): string
   if (!isSensitiveField(key)) {
     return value
   }
-  return Array.isArray(value) ? value.map(redactValue) : redactValue(value)
+  return Array.isArray(value)
+    ? value.map(redactValue)
+    : redactValue(value)
 }
 
 export function redactRecord(record: Record<string, string | string[]>): Record<string, string | string[]> {
   return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, redactIfSensitive(key, value)]),
+    Object.entries(record).map(([key, value]) => [
+      key,
+      redactIfSensitive(key, value),
+    ]),
   )
 }
 
@@ -58,7 +63,9 @@ export function redactObject<T>(value: T): T {
     return Object.fromEntries(
       Object.entries(value).map(([key, val]) => [
         key,
-        isSensitiveField(key) ? maskSensitiveValue(val) : redactObject(val),
+        isSensitiveField(key)
+          ? maskSensitiveValue(val)
+          : redactObject(val),
       ]),
     ) as T
   }

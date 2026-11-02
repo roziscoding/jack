@@ -42,7 +42,12 @@ export class ConfigService {
   static async fromFile(params: { path: string, connectorManager: ConnectorManager, downloadsRepository?: DownloadsRepository }): Promise<ConfigService> {
     const text = await Bun.file(params.path).text()
     const raw = jsonc.parse(text) as RawConfig
-    return new ConfigService({ path: params.path, raw, connectorManager: params.connectorManager, downloadsRepository: params.downloadsRepository })
+    return new ConfigService({
+      path: params.path,
+      raw,
+      connectorManager: params.connectorManager,
+      downloadsRepository: params.downloadsRepository,
+    })
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -149,7 +154,10 @@ export class ConfigService {
         throw new ConflictError(`A ${label} named "${resolved.name}" already exists`)
 
       const previous = this.raw
-      const next = { ...this.raw, [slice]: [...entries, rawEntry] } as RawConfig
+      const next = {
+        ...this.raw,
+        [slice]: [...entries, rawEntry],
+      } as RawConfig
       await this.persist(next)
       this.raw = next
       try {
@@ -176,7 +184,10 @@ export class ConfigService {
       // File is the source of truth: persist without the entry first, commit, then
       // disable the live connector. It stays resident (disabled) so in-flight
       // downloads holding its reference finish; new fan-outs skip it; restart prunes it.
-      const next = { ...this.raw, [slice]: entries.filter((_, i) => i !== index) } as RawConfig
+      const next = {
+        ...this.raw,
+        [slice]: entries.filter((_, i) => i !== index),
+      } as RawConfig
       await this.persist(next)
       this.raw = next
       this.connectorManager.removeConnector(id)
@@ -209,7 +220,12 @@ export class ConfigService {
         throw new ConflictError(`A ${label} with url "${resolved.url}" already exists`)
 
       const previous = this.raw
-      const next = { ...this.raw, [slice]: entries.map((e, i) => (i === index ? rawEntry : e)) } as RawConfig
+      const next = {
+        ...this.raw,
+        [slice]: entries.map((e, i) => (i === index
+          ? rawEntry
+          : e)),
+      } as RawConfig
       await this.persist(next)
       this.raw = next
 
@@ -308,7 +324,10 @@ export class ConfigService {
           : {}),
       }
       JackConfig.parse(merged)
-      const next = { ...this.raw, jack: RawJackConfig.parse(merged) } as RawConfig
+      const next = {
+        ...this.raw,
+        jack: RawJackConfig.parse(merged),
+      } as RawConfig
       await this.persist(next)
       this.raw = next
     })
@@ -316,7 +335,9 @@ export class ConfigService {
 
   /** Atomically replace or remove only jack.external, preserving every sibling field. */
   async updateJackExternal(input: unknown): Promise<void> {
-    const rawExternal = input === null ? null : RawExternalJackConfig.parse(input)
+    const rawExternal = input === null
+      ? null
+      : RawExternalJackConfig.parse(input)
     if (rawExternal)
       ExternalJackConfig.parse(rawExternal)
 
@@ -326,9 +347,14 @@ export class ConfigService {
         throw new BadRequestError('Configure Jack before setting up quick linking')
 
       const { external: _external, ...jackWithoutExternal } = current
-      const merged = rawExternal ? { ...jackWithoutExternal, external: rawExternal } : jackWithoutExternal
+      const merged = rawExternal
+        ? { ...jackWithoutExternal, external: rawExternal }
+        : jackWithoutExternal
       JackConfig.parse(merged)
-      const next = { ...this.raw, jack: RawJackConfig.parse(merged) } as RawConfig
+      const next = {
+        ...this.raw,
+        jack: RawJackConfig.parse(merged),
+      } as RawConfig
       await this.persist(next)
       this.raw = next
     })
@@ -351,7 +377,10 @@ export class ConfigService {
   async updateDownloads(input: unknown): Promise<void> {
     const patch = RawDownloadsConfig.parse(input)
     return this.enqueue(async () => {
-      const merged: Record<string, unknown> = { ...(this.raw.downloads ?? {}), ...patch }
+      const merged: Record<string, unknown> = {
+        ...(this.raw.downloads ?? {}),
+        ...patch,
+      }
       for (const [key, value] of Object.entries(merged)) {
         if (value === null)
           delete merged[key]

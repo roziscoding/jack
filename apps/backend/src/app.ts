@@ -55,7 +55,16 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
     summary: 'Health check',
     description: 'Unauthenticated liveness probe for Docker/orchestrators.',
     responses: {
-      200: { description: 'The server is up', content: { 'application/json': { schema: resolver(z.object({ status: z.literal('OK') })) } } },
+      200: {
+        description: 'The server is up',
+        content: {
+          'application/json': {
+            schema: resolver(z.object({
+              status: z.literal('OK'),
+            })),
+          },
+        },
+      },
     },
   }), c => c.json({ status: 'OK' }, 200))
 
@@ -101,9 +110,21 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
     tags: ['System'],
     summary: 'Peer handshake',
     description: 'Identity and protocol version. Peers probe this at init and check the version against their minimum compatible version.',
-    security: [{ 'X-Api-Key': [] }],
+    security: [
+      { 'X-Api-Key': [] },
+    ],
     responses: {
-      200: { description: 'Identity and protocol version', content: { 'application/json': { schema: resolver(z.object({ name: z.string(), version: z.string() })) } } },
+      200: {
+        description: 'Identity and protocol version',
+        content: {
+          'application/json': {
+            schema: resolver(z.object({
+              name: z.string(),
+              version: z.string(),
+            })),
+          },
+        },
+      },
     },
   }), peerAuth, c => c.json({ name: 'jack', version: PROTOCOL_VERSION }, 200))
 

@@ -31,8 +31,18 @@ function episode(overrides: Partial<Release> = {}): Release {
 describe('groupReleasesIntoUnifiedTitles', () => {
   test('unifies the same movie across two peers into one title with per-peer buckets', () => {
     const titles = groupReleasesIntoUnifiedTitles([
-      { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ tmdbId: 603, size: 100 })] },
-      { peer: { id: 'p2', name: 'Beta' }, releases: [movie({ tmdbId: 603, size: 200 })] },
+      {
+        peer: { id: 'p1', name: 'Alpha' },
+        releases: [
+          movie({ tmdbId: 603, size: 100 }),
+        ],
+      },
+      {
+        peer: { id: 'p2', name: 'Beta' },
+        releases: [
+          movie({ tmdbId: 603, size: 200 }),
+        ],
+      },
     ])
 
     expect(titles).toHaveLength(1)
@@ -49,9 +59,20 @@ describe('groupReleasesIntoUnifiedTitles', () => {
 
   test('preserves per-release detail in each peer bucket', () => {
     const titles = groupReleasesIntoUnifiedTitles([
-      { peer: { id: 'p1', name: 'Alpha' }, releases: [
-        episode({ id: 'ep:1', tvdbId: 1396, seriesTitle: 'Breaking Bad', season: 1, episode: 1, size: 50, quality: { resolution: 1080 } }),
-      ] },
+      {
+        peer: { id: 'p1', name: 'Alpha' },
+        releases: [
+          episode({
+            id: 'ep:1',
+            tvdbId: 1396,
+            seriesTitle: 'Breaking Bad',
+            season: 1,
+            episode: 1,
+            size: 50,
+            quality: { resolution: 1080 },
+          }),
+        ],
+      },
     ])
 
     const bucket = titles[0]!.peers[0]!
@@ -68,8 +89,18 @@ describe('groupReleasesIntoUnifiedTitles', () => {
 
   test('collapses an id-less release on one peer into the strong-id bucket from another peer', () => {
     const titles = groupReleasesIntoUnifiedTitles([
-      { peer: { id: 'p1', name: 'Alpha' }, releases: [episode({ seriesTitle: 'Some Show', size: 50 })] },
-      { peer: { id: 'p2', name: 'Beta' }, releases: [episode({ seriesTitle: 'Some Show', tvdbId: 999, size: 60 })] },
+      {
+        peer: { id: 'p1', name: 'Alpha' },
+        releases: [
+          episode({ seriesTitle: 'Some Show', size: 50 }),
+        ],
+      },
+      {
+        peer: { id: 'p2', name: 'Beta' },
+        releases: [
+          episode({ seriesTitle: 'Some Show', tvdbId: 999, size: 60 }),
+        ],
+      },
     ])
 
     expect(titles).toHaveLength(1)
@@ -80,9 +111,24 @@ describe('groupReleasesIntoUnifiedTitles', () => {
 
   test('does not alias id-less same-name releases when strong ids are ambiguous', () => {
     const titles = groupReleasesIntoUnifiedTitles([
-      { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ title: 'The Thing', tmdbId: 1091 })] },
-      { peer: { id: 'p2', name: 'Beta' }, releases: [movie({ title: 'The Thing', tmdbId: 609 })] },
-      { peer: { id: 'p3', name: 'Gamma' }, releases: [movie({ title: 'The Thing' })] },
+      {
+        peer: { id: 'p1', name: 'Alpha' },
+        releases: [
+          movie({ title: 'The Thing', tmdbId: 1091 }),
+        ],
+      },
+      {
+        peer: { id: 'p2', name: 'Beta' },
+        releases: [
+          movie({ title: 'The Thing', tmdbId: 609 }),
+        ],
+      },
+      {
+        peer: { id: 'p3', name: 'Gamma' },
+        releases: [
+          movie({ title: 'The Thing' }),
+        ],
+      },
     ])
 
     const strongIds = titles
@@ -98,7 +144,13 @@ describe('groupReleasesIntoUnifiedTitles', () => {
 
   test('sorts unified titles by display title', () => {
     const titles = groupReleasesIntoUnifiedTitles([
-      { peer: { id: 'p1', name: 'Alpha' }, releases: [movie({ title: 'Zebra', tmdbId: 1 }), movie({ title: 'Apple', tmdbId: 2 })] },
+      {
+        peer: { id: 'p1', name: 'Alpha' },
+        releases: [
+          movie({ title: 'Zebra', tmdbId: 1 }),
+          movie({ title: 'Apple', tmdbId: 2 }),
+        ],
+      },
     ])
 
     expect(titles.map(t => t.displayTitle)).toEqual(['Apple', 'Zebra'])
@@ -111,20 +163,44 @@ describe('pickBestRelease', () => {
   })
 
   test('prefers the higher resolution even when a lower one has a larger file', () => {
-    const sd = movie({ id: 'a', quality: { resolution: 720 }, size: 999 })
-    const hd = movie({ id: 'b', quality: { resolution: 1080 }, size: 1 })
+    const sd = movie({
+      id: 'a',
+      quality: { resolution: 720 },
+      size: 999,
+    })
+    const hd = movie({
+      id: 'b',
+      quality: { resolution: 1080 },
+      size: 1,
+    })
     expect(pickBestRelease([sd, hd])).toBe(hd)
   })
 
   test('breaks a resolution tie by the larger file', () => {
-    const small = movie({ id: 'a', quality: { resolution: 1080 }, size: 10 })
-    const big = movie({ id: 'b', quality: { resolution: 1080 }, size: 20 })
+    const small = movie({
+      id: 'a',
+      quality: { resolution: 1080 },
+      size: 10,
+    })
+    const big = movie({
+      id: 'b',
+      quality: { resolution: 1080 },
+      size: 20,
+    })
     expect(pickBestRelease([small, big])).toBe(big)
   })
 
   test('breaks a full tie deterministically by the lowest release id, regardless of input order', () => {
-    const z = movie({ id: 'zzz', quality: { resolution: 1080 }, size: 10 })
-    const a = movie({ id: 'aaa', quality: { resolution: 1080 }, size: 10 })
+    const z = movie({
+      id: 'zzz',
+      quality: { resolution: 1080 },
+      size: 10,
+    })
+    const a = movie({
+      id: 'aaa',
+      quality: { resolution: 1080 },
+      size: 10,
+    })
     expect(pickBestRelease([z, a])).toBe(a)
     expect(pickBestRelease([a, z])).toBe(a)
   })
@@ -132,9 +208,24 @@ describe('pickBestRelease', () => {
 
 describe('pickBestPerEpisode', () => {
   test('keeps the best release per season/episode key', () => {
-    const s1e1Sd = episode({ id: 'a', season: 1, episode: 1, quality: { resolution: 720 } })
-    const s1e1Hd = episode({ id: 'b', season: 1, episode: 1, quality: { resolution: 1080 } })
-    const s1e2 = episode({ id: 'c', season: 1, episode: 2, quality: { resolution: 720 } })
+    const s1e1Sd = episode({
+      id: 'a',
+      season: 1,
+      episode: 1,
+      quality: { resolution: 720 },
+    })
+    const s1e1Hd = episode({
+      id: 'b',
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+    })
+    const s1e2 = episode({
+      id: 'c',
+      season: 1,
+      episode: 2,
+      quality: { resolution: 720 },
+    })
     const best = pickBestPerEpisode([s1e1Sd, s1e1Hd, s1e2])
     expect(best).toHaveLength(2)
     expect(best).toContain(s1e1Hd)
@@ -143,8 +234,20 @@ describe('pickBestPerEpisode', () => {
   })
 
   test('keeps unnumbered episode releases separate instead of collapsing them to one slot', () => {
-    const first = episode({ id: 'unparsed:1', tvdbId: 81189, title: 'Show.Special.A', filename: 'Show.Special.A.mkv', quality: { resolution: 720 } })
-    const second = episode({ id: 'unparsed:2', tvdbId: 81189, title: 'Show.Special.B', filename: 'Show.Special.B.mkv', quality: { resolution: 1080 } })
+    const first = episode({
+      id: 'unparsed:1',
+      tvdbId: 81189,
+      title: 'Show.Special.A',
+      filename: 'Show.Special.A.mkv',
+      quality: { resolution: 720 },
+    })
+    const second = episode({
+      id: 'unparsed:2',
+      tvdbId: 81189,
+      title: 'Show.Special.B',
+      filename: 'Show.Special.B.mkv',
+      quality: { resolution: 1080 },
+    })
 
     const best = pickBestPerEpisode([first, second])
 
@@ -160,13 +263,30 @@ describe('catalogController.getCatalog', () => {
   }
 
   test('aggregates the same title across two initialized peers', async () => {
-    const p1 = { id: 'p1', name: 'Alpha', isInitialized: true, listReleases: async () => [movie({ tmdbId: 603, size: 100 })] }
-    const p2 = { id: 'p2', name: 'Beta', isInitialized: true, listReleases: async () => [movie({ tmdbId: 603, size: 200 })] }
+    const p1 = {
+      id: 'p1',
+      name: 'Alpha',
+      isInitialized: true,
+      listReleases: async () => [
+        movie({ tmdbId: 603, size: 100 }),
+      ],
+    }
+    const p2 = {
+      id: 'p2',
+      name: 'Beta',
+      isInitialized: true,
+      listReleases: async () => [
+        movie({ tmdbId: 603, size: 200 }),
+      ],
+    }
     const controller = new CatalogController(makeConnectors([p1, p2]) as any)
 
     const result = await controller.getCatalog()
 
-    expect(result.peers).toEqual([{ id: 'p1', name: 'Alpha' }, { id: 'p2', name: 'Beta' }])
+    expect(result.peers).toEqual([
+      { id: 'p1', name: 'Alpha' },
+      { id: 'p2', name: 'Beta' },
+    ])
     expect(result.titles).toHaveLength(1)
     expect(result.titles[0]!.releaseCount).toBe(2)
     expect(result.titles[0]!.peers).toHaveLength(2)
@@ -181,18 +301,34 @@ describe('catalogController.getCatalog', () => {
         throw new Error('unreachable')
       },
     }
-    const healthy = { id: 'p2', name: 'Healthy', isInitialized: true, listReleases: async () => [movie({ tmdbId: 603 })] }
+    const healthy = {
+      id: 'p2',
+      name: 'Healthy',
+      isInitialized: true,
+      listReleases: async () => [
+        movie({ tmdbId: 603 }),
+      ],
+    }
     const controller = new CatalogController(makeConnectors([broken, healthy]) as any)
 
     const result = await controller.getCatalog()
 
-    expect(result.peers).toEqual([{ id: 'p2', name: 'Healthy' }])
+    expect(result.peers).toEqual([
+      { id: 'p2', name: 'Healthy' },
+    ])
     expect(result.titles).toHaveLength(1)
   })
 
   test('does not query uninitialized peers', async () => {
-    const called = mock(async () => [movie({ tmdbId: 603 })])
-    const peer = { id: 'p1', name: 'Offline', isInitialized: false, listReleases: called }
+    const called = mock(async () => [
+      movie({ tmdbId: 603 }),
+    ])
+    const peer = {
+      id: 'p1',
+      name: 'Offline',
+      isInitialized: false,
+      listReleases: called,
+    }
     const controller = new CatalogController(makeConnectors([peer]) as any)
 
     const result = await controller.getCatalog()
@@ -260,7 +396,9 @@ describe('catalogController.getRequestOptions', () => {
       type: 'radarr',
       canDestination: true,
       isInitialized: true,
-      getRootFolders: async () => [{ path: '/movies', freeSpace: 1000 }],
+      getRootFolders: async () => [
+        { path: '/movies', freeSpace: 1000 },
+      ],
       ...overrides,
     }
   }
@@ -271,7 +409,12 @@ describe('catalogController.getRequestOptions', () => {
 
   test('returns only initialized destinations and tags movies with mediaType "movie"', async () => {
     const radarr = fakeServer({ id: 'radarr-1', name: 'My Radarr', type: 'radarr' })
-    const sonarrSourceOnly = fakeServer({ id: 'sonarr-1', name: 'Source Sonarr', type: 'sonarr', canDestination: false })
+    const sonarrSourceOnly = fakeServer({
+      id: 'sonarr-1',
+      name: 'Source Sonarr',
+      type: 'sonarr',
+      canDestination: false,
+    })
     const controller = new CatalogController(makeConnectors([radarr, sonarrSourceOnly]) as any)
 
     const options = await controller.getRequestOptions()
@@ -282,7 +425,9 @@ describe('catalogController.getRequestOptions', () => {
     expect(options[0]!.type).toBe('radarr')
     expect(options[0]!.mediaType).toBe('movie')
     expect(options[0]!).not.toHaveProperty('qualityProfiles')
-    expect(options[0]!.rootFolders).toEqual([{ path: '/movies', freeSpace: 1000 }])
+    expect(options[0]!.rootFolders).toEqual([
+      { path: '/movies', freeSpace: 1000 },
+    ])
   })
 
   test('tags a destination Sonarr with mediaType "tv"', async () => {
@@ -290,7 +435,9 @@ describe('catalogController.getRequestOptions', () => {
       id: 'sonarr-1',
       name: 'My Sonarr',
       type: 'sonarr',
-      getRootFolders: async () => [{ path: '/tv' }],
+      getRootFolders: async () => [
+        { path: '/tv' },
+      ],
     })
     const controller = new CatalogController(makeConnectors([sonarr]) as any)
 
@@ -350,8 +497,22 @@ describe('catalogController.requestDownload', () => {
     return {
       id: 'peer-1',
       name: 'Friend Jack',
-      searchByTmdbId: overrides.searchByTmdbId ?? mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]),
-      searchByTvdbId: overrides.searchByTvdbId ?? mock(async () => [episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 } })]),
+      searchByTmdbId: overrides.searchByTmdbId ?? mock(async () => [
+        movie({
+          id: 'rel:1',
+          tmdbId: 603,
+          quality: { resolution: 1080 },
+        }),
+      ]),
+      searchByTvdbId: overrides.searchByTvdbId ?? mock(async () => [
+        episode({
+          id: 'ep:1',
+          tvdbId: 81189,
+          season: 1,
+          episode: 1,
+          quality: { resolution: 1080 },
+        }),
+      ]),
     }
   }
 
@@ -368,7 +529,9 @@ describe('catalogController.requestDownload', () => {
 
   test('throws BadRequestError when downloads are not configured', () => {
     const radarr = fakeServer()
-    const controller = new CatalogController(makeConnectors([radarr], [fakePeer()]) as any)
+    const controller = new CatalogController(makeConnectors([radarr], [
+      fakePeer(),
+    ]) as any)
 
     expect(controller.requestDownload({
       peerId: 'peer-1',
@@ -380,7 +543,9 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('throws NotFoundError for an unknown serverId', () => {
-    const controller = new CatalogController(makeConnectors([], [fakePeer()]) as any, undefined, fakeDownloads() as any)
+    const controller = new CatalogController(makeConnectors([], [
+      fakePeer(),
+    ]) as any, undefined, fakeDownloads() as any)
 
     expect(controller.requestDownload({
       peerId: 'peer-1',
@@ -393,7 +558,9 @@ describe('catalogController.requestDownload', () => {
 
   test('throws BadRequestError when the server is not a destination', () => {
     const radarr = fakeServer({ canDestination: false })
-    const controller = new CatalogController(makeConnectors([radarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
+    const controller = new CatalogController(makeConnectors([radarr], [
+      fakePeer(),
+    ]) as any, undefined, fakeDownloads() as any)
 
     expect(controller.requestDownload({
       peerId: 'peer-1',
@@ -406,7 +573,9 @@ describe('catalogController.requestDownload', () => {
 
   test('throws BadRequestError when a movie request targets a Sonarr server', () => {
     const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
-    const controller = new CatalogController(makeConnectors([sonarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
+    const controller = new CatalogController(makeConnectors([sonarr], [
+      fakePeer(),
+    ]) as any, undefined, fakeDownloads() as any)
 
     expect(controller.requestDownload({
       peerId: 'peer-1',
@@ -419,7 +588,9 @@ describe('catalogController.requestDownload', () => {
 
   test('throws BadRequestError when a tv request has no tvdbId', () => {
     const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr' })
-    const controller = new CatalogController(makeConnectors([sonarr], [fakePeer()]) as any, undefined, fakeDownloads() as any)
+    const controller = new CatalogController(makeConnectors([sonarr], [
+      fakePeer(),
+    ]) as any, undefined, fakeDownloads() as any)
 
     expect(controller.requestDownload({
       peerId: 'peer-1',
@@ -431,7 +602,9 @@ describe('catalogController.requestDownload', () => {
 
   test('throws NotFoundError when the peer has no release for the tmdbId, and does not add', async () => {
     const radarr = fakeServer()
-    const peer = fakePeer({ searchByTmdbId: mock(async () => []) })
+    const peer = fakePeer({
+      searchByTmdbId: mock(async () => []),
+    })
     const controller = new CatalogController(makeConnectors([radarr], [peer]) as any, undefined, fakeDownloads() as any)
 
     await expect(controller.requestDownload({
@@ -445,10 +618,24 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('adds the movie without search and starts a direct download for the best release', async () => {
-    const radarr = fakeServer({ add: mock(async () => 123) })
-    const best = movie({ id: 'rel:best', tmdbId: 603, quality: { resolution: 1080 }, size: 100 })
-    const worse = movie({ id: 'rel:worse', tmdbId: 603, quality: { resolution: 720 }, size: 999 })
-    const peer = fakePeer({ searchByTmdbId: mock(async () => [worse, best]) })
+    const radarr = fakeServer({
+      add: mock(async () => 123),
+    })
+    const best = movie({
+      id: 'rel:best',
+      tmdbId: 603,
+      quality: { resolution: 1080 },
+      size: 100,
+    })
+    const worse = movie({
+      id: 'rel:worse',
+      tmdbId: 603,
+      quality: { resolution: 720 },
+      size: 999,
+    })
+    const peer = fakePeer({
+      searchByTmdbId: mock(async () => [worse, best]),
+    })
     const downloads = fakeDownloads()
     const controller = new CatalogController(makeConnectors([radarr], [peer]) as any, undefined, downloads as any)
 
@@ -472,9 +659,21 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('reports zero starts when a duplicate movie direct download is already active', async () => {
-    const radarr = fakeServer({ add: mock(async () => 123) })
-    const peer = fakePeer({ searchByTmdbId: mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'duplicate') })
+    const radarr = fakeServer({
+      add: mock(async () => 123),
+    })
+    const peer = fakePeer({
+      searchByTmdbId: mock(async () => [
+        movie({
+          id: 'rel:1',
+          tmdbId: 603,
+          quality: { resolution: 1080 },
+        }),
+      ]),
+    })
+    const downloads = fakeDownloads({
+      startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'duplicate'),
+    })
     const controller = new CatalogController(makeConnectors([radarr], [peer]), undefined, downloads)
 
     const result = await controller.requestDownload({
@@ -489,8 +688,15 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('throws NotFoundError when the peer has no episodes for the tvdbId, and does not add', async () => {
-    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
-    const peer = fakePeer({ searchByTvdbId: mock(async () => []) })
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      add: mock(async () => 55),
+    })
+    const peer = fakePeer({
+      searchByTvdbId: mock(async () => []),
+    })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, fakeDownloads() as any)
 
     await expect(controller.requestDownload({
@@ -504,11 +710,39 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('adds the series without search and starts a direct download for the best release per episode', async () => {
-    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
-    const ep1a = episode({ id: 'ep:1a', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 720 }, size: 50 })
-    const ep1b = episode({ id: 'ep:1b', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
-    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
-    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1a, ep1b, ep2]) })
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      add: mock(async () => 55),
+    })
+    const ep1a = episode({
+      id: 'ep:1a',
+      tvdbId: 81189,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 720 },
+      size: 50,
+    })
+    const ep1b = episode({
+      id: 'ep:1b',
+      tvdbId: 81189,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+      size: 60,
+    })
+    const ep2 = episode({
+      id: 'ep:2',
+      tvdbId: 81189,
+      season: 1,
+      episode: 2,
+      quality: { resolution: 720 },
+      size: 40,
+    })
+    const peer = fakePeer({
+      searchByTvdbId: mock(async () => [ep1a, ep1b, ep2]),
+    })
     const downloads = fakeDownloads()
     const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, downloads as any)
 
@@ -541,9 +775,21 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('throws BadRequestError when the movie direct download fails to start', async () => {
-    const radarr = fakeServer({ add: mock(async () => 123) })
-    const peer = fakePeer({ searchByTmdbId: mock(async () => [movie({ id: 'rel:1', tmdbId: 603, quality: { resolution: 1080 } })]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'failed') })
+    const radarr = fakeServer({
+      add: mock(async () => 123),
+    })
+    const peer = fakePeer({
+      searchByTmdbId: mock(async () => [
+        movie({
+          id: 'rel:1',
+          tmdbId: 603,
+          quality: { resolution: 1080 },
+        }),
+      ]),
+    })
+    const downloads = fakeDownloads({
+      startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'failed'),
+    })
     const controller = new CatalogController(makeConnectors([radarr], [peer]) as any, undefined, downloads as any)
 
     await expect(controller.requestDownload({
@@ -556,11 +802,34 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('throws BadRequestError when every episode direct download fails to start', async () => {
-    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
-    const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
-    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
-    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'failed') })
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      add: mock(async () => 55),
+    })
+    const ep1 = episode({
+      id: 'ep:1',
+      tvdbId: 81189,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+      size: 60,
+    })
+    const ep2 = episode({
+      id: 'ep:2',
+      tvdbId: 81189,
+      season: 1,
+      episode: 2,
+      quality: { resolution: 720 },
+      size: 40,
+    })
+    const peer = fakePeer({
+      searchByTvdbId: mock(async () => [ep1, ep2]),
+    })
+    const downloads = fakeDownloads({
+      startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'failed'),
+    })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, downloads as any)
 
     await expect(controller.requestDownload({
@@ -573,12 +842,37 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('counts only non-failed episode starts when some fail', async () => {
-    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
-    const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
-    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
-    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2]) })
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      add: mock(async () => 55),
+    })
+    const ep1 = episode({
+      id: 'ep:1',
+      tvdbId: 81189,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+      size: 60,
+    })
+    const ep2 = episode({
+      id: 'ep:2',
+      tvdbId: 81189,
+      season: 1,
+      episode: 2,
+      quality: { resolution: 720 },
+      size: 40,
+    })
+    const peer = fakePeer({
+      searchByTvdbId: mock(async () => [ep1, ep2]),
+    })
     let calls = 0
-    const downloads = fakeDownloads({ startDirectDownload: mock(async () => (calls++ === 0 ? 'started' : 'failed')) })
+    const downloads = fakeDownloads({
+      startDirectDownload: mock(async () => (calls++ === 0
+        ? 'started'
+        : 'failed')),
+    })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]) as any, undefined, downloads as any)
 
     const result = await controller.requestDownload({
@@ -593,14 +887,44 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('counts only newly started episode downloads when duplicates and failures are mixed', async () => {
-    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
-    const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
-    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
-    const ep3 = episode({ id: 'ep:3', tvdbId: 81189, season: 1, episode: 3, quality: { resolution: 720 }, size: 30 })
-    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2, ep3]) })
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      add: mock(async () => 55),
+    })
+    const ep1 = episode({
+      id: 'ep:1',
+      tvdbId: 81189,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+      size: 60,
+    })
+    const ep2 = episode({
+      id: 'ep:2',
+      tvdbId: 81189,
+      season: 1,
+      episode: 2,
+      quality: { resolution: 720 },
+      size: 40,
+    })
+    const ep3 = episode({
+      id: 'ep:3',
+      tvdbId: 81189,
+      season: 1,
+      episode: 3,
+      quality: { resolution: 720 },
+      size: 30,
+    })
+    const peer = fakePeer({
+      searchByTvdbId: mock(async () => [ep1, ep2, ep3]),
+    })
     const outcomes = ['started', 'duplicate', 'failed'] as const
     let call = 0
-    const downloads = fakeDownloads({ startDirectDownload: mock(async () => outcomes[call++] ?? 'failed') })
+    const downloads = fakeDownloads({
+      startDirectDownload: mock(async () => outcomes[call++] ?? 'failed'),
+    })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]), undefined, downloads)
 
     const result = await controller.requestDownload({
@@ -615,11 +939,34 @@ describe('catalogController.requestDownload', () => {
   })
 
   test('reports zero starts when every episode direct download is duplicate', async () => {
-    const sonarr = fakeServer({ id: 'sonarr-1', name: 'My Sonarr', type: 'sonarr', add: mock(async () => 55) })
-    const ep1 = episode({ id: 'ep:1', tvdbId: 81189, season: 1, episode: 1, quality: { resolution: 1080 }, size: 60 })
-    const ep2 = episode({ id: 'ep:2', tvdbId: 81189, season: 1, episode: 2, quality: { resolution: 720 }, size: 40 })
-    const peer = fakePeer({ searchByTvdbId: mock(async () => [ep1, ep2]) })
-    const downloads = fakeDownloads({ startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'duplicate') })
+    const sonarr = fakeServer({
+      id: 'sonarr-1',
+      name: 'My Sonarr',
+      type: 'sonarr',
+      add: mock(async () => 55),
+    })
+    const ep1 = episode({
+      id: 'ep:1',
+      tvdbId: 81189,
+      season: 1,
+      episode: 1,
+      quality: { resolution: 1080 },
+      size: 60,
+    })
+    const ep2 = episode({
+      id: 'ep:2',
+      tvdbId: 81189,
+      season: 1,
+      episode: 2,
+      quality: { resolution: 720 },
+      size: 40,
+    })
+    const peer = fakePeer({
+      searchByTvdbId: mock(async () => [ep1, ep2]),
+    })
+    const downloads = fakeDownloads({
+      startDirectDownload: mock(async (): Promise<StartQbDownloadResult> => 'duplicate'),
+    })
     const controller = new CatalogController(makeConnectors([sonarr], [peer]), undefined, downloads)
 
     const result = await controller.requestDownload({
@@ -646,14 +993,18 @@ describe('catalogController.getTmdbStatus', () => {
   })
 
   test('reports ok when the client ping resolves true', async () => {
-    const tmdb = { ping: async () => true }
+    const tmdb = {
+      ping: async () => true,
+    }
     const controller = new CatalogController(makeConnectors() as any, tmdb as any)
 
     expect(await controller.getTmdbStatus()).toEqual({ configured: true, ok: true })
   })
 
   test('reports configured but not ok when the client ping resolves false', async () => {
-    const tmdb = { ping: async () => false }
+    const tmdb = {
+      ping: async () => false,
+    }
     const controller = new CatalogController(makeConnectors() as any, tmdb as any)
 
     expect(await controller.getTmdbStatus()).toEqual({ configured: true, ok: false })

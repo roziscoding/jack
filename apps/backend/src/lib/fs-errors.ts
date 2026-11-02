@@ -75,8 +75,11 @@ function classify(errno: string, stage: FsStage, inspected: Partial<Record<Inspe
     case 'ENOENT':
       if (stage === 'create_part')
         return 'PART_DIR_MISSING'
-      if (stage === 'move_completed' && inspected.file?.exists)
-        return inspected.destination_dir?.exists === false ? 'COMPLETED_DIR_MISSING' : 'FILESYSTEM_ERROR'
+      if (stage === 'move_completed' && inspected.file?.exists) {
+        return inspected.destination_dir?.exists === false
+          ? 'COMPLETED_DIR_MISSING'
+          : 'FILESYSTEM_ERROR'
+      }
       return 'PART_DELETED'
     default:
       return 'FILESYSTEM_ERROR'
@@ -106,9 +109,14 @@ function explain(errno: string): string {
 /** `drwxr-x---`, like `ls -l`. */
 export function symbolicMode(stats: Stats): string {
   const bits = 'rwxrwxrwx'
-  let symbolic = stats.isDirectory() ? 'd' : '-'
-  for (let i = 0; i < 9; i++)
-    symbolic += stats.mode & (1 << (8 - i)) ? bits[i] : '-'
+  let symbolic = stats.isDirectory()
+    ? 'd'
+    : '-'
+  for (let i = 0; i < 9; i++) {
+    symbolic += stats.mode & (1 << (8 - i))
+      ? bits[i]
+      : '-'
+  }
   return symbolic
 }
 
@@ -120,13 +128,19 @@ function humanBytes(bytes: number): string {
     value /= 1024
     unit++
   }
-  return unit === 0 ? `${bytes} bytes` : `${value.toFixed(1)} ${units[unit]} (${bytes} bytes)`
+  return unit === 0
+    ? `${bytes} bytes`
+    : `${value.toFixed(1)} ${units[unit]} (${bytes} bytes)`
 }
 
 async function inspect(path: string): Promise<InspectedPath> {
   try {
     const stats = await stat(path)
-    const type = stats.isDirectory() ? 'directory' : stats.isFile() ? 'file' : 'other'
+    const type = stats.isDirectory()
+      ? 'directory'
+      : stats.isFile()
+        ? 'file'
+        : 'other'
     return {
       path,
       exists: true,
@@ -135,11 +149,19 @@ async function inspect(path: string): Promise<InspectedPath> {
       mode_octal: (stats.mode & 0o7777).toString(8).padStart(4, '0'),
       uid: stats.uid,
       gid: stats.gid,
-      ...(type === 'directory' ? {} : { size_bytes: stats.size }),
+      ...(type === 'directory'
+        ? {}
+        : { size_bytes: stats.size }),
     }
   }
   catch (err) {
-    return { path, exists: false, stat_error: isErrnoException(err) ? err.code! : 'unknown error' }
+    return {
+      path,
+      exists: false,
+      stat_error: isErrnoException(err)
+        ? err.code!
+        : 'unknown error',
+    }
   }
 }
 
@@ -189,7 +211,12 @@ async function inspectFreeSpace(dir: string): Promise<NonNullable<FileSystemErro
     return { dir, bytes_available: fs.bavail * fs.bsize, inodes_free: fs.ffree }
   }
   catch (err) {
-    return { dir, statfs_error: isErrnoException(err) ? err.code! : 'unknown error' }
+    return {
+      dir,
+      statfs_error: isErrnoException(err)
+        ? err.code!
+        : 'unknown error',
+    }
   }
 }
 
@@ -202,9 +229,14 @@ function inspectProcess(): FileSystemErrorDetails['process'] {
 }
 
 function describeInspected(entry: InspectedPath): string {
-  if (!entry.exists)
-    return entry.stat_error === 'ENOENT' ? 'does not exist' : `could not be inspected (${entry.stat_error})`
-  const size = entry.size_bytes == null ? '' : `, ${humanBytes(entry.size_bytes)}`
+  if (!entry.exists) {
+    return entry.stat_error === 'ENOENT'
+      ? 'does not exist'
+      : `could not be inspected (${entry.stat_error})`
+  }
+  const size = entry.size_bytes == null
+    ? ''
+    : `, ${humanBytes(entry.size_bytes)}`
   return `${entry.mode} (${entry.mode_octal}), owner uid ${entry.uid}, gid ${entry.gid}${size}`
 }
 
@@ -226,8 +258,11 @@ function humanMessage(details: FileSystemErrorDetails): string {
       ? `Free space on ${free.dir}: ${humanBytes(free.bytes_available)}, ${free.inodes_free} free inodes`
       : `Free space on ${free.dir}: could not be checked (${free.statfs_error})`)
   }
-  if (details.process)
-    lines.push(`jack runs as uid ${details.process.uid}, gid ${details.process.gid}${details.process.groups ? `, groups ${details.process.groups}` : ''}`)
+  if (details.process) {
+    lines.push(`jack runs as uid ${details.process.uid}, gid ${details.process.gid}${details.process.groups
+      ? `, groups ${details.process.groups}`
+      : ''}`)
+  }
   return lines.join('\n')
 }
 
@@ -282,7 +317,13 @@ export async function withFsContext<T>(stage: FsStage, operation: string, paths:
   catch (err) {
     if (err instanceof FileSystemError || !isErrnoException(err))
       throw err
-    throw await fileSystemError({ errno: err.code!, stage, operation, paths, cause: err })
+    throw await fileSystemError({
+      errno: err.code!,
+      stage,
+      operation,
+      paths,
+      cause: err,
+    })
   }
 }
 
@@ -294,7 +335,14 @@ export async function withFsContext<T>(stage: FsStage, operation: string, paths:
 export async function assertHandleAtPath(handle: FileHandle, path: string, operation: string): Promise<void> {
   const fdStats = await withFsContext('write_part', operation, [path], () => handle.stat())
   const fail = (errno: string, code: FileSystemErrorCode | undefined, explanation: string) =>
-    fileSystemError({ errno, stage: 'write_part', code, operation, paths: [path], explanation })
+    fileSystemError({
+      errno,
+      stage: 'write_part',
+      code,
+      operation,
+      paths: [path],
+      explanation,
+    })
 
   if (fdStats.nlink === 0)
     throw await fail('ENOENT', 'PART_DELETED', `the file was deleted while jack was writing it; the ${humanBytes(fdStats.size)} jack had written went with it`)
@@ -304,7 +352,9 @@ export async function assertHandleAtPath(handle: FileHandle, path: string, opera
     current = await stat(path)
   }
   catch (err) {
-    const errno = isErrnoException(err) ? err.code! : 'unknown error'
+    const errno = isErrnoException(err)
+      ? err.code!
+      : 'unknown error'
     if (errno === 'ENOENT')
       throw await fail('ENOENT', 'PART_MOVED', `the file was moved or renamed while jack was writing it; jack's open handle still has ${humanBytes(fdStats.size)}, but nothing is at this path anymore`)
     throw await fail(errno, undefined, `could not check the file jack is writing: ${explain(errno)}`)

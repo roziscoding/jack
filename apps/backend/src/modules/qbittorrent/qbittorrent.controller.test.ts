@@ -47,19 +47,27 @@ describe('QbittorrentController.login', () => {
 
   test('a managed key passes for its own destination', () => {
     const key = generateManagedKey()
-    managed.create({ keyHash: hashKey(key), serverId: 'srv-a' })
+    managed.create({
+      keyHash: hashKey(key),
+      serverId: 'srv-a',
+    })
     expect(controller('').login('Radarr', key)).not.toBeNull()
   })
 
   test('a managed key is rejected for a different destination (server-scoped)', () => {
     const key = generateManagedKey()
-    managed.create({ keyHash: hashKey(key), serverId: 'srv-a' })
+    managed.create({
+      keyHash: hashKey(key),
+      serverId: 'srv-a',
+    })
     expect(controller('').login('Sonarr', key)).toBeNull()
   })
 
   test('a peer api_key is rejected — the download client is *arr-only (managed keys)', () => {
     const key = generateApiKey()
-    api.create({ keyHash: hashKey(key) })
+    api.create({
+      keyHash: hashKey(key),
+    })
     expect(controller('').login('Radarr', key)).toBeNull()
   })
 

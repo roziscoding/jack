@@ -30,7 +30,12 @@ export default defineEventHandler(async (event) => {
   const upstreamAbort = new AbortController()
   event.node.res.once('close', () => upstreamAbort.abort())
   try {
-    res = await fetch(target, { method, headers, body, signal: upstreamAbort.signal })
+    res = await fetch(target, {
+      method,
+      headers,
+      body,
+      signal: upstreamAbort.signal,
+    })
   }
   catch {
     throw createError({ statusCode: 503, statusMessage: 'management API is unreachable' })

@@ -83,7 +83,9 @@ export class ImportWatcher {
         logger.info({ id: row.id, filename: row.filename, path: row.destPath }, 'Unlinked imported file')
     }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = err instanceof Error
+        ? err.message
+        : String(err)
       logger.warn({ id: row.id, path: row.destPath, error: message }, 'Could not unlink imported file')
     }
   }
@@ -94,7 +96,9 @@ export class ImportWatcher {
       if (byId)
         return byId
     }
-    return row.qbSourceServer ? this.connectorManager.servers.find(s => s.name === row.qbSourceServer) : undefined
+    return row.qbSourceServer
+      ? this.connectorManager.servers.find(s => s.name === row.qbSourceServer)
+      : undefined
   }
 
   start(): void {
@@ -102,7 +106,9 @@ export class ImportWatcher {
       return
     this.timer = setInterval(() => {
       void this.tick().catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = err instanceof Error
+          ? err.message
+          : String(err)
         logger.error({ error: message }, 'Import watcher tick failed')
       })
     }, this.intervalMs)
@@ -144,8 +150,12 @@ export class ImportWatcher {
         return this.repository.get(id) ?? row
       }
       catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        this.repository.markFailed(id, err instanceof PermanentManualImportError ? 'IMPORT_REJECTED' : 'IMPORT_TRIGGER_FAILED', message, 'import')
+        const message = err instanceof Error
+          ? err.message
+          : String(err)
+        this.repository.markFailed(id, err instanceof PermanentManualImportError
+          ? 'IMPORT_REJECTED'
+          : 'IMPORT_TRIGGER_FAILED', message, 'import')
         throw err
       }
     })
@@ -198,7 +208,9 @@ export class ImportWatcher {
             importedIdsByConnector.set(connector.id, await connector.recentlyImportedDownloadIds())
           }
           catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
+            const message = err instanceof Error
+              ? err.message
+              : String(err)
             skippedConnectors.add(connector.id)
             logger.warn({ server: connector.name, error: message }, 'Could not read import history; will retry next tick')
           }
@@ -223,18 +235,36 @@ export class ImportWatcher {
             const status = await connector.manualImportCommandStatus(row.manualImportCommandId)
             if (status.state === 'completed') {
               this.repository.markImported(row.id)
-              logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId: row.manualImportCommandId }, 'Manual import command completed')
+              logger.info({
+                id: row.id,
+                filename: row.filename,
+                server: connector.name,
+                commandId: row.manualImportCommandId,
+              }, 'Manual import command completed')
               await this.cleanUpImportedFile(row)
               return 1
             }
             if (status.state === 'failed') {
               this.repository.markFailed(row.id, 'IMPORT_REJECTED', status.error, 'import')
-              logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error_code: 'IMPORT_REJECTED', error: status.error }, 'Manual import command failed')
+              logger.warn({
+                id: row.id,
+                server: connector.name,
+                commandId: row.manualImportCommandId,
+                error_code: 'IMPORT_REJECTED',
+                error: status.error,
+              }, 'Manual import command failed')
             }
           }
           catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            logger.warn({ id: row.id, server: connector.name, commandId: row.manualImportCommandId, error: message }, 'Could not read manual import command status; will retry next tick')
+            const message = err instanceof Error
+              ? err.message
+              : String(err)
+            logger.warn({
+              id: row.id,
+              server: connector.name,
+              commandId: row.manualImportCommandId,
+              error: message,
+            }, 'Could not read manual import command status; will retry next tick')
           }
           return 0
         }
@@ -253,26 +283,50 @@ export class ImportWatcher {
           })
           this.repository.setManualImportCommand(row.id, commandId)
           this.triggerFailures.delete(row.id)
-          logger.info({ id: row.id, filename: row.filename, server: connector.name, commandId }, 'Triggered *arr manual import')
+          logger.info({
+            id: row.id,
+            filename: row.filename,
+            server: connector.name,
+            commandId,
+          }, 'Triggered *arr manual import')
         }
         catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
+          const message = err instanceof Error
+            ? err.message
+            : String(err)
           if (err instanceof PermanentManualImportError) {
             this.repository.markFailed(row.id, 'IMPORT_REJECTED', message, 'import')
             this.triggerFailures.delete(row.id)
-            logger.warn({ id: row.id, server: connector.name, error_code: 'IMPORT_REJECTED', error: message }, 'Manual import cannot be retried')
+            logger.warn({
+              id: row.id,
+              server: connector.name,
+              error_code: 'IMPORT_REJECTED',
+              error: message,
+            }, 'Manual import cannot be retried')
             return 0
           }
           const failures = (this.triggerFailures.get(row.id)?.failures ?? 0) + 1
           if (failures >= this.retryPolicy.maxAttempts) {
             this.repository.markFailed(row.id, 'IMPORT_TRIGGER_FAILED', `manual import failed after ${failures} attempts: ${message}`, 'import')
             this.triggerFailures.delete(row.id)
-            logger.warn({ id: row.id, server: connector.name, attempts: failures, error_code: 'IMPORT_TRIGGER_FAILED', error: message }, 'Manual import gave up after repeated failures')
+            logger.warn({
+              id: row.id,
+              server: connector.name,
+              attempts: failures,
+              error_code: 'IMPORT_TRIGGER_FAILED',
+              error: message,
+            }, 'Manual import gave up after repeated failures')
             return 0
           }
           const delayMs = Math.min(this.retryPolicy.backoffMaxMs, this.retryPolicy.backoffBaseMs * 2 ** (failures - 1))
           this.triggerFailures.set(row.id, { failures, nextAttemptAt: now + delayMs })
-          logger.warn({ id: row.id, server: connector.name, attempts: failures, retryInMs: delayMs, error: message }, 'Manual import trigger failed; backing off')
+          logger.warn({
+            id: row.id,
+            server: connector.name,
+            attempts: failures,
+            retryInMs: delayMs,
+            error: message,
+          }, 'Manual import trigger failed; backing off')
         }
         return 0
       })

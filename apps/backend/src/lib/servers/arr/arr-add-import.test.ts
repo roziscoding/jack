@@ -16,8 +16,12 @@ const AUTOREGISTER = { enable: true, priority: 1 }
 const handlers = [
   http.get(`${RADARR_URL}/api/v3/system/status`, () => HttpResponse.json({ appName: 'Radarr', version: '4.0.0' })),
   http.get(`${SONARR_URL}/api/v3/system/status`, () => HttpResponse.json({ appName: 'Sonarr', version: '4.0.0' })),
-  http.get(`${RADARR_URL}/api/v3/qualityprofile`, () => HttpResponse.json([{ id: 4 }])),
-  http.get(`${SONARR_URL}/api/v3/qualityprofile`, () => HttpResponse.json([{ id: 7 }])),
+  http.get(`${RADARR_URL}/api/v3/qualityprofile`, () => HttpResponse.json([
+    { id: 4 },
+  ])),
+  http.get(`${SONARR_URL}/api/v3/qualityprofile`, () => HttpResponse.json([
+    { id: 7 },
+  ])),
 ]
 
 const server = setupServer(...handlers)
@@ -65,8 +69,20 @@ const CommandBody = z.object({
   })),
 })
 
-const lookedUpMovie = { tmdbId: 603, title: 'The Matrix', year: 1999, titleSlug: 'the-matrix-603', images: [] }
-const lookedUpSeries = { tvdbId: 81189, title: 'Breaking Bad', year: 2008, titleSlug: 'breaking-bad-81189', images: [] }
+const lookedUpMovie = {
+  tmdbId: 603,
+  title: 'The Matrix',
+  year: 1999,
+  titleSlug: 'the-matrix-603',
+  images: [],
+}
+const lookedUpSeries = {
+  tvdbId: 81189,
+  title: 'Breaking Bad',
+  year: 2008,
+  titleSlug: 'breaking-bad-81189',
+  images: [],
+}
 
 describe('RadarrServerConnector.add', () => {
   test('looks up the movie and POSTs it WITHOUT a search, returning the created id', async () => {
@@ -102,7 +118,9 @@ describe('RadarrServerConnector.add', () => {
   test('is idempotent: returns the existing movie id without POSTing when already in the library', async () => {
     let posted = false
     server.use(
-      http.get(`${RADARR_URL}/api/v3/movie`, () => HttpResponse.json([{ id: 99 }])),
+      http.get(`${RADARR_URL}/api/v3/movie`, () => HttpResponse.json([
+        { id: 99 },
+      ])),
       http.post(`${RADARR_URL}/api/v3/movie`, () => {
         posted = true
         return HttpResponse.json({ id: 99 })
@@ -142,8 +160,26 @@ describe('RadarrServerConnector.manualImport', () => {
       http.get(`${RADARR_URL}/api/v3/manualimport`, ({ request }) => {
         manualImportUrls.push(request.url)
         return HttpResponse.json([
-          { path: '/downloads/Movie.mkv', quality: { quality: { id: 7 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP' },
-          { path: '/downloads/Other.mkv', quality: { quality: { id: 3 } }, languages: [{ id: 2, name: 'French' }], releaseGroup: 'X' },
+          {
+            path: '/downloads/Movie.mkv',
+            quality: {
+              quality: { id: 7 },
+            },
+            languages: [
+              { id: 1, name: 'English' },
+            ],
+            releaseGroup: 'GRP',
+          },
+          {
+            path: '/downloads/Other.mkv',
+            quality: {
+              quality: { id: 3 },
+            },
+            languages: [
+              { id: 2, name: 'French' },
+            ],
+            releaseGroup: 'X',
+          },
         ])
       }),
       http.post(`${RADARR_URL}/api/v3/command`, async ({ request }) => {
@@ -175,8 +211,12 @@ describe('RadarrServerConnector.manualImport', () => {
       path: '/downloads/Movie.mkv',
       movieId: 7,
       downloadId: 'dl-1',
-      quality: { quality: { id: 7 } },
-      languages: [{ id: 1, name: 'English' }],
+      quality: {
+        quality: { id: 7 },
+      },
+      languages: [
+        { id: 1, name: 'English' },
+      ],
       releaseGroup: 'GRP',
     })
   })
@@ -242,7 +282,9 @@ describe('SonarrServerConnector.add', () => {
   test('is idempotent: returns the existing series id without POSTing when already in the library', async () => {
     let posted = false
     server.use(
-      http.get(`${SONARR_URL}/api/v3/series`, () => HttpResponse.json([{ id: 42 }])),
+      http.get(`${SONARR_URL}/api/v3/series`, () => HttpResponse.json([
+        { id: 42 },
+      ])),
       http.post(`${SONARR_URL}/api/v3/series`, () => {
         posted = true
         return HttpResponse.json({ id: 42 })
@@ -270,8 +312,28 @@ describe('SonarrServerConnector.manualImport', () => {
       http.get(`${SONARR_URL}/api/v3/manualimport`, ({ request }) => {
         manualImportUrls.push(request.url)
         return HttpResponse.json([
-          { path: '/downloads/Ep.mkv', quality: { quality: { id: 4 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP', episodes: [{ id: 11 }, { id: 12 }] },
-          { path: '/downloads/Other.mkv', quality: {}, languages: [], episodes: [{ id: 99 }] },
+          {
+            path: '/downloads/Ep.mkv',
+            quality: {
+              quality: { id: 4 },
+            },
+            languages: [
+              { id: 1, name: 'English' },
+            ],
+            releaseGroup: 'GRP',
+            episodes: [
+              { id: 11 },
+              { id: 12 },
+            ],
+          },
+          {
+            path: '/downloads/Other.mkv',
+            quality: {},
+            languages: [],
+            episodes: [
+              { id: 99 },
+            ],
+          },
         ])
       }),
       http.post(`${SONARR_URL}/api/v3/command`, async ({ request }) => {
@@ -303,8 +365,12 @@ describe('SonarrServerConnector.manualImport', () => {
       seriesId: 3,
       episodeIds: [11, 12],
       downloadId: 'dl-2',
-      quality: { quality: { id: 4 } },
-      languages: [{ id: 1, name: 'English' }],
+      quality: {
+        quality: { id: 4 },
+      },
+      languages: [
+        { id: 1, name: 'English' },
+      ],
     })
   })
 
@@ -312,7 +378,17 @@ describe('SonarrServerConnector.manualImport', () => {
     let commandBody: unknown = null
     server.use(
       http.get(`${SONARR_URL}/api/v3/manualimport`, () => HttpResponse.json([
-        { path: '/downloads/Ep.mkv', quality: { quality: { id: 4 } }, languages: [{ id: 1, name: 'English' }], releaseGroup: 'GRP', episodes: [] },
+        {
+          path: '/downloads/Ep.mkv',
+          quality: {
+            quality: { id: 4 },
+          },
+          languages: [
+            { id: 1, name: 'English' },
+          ],
+          releaseGroup: 'GRP',
+          episodes: [],
+        },
       ])),
       http.get(`${SONARR_URL}/api/v3/episode`, () => HttpResponse.json([
         { id: 22, seasonNumber: 1, episodeNumber: 2 },
@@ -375,7 +451,9 @@ describe('manualImportCommandStatus', () => {
     const radarr = makeRadarr()
     const status = await radarr.manualImportCommandStatus(9)
     expect(status.state).toBe('failed')
-    expect(status).toMatchObject({ error: expect.stringContaining('no longer exists') })
+    expect(status).toMatchObject({
+      error: expect.stringContaining('no longer exists'),
+    })
   })
 
   // A transient failure (5xx, timeout) must keep throwing so the watcher retries.

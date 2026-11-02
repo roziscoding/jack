@@ -17,18 +17,39 @@ const RESERVED = new Set([
 
 export type LevelKey = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
-const LEVEL_KEYS = new Set<string>(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+const LEVEL_KEYS = new Set<string>([
+  'trace',
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+])
 
 // Prefer the string `severity`, but only when it's a label we can style — an
 // unrecognised one (a custom level like `critical`) would miss LEVEL_STYLES and
 // mis-render as INFO, hiding a high-priority line. Fall through to the numeric
 // pino level in that case rather than trusting the string blindly.
 export function levelName(record: LogRecord): LevelKey {
-  const severity = typeof record.severity === 'string' ? record.severity.toLowerCase() : undefined
+  const severity = typeof record.severity === 'string'
+    ? record.severity.toLowerCase()
+    : undefined
   if (severity && LEVEL_KEYS.has(severity))
     return severity as LevelKey
-  const l = typeof record.level === 'number' ? record.level : 30
-  return l >= 60 ? 'fatal' : l >= 50 ? 'error' : l >= 40 ? 'warn' : l >= 30 ? 'info' : l >= 20 ? 'debug' : 'trace'
+  const l = typeof record.level === 'number'
+    ? record.level
+    : 30
+  return l >= 60
+    ? 'fatal'
+    : l >= 50
+      ? 'error'
+      : l >= 40
+        ? 'warn'
+        : l >= 30
+          ? 'info'
+          : l >= 20
+            ? 'debug'
+            : 'trace'
 }
 
 export interface LevelStyle {
@@ -53,9 +74,16 @@ export function levelStyle(record: LogRecord): LevelStyle {
   // numeric level would otherwise fall to INFO and hide. Show its own label with
   // a lit rail so it can't pass as a normal line — we can't rank it, so treat it
   // as noteworthy rather than silently benign.
-  const severity = typeof record.severity === 'string' ? record.severity.trim() : ''
-  if (severity && !LEVEL_KEYS.has(severity.toLowerCase()) && typeof record.level !== 'number')
-    return { label: severity.toUpperCase(), text: 'text-warning', rail: 'border-l-warning' }
+  const severity = typeof record.severity === 'string'
+    ? record.severity.trim()
+    : ''
+  if (severity && !LEVEL_KEYS.has(severity.toLowerCase()) && typeof record.level !== 'number') {
+    return {
+      label: severity.toUpperCase(),
+      text: 'text-warning',
+      rail: 'border-l-warning',
+    }
+  }
   return LEVEL_STYLES[levelName(record)] ?? LEVEL_STYLES.info
 }
 
@@ -76,8 +104,12 @@ export function extractHttp(record: LogRecord): HttpInfo | null {
     return null
   return {
     method,
-    path: typeof http.request?.path === 'string' ? http.request.path : '',
-    status: typeof http.response?.status === 'number' ? http.response.status : undefined,
+    path: typeof http.request?.path === 'string'
+      ? http.request.path
+      : '',
+    status: typeof http.response?.status === 'number'
+      ? http.response.status
+      : undefined,
   }
 }
 
@@ -188,11 +220,20 @@ export function extraFields(record: LogRecord): Array<{ key: string, value: stri
     for (const [k, v] of Object.entries(obj)) {
       if (!prefix && RESERVED.has(k))
         continue
-      const key = prefix ? `${prefix}.${k}` : k
-      if (v && typeof v === 'object' && !Array.isArray(v))
+      const key = prefix
+        ? `${prefix}.${k}`
+        : k
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
         walk(v as Record<string, unknown>, key)
-      else
-        out.push({ key, value: typeof v === 'string' ? v : JSON.stringify(v) })
+      }
+      else {
+        out.push({
+          key,
+          value: typeof v === 'string'
+            ? v
+            : JSON.stringify(v),
+        })
+      }
     }
   }
   walk(record, '')

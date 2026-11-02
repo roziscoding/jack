@@ -8,10 +8,23 @@ type Row = LogRecord & { _id: number }
 const { request, extractError } = useManagement()
 
 // 'all' means no server-side level floor; the rest map to the pino level names.
-const LEVELS = ['all', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const
+const LEVELS = [
+  'all',
+  'trace',
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+] as const
 type LevelFilter = typeof LEVELS[number]
 const level = ref<LevelFilter>('all')
-const levelItems = LEVELS.map(value => ({ label: value === 'all' ? 'All levels' : value.toUpperCase(), value }))
+const levelItems = LEVELS.map(value => ({
+  label: value === 'all'
+    ? 'All levels'
+    : value.toUpperCase(),
+  value,
+}))
 
 // How many lines to backfill on load, and the in-memory cap for the live view.
 const BACKFILL_LINES = 500
@@ -35,7 +48,9 @@ function tag(record: LogRecord): Row {
 }
 
 function levelQuery(prefix: '?' | '&'): string {
-  return level.value === 'all' ? '' : `${prefix}level=${level.value}`
+  return level.value === 'all'
+    ? ''
+    : `${prefix}level=${level.value}`
 }
 
 function append(record: LogRecord) {
@@ -155,7 +170,9 @@ function haystack(row: Row): string {
   return [
     row.message,
     levelName(row),
-    typeof row.severity === 'string' ? row.severity : undefined,
+    typeof row.severity === 'string'
+      ? row.severity
+      : undefined,
     http?.method,
     http?.path,
     http?.status,
@@ -171,13 +188,24 @@ const filtered = computed(() => {
 
 // --- Fold consecutive identical lines into one row with a ×N counter. ---
 function durationOf(row: Row): number | undefined {
-  return typeof row.durationMs === 'number' ? row.durationMs : undefined
+  return typeof row.durationMs === 'number'
+    ? row.durationMs
+    : undefined
 }
 
 const groups = computed<GroupedRow[]>(() => {
   const list = filtered.value
-  if (!collapse.value)
-    return list.map(r => ({ ...r, _count: 1, _durations: durationOf(r) !== undefined ? [durationOf(r)!] : [] }))
+  if (!collapse.value) {
+    return list.map(r => ({
+      ...r,
+      _count: 1,
+      _durations: durationOf(r) !== undefined
+        ? [
+            durationOf(r)!,
+          ]
+        : [],
+    }))
+  }
 
   const out: GroupedRow[] = []
   let prevKey: string | null = null
@@ -195,7 +223,13 @@ const groups = computed<GroupedRow[]>(() => {
       Object.assign(last, r, { _id: id, _count: last._count + 1, _durations: durations })
     }
     else {
-      out.push({ ...r, _count: 1, _durations: dur !== undefined ? [dur] : [] })
+      out.push({
+        ...r,
+        _count: 1,
+        _durations: dur !== undefined
+          ? [dur]
+          : [],
+      })
       prevKey = key
     }
   }

@@ -40,7 +40,12 @@ function makeApp() {
   runMigrations(db)
   const downloadsRepository = new DownloadsRepository(db)
 
-  const app = getManagementApp({ environment: 'test', managementKey: 'mgmt-secret', connectors: manager, downloadsRepository })
+  const app = getManagementApp({
+    environment: 'test',
+    managementKey: 'mgmt-secret',
+    connectors: manager,
+    downloadsRepository,
+  })
   return { app, downloadsRepository, peer }
 }
 
@@ -80,7 +85,13 @@ describe('Management status endpoints', () => {
       destPath: '/tmp/m.mkv',
       partPath: '/tmp/m.mkv.part',
       releaseSize: 100,
-      release: { id: 'r', title: 'm', filename: 'm.mkv', category: 2000, size: 100 } as any,
+      release: {
+        id: 'r',
+        title: 'm',
+        filename: 'm.mkv',
+        category: 2000,
+        size: 100,
+      } as any,
     })
 
     const res = await app.request('/overview', { headers: KEY })
@@ -103,7 +114,13 @@ describe('Management status endpoints', () => {
       destPath: '/tmp/x.mkv',
       partPath: '/tmp/x.mkv.part',
       releaseSize: 100,
-      release: { id: 'r', title: 'm', filename: 'm.mkv', category: 2000, size: 100 } as any,
+      release: {
+        id: 'r',
+        title: 'm',
+        filename: 'm.mkv',
+        category: 2000,
+        size: 100,
+      } as any,
     }
 
     const downloading = downloadsRepository.create({ ...base, filename: 'a.mkv' })
@@ -145,7 +162,13 @@ describe('Management status endpoints', () => {
       destPath: '/tmp/m.mkv',
       partPath: '/tmp/m.mkv.part',
       releaseSize: 100,
-      release: { id: 'r', title: 'm', filename: 'm.mkv', category: 2000, size: 100 } as any,
+      release: {
+        id: 'r',
+        title: 'm',
+        filename: 'm.mkv',
+        category: 2000,
+        size: 100,
+      } as any,
     })
     downloadsRepository.updateProgress(dl.id, 25)
 
@@ -178,7 +201,13 @@ describe('Management status endpoints', () => {
         destPath: '/tmp/live.mkv',
         partPath: '/tmp/live.mkv.part',
         releaseSize: 100,
-        release: { id: 'r2', title: 'live', filename: 'live.mkv', category: 2000, size: 100 } as any,
+        release: {
+          id: 'r2',
+          title: 'live',
+          filename: 'live.mkv',
+          category: 2000,
+          size: 100,
+        } as any,
       })
 
       const update = await readUntil(reader, 'live.mkv')
@@ -191,7 +220,14 @@ describe('Management status endpoints', () => {
   })
 
   test('GET /config/stream pushes a new snapshot when connector state changes', async () => {
-    const manager = new ConnectorManager([], [{ url: 'http://peer.test:3000', apiKey: 'peer-key', name: 'Friend Jack', headers: {} }])
+    const manager = new ConnectorManager([], [
+      {
+        url: 'http://peer.test:3000',
+        apiKey: 'peer-key',
+        name: 'Friend Jack',
+        headers: {},
+      },
+    ])
     const peer = manager.peers[0]!
     const app = getManagementApp({ environment: 'test', managementKey: 'mgmt-secret', connectors: manager })
     const ac = new AbortController()

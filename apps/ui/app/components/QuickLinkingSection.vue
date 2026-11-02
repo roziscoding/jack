@@ -19,7 +19,9 @@ const emit = defineEmits<{
 const state = reactive({
   instanceName: props.initial?.instanceName ?? '',
   url: props.initial?.url ?? '',
-  headers: { ...(props.initial?.headers ?? {}) } as Record<string, SecretRef>,
+  headers: {
+    ...(props.initial?.headers ?? {}),
+  } as Record<string, SecretRef>,
 })
 
 function validate(s: typeof state): FormError[] {
@@ -46,7 +48,9 @@ function onSubmit() {
   emit('submit', {
     instanceName: state.instanceName.trim(),
     url: state.url.trim(),
-    ...(Object.keys(state.headers).length ? { headers: state.headers } : {}),
+    ...(Object.keys(state.headers).length
+      ? { headers: state.headers }
+      : {}),
   })
 }
 </script>

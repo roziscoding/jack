@@ -28,7 +28,10 @@ function stringifyServer(c: ArrServerConnector) {
 }
 
 function stringifyPeer(c: PeerConnector) {
-  return { ...stringifyConnector(c), version: c.peerVersion }
+  return {
+    ...stringifyConnector(c),
+    version: c.peerVersion,
+  }
 }
 
 export class ConfigController {
@@ -67,11 +70,15 @@ export class ConfigController {
   }
 
   listPeers() {
-    return { peers: this.connectors.peers.map(p => this.withSecrets('peers', stringifyPeer(p))) }
+    return {
+      peers: this.connectors.peers.map(p => this.withSecrets('peers', stringifyPeer(p))),
+    }
   }
 
   listServers() {
-    return { servers: this.connectors.servers.map(s => this.withSecrets('servers', stringifyServer(s))) }
+    return {
+      servers: this.connectors.servers.map(s => this.withSecrets('servers', stringifyServer(s))),
+    }
   }
 
   /** Refs-intact jack config for an edit form, or null when unset / read-only. */

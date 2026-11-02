@@ -9,7 +9,9 @@ import { setSpanAttribute, setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
 import { ArrServerConnector, basename, stripExtension } from './base'
 
-const CreatedId = z.object({ id: z.number().int() })
+const CreatedId = z.object({
+  id: z.number().int(),
+})
 
 interface ManualImportCandidate {
   path?: string
@@ -46,8 +48,12 @@ export class RadarrServerConnector extends ArrServerConnector {
       return null
 
     const path = file.path ?? file.relativePath ?? null
-    const title = file.sceneName ?? (path ? stripExtension(basename(path)) : movie.title ?? 'Unknown')
-    const filename = path ? basename(path) : title
+    const title = file.sceneName ?? (path
+      ? stripExtension(basename(path))
+      : movie.title ?? 'Unknown')
+    const filename = path
+      ? basename(path)
+      : title
 
     return {
       id: this.buildId('movie', movie.id),
@@ -74,7 +80,9 @@ export class RadarrServerConnector extends ArrServerConnector {
 
   private async listMovies(): Promise<MovieResource[]> {
     const movies = await this.arrGet<MovieResource[]>('/api/v3/movie')
-    return Array.isArray(movies) ? movies : []
+    return Array.isArray(movies)
+      ? movies
+      : []
   }
 
   protected override async doSearchItems(term: string): Promise<Release[]> {
@@ -124,7 +132,9 @@ export class RadarrServerConnector extends ArrServerConnector {
       'search.tmdb_id': tmdbId,
     }, async (span) => {
       const movies = await this.arrGet<MovieResource[]>('/api/v3/movie', { tmdbId })
-      const releases = (Array.isArray(movies) ? movies : [])
+      const releases = (Array.isArray(movies)
+        ? movies
+        : [])
         .filter(m => m.hasFile)
         .map(m => this.toRelease(m))
         .filter((r): r is Release => r != null)
@@ -155,7 +165,9 @@ export class RadarrServerConnector extends ArrServerConnector {
 
   protected override async doGetRelease(id: string): Promise<Release | null> {
     const movie = await this.getMovie(id)
-    return movie ? this.toRelease(movie) : null
+    return movie
+      ? this.toRelease(movie)
+      : null
   }
 
   protected override async doGetFilePath(id: string): Promise<string | null> {
@@ -168,13 +180,19 @@ export class RadarrServerConnector extends ArrServerConnector {
       throw new BadRequestError('A tmdbId is required to add a movie to Radarr')
 
     // Idempotent: reuse the movie if it's already in the library.
-    const existing = await this.arrGet<MovieResource[]>('/api/v3/movie', { tmdbId: String(params.tmdbId) })
-    const found = Array.isArray(existing) ? existing.find(m => m.id != null) : undefined
+    const existing = await this.arrGet<MovieResource[]>('/api/v3/movie', {
+      tmdbId: String(params.tmdbId),
+    })
+    const found = Array.isArray(existing)
+      ? existing.find(m => m.id != null)
+      : undefined
     if (found?.id != null)
       return found.id
 
     const lookup = await this.arrGet<MovieResource[]>('/api/v3/movie/lookup', { term: `tmdb:${params.tmdbId}` })
-    const movie = Array.isArray(lookup) ? lookup[0] : undefined
+    const movie = Array.isArray(lookup)
+      ? lookup[0]
+      : undefined
     if (!movie)
       throw new BadRequestError(`No movie found on ${this.name} for tmdbId ${params.tmdbId}`)
 
@@ -210,7 +228,9 @@ export class RadarrServerConnector extends ArrServerConnector {
       filterExistingFiles: 'false',
     })
     const wanted = new Set(params.paths)
-    const files = (Array.isArray(candidates) ? candidates : [])
+    const files = (Array.isArray(candidates)
+      ? candidates
+      : [])
       .filter((c): c is ManualImportCandidate & { path: string } => typeof c.path === 'string' && wanted.has(c.path))
       .map(c => ({
         path: c.path,

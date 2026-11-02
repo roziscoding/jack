@@ -41,7 +41,9 @@ function toEpoch(iso: string | null): number {
   if (!iso)
     return 0
   const ms = Date.parse(iso)
-  return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000)
+  return Number.isNaN(ms)
+    ? 0
+    : Math.floor(ms / 1000)
 }
 
 export interface QbTorrent {
@@ -74,8 +76,14 @@ export interface QbTorrent {
 export function toQbTorrent(record: DownloadRecord, opts: { completedPath: string, category: string }): QbTorrent {
   const size = record.expectedBytes ?? record.releaseSize
   const isDone = record.status === 'import_queued' || record.status === 'imported'
-  const progress = isDone ? 1 : (size > 0 ? Math.min(record.downloadedBytes / size, 1) : 0)
-  const amountLeft = isDone ? 0 : Math.max(size - record.downloadedBytes, 0)
+  const progress = isDone
+    ? 1
+    : (size > 0
+        ? Math.min(record.downloadedBytes / size, 1)
+        : 0)
+  const amountLeft = isDone
+    ? 0
+    : Math.max(size - record.downloadedBytes, 0)
   return {
     // Real stub infohash (from release title + size), NOT peerId:itemId — *arr
     // matches torrents/info to the hash it computed from the grabbed .torrent.

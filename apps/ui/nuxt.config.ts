@@ -21,7 +21,9 @@ export default defineNuxtConfig({
   app: {
     head: {
       title: 'jack',
-      meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
+      meta: [
+        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+      ],
     },
   },
 

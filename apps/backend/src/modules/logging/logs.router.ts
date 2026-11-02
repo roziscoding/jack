@@ -5,7 +5,14 @@ import { describeRoute, validator as zValidator } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 
-const LEVEL = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+const LEVEL = z.enum([
+  'trace',
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+])
 
 const backfillQuery = z.object({
   // Cap the initial page so a large file can't be slurped whole into a response.
@@ -13,7 +20,9 @@ const backfillQuery = z.object({
   level: LEVEL.optional(),
 })
 
-const streamQuery = z.object({ level: LEVEL.optional() })
+const streamQuery = z.object({
+  level: LEVEL.optional(),
+})
 
 // Poll cadence for draining buffered records to the SSE client, and how often to
 // emit a keep-alive comment so idle proxies don't drop the connection.
@@ -30,8 +39,15 @@ export function getLogsRouter(controller: LogsController) {
     tags: ['Logs'],
     summary: 'Backfill recent logs',
     description: 'The last N log records, oldest to newest, with an optional minimum level.',
-    security: [{ 'X-Management-Key': [] }],
-    responses: { 200: { description: 'Log records', content: { 'application/json': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Log records',
+        content: { 'application/json': {} },
+      },
+    },
   }), zValidator('query', backfillQuery), async (c) => {
     const { lines, level } = c.req.valid('query')
     return c.json({ logs: await controller.backfill({ lines, level }) })
@@ -42,8 +58,15 @@ export function getLogsRouter(controller: LogsController) {
     tags: ['Logs'],
     summary: 'Live-tail logs',
     description: 'Server-Sent Events stream; each event\'s `data` is one JSON log record. Emits a `ping` event every 15s to keep idle proxies from dropping the connection.',
-    security: [{ 'X-Management-Key': [] }],
-    responses: { 200: { description: 'SSE stream of log records', content: { 'text/event-stream': {} } } },
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'SSE stream of log records',
+        content: { 'text/event-stream': {} },
+      },
+    },
   }), zValidator('query', streamQuery), (c) => {
     const { level } = c.req.valid('query')
     const minLevel = controller.minLevelFor(level)
@@ -76,8 +99,11 @@ export function getLogsRouter(controller: LogsController) {
       try {
         let sincePingMs = 0
         while (!stream.aborted) {
-          while (pending.length > 0)
-            await stream.writeSSE({ data: JSON.stringify(pending.shift()) })
+          while (pending.length > 0) {
+            await stream.writeSSE({
+              data: JSON.stringify(pending.shift()),
+            })
+          }
 
           await stream.sleep(DRAIN_INTERVAL_MS)
           sincePingMs += DRAIN_INTERVAL_MS

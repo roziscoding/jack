@@ -26,7 +26,9 @@ function validate(s: typeof state): FormError[] {
 }
 
 function onSubmit() {
-  const input: JackConfig = { internalUrl: state.internalUrl.trim() }
+  const input: JackConfig = {
+    internalUrl: state.internalUrl.trim(),
+  }
   // SecretInput emits null when cleared → omit apiKey entirely (optional).
   if (state.apiKey)
     input.apiKey = state.apiKey

@@ -19,7 +19,9 @@ globals.useState = <T>(key: string, init: () => T): StateRef<T> => {
     // The test stub stores one stable state type per Nuxt key, matching useState's contract.
     return existing as StateRef<T>
   }
-  const created = { value: init() } satisfies StateRef<T>
+  const created = {
+    value: init(),
+  } satisfies StateRef<T>
   states.set(key, created)
   return created
 }

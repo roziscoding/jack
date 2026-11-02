@@ -40,7 +40,11 @@ async function runAction(download: DownloadItem, action: DownloadAction) {
     else
       await request<{ download: DownloadItem }>(`downloads/${download.id}/${action}`, { method: 'POST' })
     toast.add({
-      title: action === 'cancel' ? 'Download cancelled' : action === 'retry' ? 'Download retry started' : 'Download deleted',
+      title: action === 'cancel'
+        ? 'Download cancelled'
+        : action === 'retry'
+          ? 'Download retry started'
+          : 'Download deleted',
       color: 'success',
     })
     await refresh()
@@ -103,7 +107,12 @@ const codeItems = computed(() => errorCodeGroups(data.value?.downloads ?? [])
   .map(({ group, codes }) => [
     // Labels aren't selectable; the value only keeps value-key typed.
     { type: 'label' as const, label: group, value: group },
-    ...codes.map(({ code, count }) => ({ label: code, value: code, count, ui: { itemLabel: 'font-mono text-xs' } })),
+    ...codes.map(({ code, count }) => ({
+      label: code,
+      value: code,
+      count,
+      ui: { itemLabel: 'font-mono text-xs' },
+    })),
   ]))
 
 // Drop selections whose peer or code no longer appears after a live update.
@@ -151,7 +160,9 @@ const page = ref(1)
 const total = computed(() => filtered.value.length)
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const paged = computed(() => filtered.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
-const showingFrom = computed(() => (total.value === 0 ? 0 : (page.value - 1) * PAGE_SIZE + 1))
+const showingFrom = computed(() => (total.value === 0
+  ? 0
+  : (page.value - 1) * PAGE_SIZE + 1))
 const showingTo = computed(() => Math.min(page.value * PAGE_SIZE, total.value))
 
 // Switching filters starts over at page one; a refresh that shrinks the list

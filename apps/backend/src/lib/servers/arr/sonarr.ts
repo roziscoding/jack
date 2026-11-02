@@ -11,7 +11,9 @@ import { ArrServerConnector, basename, PermanentManualImportError, stripExtensio
 
 type SeriesWithId = SeriesResource & { id: number }
 
-const CreatedId = z.object({ id: z.number().int() })
+const CreatedId = z.object({
+  id: z.number().int(),
+})
 
 interface SonarrManualImportCandidate {
   path?: string
@@ -48,8 +50,12 @@ export class SonarrServerConnector extends ArrServerConnector {
       return null
 
     const path = file.path ?? file.relativePath ?? null
-    const title = file.sceneName ?? (path ? stripExtension(basename(path)) : (series?.title ?? episode.title ?? 'Unknown'))
-    const filename = path ? basename(path) : title
+    const title = file.sceneName ?? (path
+      ? stripExtension(basename(path))
+      : (series?.title ?? episode.title ?? 'Unknown'))
+    const filename = path
+      ? basename(path)
+      : title
 
     return {
       id: this.buildId('episode', episode.id),
@@ -79,7 +85,9 @@ export class SonarrServerConnector extends ArrServerConnector {
 
   private async listSeries(query?: Record<string, string>): Promise<SeriesWithId[]> {
     const series = await this.arrGet<SeriesResource[]>('/api/v3/series', query)
-    return (Array.isArray(series) ? series : []).filter((s): s is SeriesWithId => s.id != null)
+    return (Array.isArray(series)
+      ? series
+      : []).filter((s): s is SeriesWithId => s.id != null)
   }
 
   private async listEpisodes(seriesId: number): Promise<EpisodeResource[]> {
@@ -87,7 +95,9 @@ export class SonarrServerConnector extends ArrServerConnector {
       seriesId: String(seriesId),
       includeEpisodeFile: 'true',
     })
-    return Array.isArray(episodes) ? episodes : []
+    return Array.isArray(episodes)
+      ? episodes
+      : []
   }
 
   private async episodeIdsFromRelease(seriesId: number, release: ManualImportParams['release']): Promise<number[]> {
@@ -183,7 +193,9 @@ export class SonarrServerConnector extends ArrServerConnector {
 
   protected override async doGetRelease(id: string): Promise<Release | null> {
     const bundle = await this.fetchEpisodeBundle(id)
-    return bundle ? this.buildRelease(bundle.episode, bundle.series, bundle.file) : null
+    return bundle
+      ? this.buildRelease(bundle.episode, bundle.series, bundle.file)
+      : null
   }
 
   protected override async doGetFilePath(id: string): Promise<string | null> {
@@ -195,12 +207,16 @@ export class SonarrServerConnector extends ArrServerConnector {
     if (params.tvdbId == null)
       throw new BadRequestError('A tvdbId is required to add a series to Sonarr')
 
-    const existing = await this.listSeries({ tvdbId: String(params.tvdbId) })
+    const existing = await this.listSeries({
+      tvdbId: String(params.tvdbId),
+    })
     if (existing[0]?.id != null)
       return existing[0].id
 
     const lookup = await this.arrGet<SeriesResource[]>('/api/v3/series/lookup', { term: `tvdb:${params.tvdbId}` })
-    const series = Array.isArray(lookup) ? lookup[0] : undefined
+    const series = Array.isArray(lookup)
+      ? lookup[0]
+      : undefined
     if (!series)
       throw new BadRequestError(`No series found on ${this.name} for tvdbId ${params.tvdbId}`)
 
@@ -231,7 +247,9 @@ export class SonarrServerConnector extends ArrServerConnector {
       filterExistingFiles: 'false',
     })
     const wanted = new Set(params.paths)
-    const matches = (Array.isArray(candidates) ? candidates : [])
+    const matches = (Array.isArray(candidates)
+      ? candidates
+      : [])
       .filter((c): c is SonarrManualImportCandidate & { path: string } => typeof c.path === 'string' && wanted.has(c.path))
     if (matches.length === 0)
       throw new BadRequestError(`Sonarr found no importable episode file for series ${seriesId} in ${params.folder}`)
@@ -239,7 +257,9 @@ export class SonarrServerConnector extends ArrServerConnector {
     const fallbackEpisodeIds = await this.episodeIdsFromRelease(seriesId, params.release)
     const files = matches.map((c) => {
       const parsedEpisodeIds = (c.episodes ?? []).map(e => e.id).filter((id): id is number => id != null)
-      const episodeIds = parsedEpisodeIds.length > 0 ? parsedEpisodeIds : fallbackEpisodeIds
+      const episodeIds = parsedEpisodeIds.length > 0
+        ? parsedEpisodeIds
+        : fallbackEpisodeIds
       if (episodeIds.length === 0)
         throw new PermanentManualImportError(`Sonarr could not resolve episode ids for ${c.path}`)
       return {

@@ -13,7 +13,12 @@ import { makeAuthRepos } from './helpers/auth-repos'
 
 const envs = { ENVIRONMENT: 'test', ENABLE_LOGS: false, LOG_LEVEL: 'fatal' } as any
 
-const fakeServer = { id: 'abc12345', name: 'My Radarr', type: 'radarr', categories: [2000] } as any
+const fakeServer = {
+  id: 'abc12345',
+  name: 'My Radarr',
+  type: 'radarr',
+  categories: [2000],
+} as any
 
 function buildApp() {
   const sqlite = new Database(':memory:')
@@ -27,7 +32,13 @@ function buildApp() {
     servers: [],
     peers: [],
   })
-  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, ...makeAuthRepos(db) })
+  const app = getApp(envs, config, {
+    servers: [fakeServer],
+    peers: [],
+  }, {
+    downloadsRepository: repository,
+    ...makeAuthRepos(db),
+  })
   return { app, repository }
 }
 
@@ -50,7 +61,14 @@ function buildAppWithService(startResult: 'started' | 'duplicate' | 'failed' = '
       return startResult
     },
   } as any
-  const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository: repository, downloadsService, ...makeAuthRepos(db) })
+  const app = getApp(envs, config, {
+    servers: [fakeServer],
+    peers: [],
+  }, {
+    downloadsRepository: repository,
+    downloadsService,
+    ...makeAuthRepos(db),
+  })
   return { app, repository, calls }
 }
 
@@ -64,7 +82,13 @@ function seedDownload(repository: DownloadsRepository, category: string) {
     destPath: '/tmp/completed/Big Buck Bunny (2008).mkv',
     partPath: '/tmp/completed/Big Buck Bunny (2008).mkv.part',
     releaseSize: 10,
-    release: { id: 'conn:movie:42', title: 'Big Buck Bunny', filename: 'Big Buck Bunny (2008).mkv', category: 2000, size: 10 } as any,
+    release: {
+      id: 'conn:movie:42',
+      title: 'Big Buck Bunny',
+      filename: 'Big Buck Bunny (2008).mkv',
+      category: 2000,
+      size: 10,
+    } as any,
     qbCategory: category,
     qbSourceServer: 'My Radarr',
     sourceServerId: 'abc12345',
@@ -120,10 +144,16 @@ describe('qBittorrent auth + app surface', () => {
       servers: [],
       peers: [],
     })
-    const app = getApp(envs, config, { servers: [fakeServer], peers: [] }, { downloadsRepository, apiKeysRepository, managedKeysRepository })
+    const app = getApp(envs, config, {
+      servers: [fakeServer],
+      peers: [],
+    }, { downloadsRepository, apiKeysRepository, managedKeysRepository })
 
     const key = generateManagedKey()
-    managedKeysRepository.create({ keyHash: hashKey(key), serverId: 'abc12345' }) // fakeServer.id
+    managedKeysRepository.create({
+      keyHash: hashKey(key),
+      serverId: 'abc12345',
+    }) // fakeServer.id
 
     const ok = await app.request('/api/v2/auth/login', {
       method: 'POST',
@@ -134,7 +164,10 @@ describe('qBittorrent auth + app surface', () => {
 
     // A managed key for another server is rejected for this username (server-scoped).
     const otherKey = generateManagedKey()
-    managedKeysRepository.create({ keyHash: hashKey(otherKey), serverId: 'other-server' })
+    managedKeysRepository.create({
+      keyHash: hashKey(otherKey),
+      serverId: 'other-server',
+    })
     const fail = await app.request('/api/v2/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -150,10 +183,14 @@ describe('qBittorrent auth + app surface', () => {
 
   test('app endpoints return contract values with a session', async () => {
     const cookie = await loginCookie(app)
-    const version = await app.request('/api/v2/app/webapiVersion', { headers: { cookie } })
+    const version = await app.request('/api/v2/app/webapiVersion', {
+      headers: { cookie },
+    })
     expect(await version.text()).toBe('2.9.2')
 
-    const prefs = await app.request('/api/v2/app/preferences', { headers: { cookie } })
+    const prefs = await app.request('/api/v2/app/preferences', {
+      headers: { cookie },
+    })
     const body = await prefs.json() as any
     expect(body.save_path).toBe('/tmp/completed')
     expect(body.max_ratio_enabled).toBe(false)
@@ -161,7 +198,9 @@ describe('qBittorrent auth + app surface', () => {
 
   test('categories include jack-<serverId>', async () => {
     const cookie = await loginCookie(app)
-    const res = await app.request('/api/v2/torrents/categories', { headers: { cookie } })
+    const res = await app.request('/api/v2/torrents/categories', {
+      headers: { cookie },
+    })
     const body = await res.json() as Record<string, unknown>
     expect(Object.keys(body)).toContain('jack-abc12345')
   })
@@ -183,22 +222,30 @@ describe('qBittorrent torrent mapping', () => {
     const hash = deriveHash('Big Buck Bunny', 10)
     const cookie = await loginCookie(app)
 
-    const infoRes = await app.request(`/api/v2/torrents/info?category=${encodeURIComponent(category)}`, { headers: { cookie } })
+    const infoRes = await app.request(`/api/v2/torrents/info?category=${encodeURIComponent(category)}`, {
+      headers: { cookie },
+    })
     const info = await infoRes.json() as any[]
     expect(info).toHaveLength(1)
     expect(info[0].hash).toBe(hash)
     expect(info[0].state).toBe('pausedUP')
     expect(info[0].progress).toBe(1)
 
-    const propsRes = await app.request(`/api/v2/torrents/properties?hash=${hash}`, { headers: { cookie } })
+    const propsRes = await app.request(`/api/v2/torrents/properties?hash=${hash}`, {
+      headers: { cookie },
+    })
     expect(propsRes.status).toBe(200)
     const props = await propsRes.json() as { save_path: string }
     expect(props.save_path).toBe('/tmp/completed')
 
-    const missingRes = await app.request('/api/v2/torrents/properties?hash=deadbeef', { headers: { cookie } })
+    const missingRes = await app.request('/api/v2/torrents/properties?hash=deadbeef', {
+      headers: { cookie },
+    })
     expect(missingRes.status).toBe(404)
 
-    const filesRes = await app.request(`/api/v2/torrents/files?hash=${hash}`, { headers: { cookie } })
+    const filesRes = await app.request(`/api/v2/torrents/files?hash=${hash}`, {
+      headers: { cookie },
+    })
     const files = await filesRes.json() as { name: string }[]
     expect(files[0]?.name).toBe('Big Buck Bunny (2008).mkv')
   })
@@ -208,11 +255,20 @@ describe('qBittorrent add/delete/setCategory', () => {
   test('add with a valid jack stub file starts a qB download with the session category', async () => {
     const { app, calls } = buildAppWithService()
     const cookie = await loginCookie(app)
-    const stub = createTorrentStub({ name: 'Big Buck Bunny', size: 10, peerId: 'peer0001', itemId: 'conn:movie:42' })
+    const stub = createTorrentStub({
+      name: 'Big Buck Bunny',
+      size: 10,
+      peerId: 'peer0001',
+      itemId: 'conn:movie:42',
+    })
     const form = new FormData()
     form.append('torrents', new File([stub], 'x.torrent'))
 
-    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+    const res = await app.request('/api/v2/torrents/add', {
+      method: 'POST',
+      headers: { cookie },
+      body: form,
+    })
 
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('Ok.')
@@ -227,11 +283,20 @@ describe('qBittorrent add/delete/setCategory', () => {
   test('add returns 503 when startQbDownload fails so *arr retries promptly', async () => {
     const { app, calls } = buildAppWithService('failed')
     const cookie = await loginCookie(app)
-    const stub = createTorrentStub({ name: 'Big Buck Bunny', size: 10, peerId: 'peer0001', itemId: 'conn:movie:42' })
+    const stub = createTorrentStub({
+      name: 'Big Buck Bunny',
+      size: 10,
+      peerId: 'peer0001',
+      itemId: 'conn:movie:42',
+    })
     const form = new FormData()
     form.append('torrents', new File([stub], 'x.torrent'))
 
-    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+    const res = await app.request('/api/v2/torrents/add', {
+      method: 'POST',
+      headers: { cookie },
+      body: form,
+    })
 
     expect(res.status).toBe(503)
     expect(calls).toHaveLength(1)
@@ -243,7 +308,11 @@ describe('qBittorrent add/delete/setCategory', () => {
     const form = new FormData()
     form.append('urls', 'magnet:?xt=urn:btih:deadbeef')
 
-    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+    const res = await app.request('/api/v2/torrents/add', {
+      method: 'POST',
+      headers: { cookie },
+      body: form,
+    })
 
     expect(res.status).toBe(415)
     expect(calls).toHaveLength(0)
@@ -253,9 +322,15 @@ describe('qBittorrent add/delete/setCategory', () => {
     const { app, calls } = buildAppWithService()
     const cookie = await loginCookie(app)
     const form = new FormData()
-    form.append('torrents', new File([new Uint8Array([1, 2, 3])], 'x.torrent'))
+    form.append('torrents', new File([
+      new Uint8Array([1, 2, 3]),
+    ], 'x.torrent'))
 
-    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+    const res = await app.request('/api/v2/torrents/add', {
+      method: 'POST',
+      headers: { cookie },
+      body: form,
+    })
 
     expect(res.status).toBe(415)
     expect(calls).toHaveLength(0)
@@ -264,11 +339,20 @@ describe('qBittorrent add/delete/setCategory', () => {
   test('add returns 503 when the download pipeline is unavailable (no downloadsService)', async () => {
     const { app } = buildApp() // built without a downloadsService
     const cookie = await loginCookie(app)
-    const stub = createTorrentStub({ name: 'Big Buck Bunny', size: 10, peerId: 'peer0001', itemId: 'conn:movie:42' })
+    const stub = createTorrentStub({
+      name: 'Big Buck Bunny',
+      size: 10,
+      peerId: 'peer0001',
+      itemId: 'conn:movie:42',
+    })
     const form = new FormData()
     form.append('torrents', new File([stub], 'x.torrent'))
 
-    const res = await app.request('/api/v2/torrents/add', { method: 'POST', headers: { cookie }, body: form })
+    const res = await app.request('/api/v2/torrents/add', {
+      method: 'POST',
+      headers: { cookie },
+      body: form,
+    })
 
     expect(res.status).toBe(503)
   })
