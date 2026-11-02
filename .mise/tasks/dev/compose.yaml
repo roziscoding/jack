@@ -13,6 +13,11 @@ services:
       context: ../../..
       dockerfile: apps/backend/Dockerfile
       target: development
+      # The synced source in the image is owned by the same user, so Compose
+      # Watch can write to it.
+      args:
+        DEV_UID: '${JACK_UID:-1000}'
+        DEV_GID: '${JACK_GID:-1000}'
     # Run as the host user so the backend can write config, database, and logs
     # into the mounted apps/backend. `mise run dev` exports these.
     user: '${JACK_UID:-1000}:${JACK_GID:-1000}'

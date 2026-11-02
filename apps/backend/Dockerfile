@@ -45,8 +45,11 @@ ENV ENVIRONMENT=development \
     APP_CONFIG_PATH=/config/config.jsonc
 
 COPY tsconfig.json ./
-# Owned by the runtime user so Compose Watch can write synced files into it.
-COPY --chown=bun:bun apps/backend ./apps/backend
+# Owned by the user the container runs as (the host user under `mise run dev`)
+# so Compose Watch can write synced files into it.
+ARG DEV_UID=1000
+ARG DEV_GID=1000
+COPY --chown=${DEV_UID}:${DEV_GID} apps/backend ./apps/backend
 
 RUN mkdir -p /config && chown bun:bun /config
 USER bun
