@@ -1,0 +1,66 @@
+# Used by `mise run dev` (`docker compose up --watch`). Builds the `development`
+# stage of both images; Compose Watch then syncs local source edits into the
+# containers (host -> container only), where `bun --hot` and `nuxt dev` reload.
+# Changing a package.json or bun.lock rebuilds the image instead.
+#
+# apps/backend is mounted as /config, so the backend uses the same config.jsonc,
+# database.sqlite, and logs/ as the db:* tasks and dev:preview.
+name: jack-dev
+
+services:
+  jack:
+    build:
+      context: ../../..
+      dockerfile: apps/backend/Dockerfile
+      target: development
+    ports:
+      - '${JACK_PORT:-5225}:5225'
+    environment:
+      LOG_LEVEL: debug
+      # Local development only; the UI below injects the same value.
+      JACK_MANAGEMENT_KEY: jack-dev-management-key
+    volumes:
+      - ../../../apps/backend:/config
+    develop:
+      watch:
+        - action: sync
+          path: ../../../apps/backend/src
+          target: /app/apps/backend/src
+        - action: sync
+          path: ../../../apps/backend/drizzle
+          target: /app/apps/backend/drizzle
+        - action: rebuild
+          path: ../../../apps/backend/package.json
+        - action: rebuild
+          path: ../../../package.json
+        - action: rebuild
+          path: ../../../bun.lock
+
+  jack-ui:
+    build:
+      context: ../../..
+      dockerfile: apps/ui/Dockerfile
+      target: development
+    depends_on:
+      - jack
+    ports:
+      - '${JACK_UI_PORT:-3000}:3000'
+    environment:
+      JACK_MANAGEMENT_API_URL: http://jack:5226
+      JACK_MANAGEMENT_KEY: jack-dev-management-key
+    develop:
+      watch:
+        - action: sync
+          path: ../../../apps/ui
+          target: /app/apps/ui
+          ignore:
+            - node_modules/
+            - .nuxt/
+            - .output/
+            - package.json
+        - action: rebuild
+          path: ../../../apps/ui/package.json
+        - action: rebuild
+          path: ../../../package.json
+        - action: rebuild
+          path: ../../../bun.lock

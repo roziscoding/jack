@@ -1,0 +1,24 @@
+// <<< preview config file >>>
+// dev:preview:clean deletes apps/backend/config.jsonc only when its first line
+// is the marker above, so a config you wrote yourself is never removed.
+{
+  // Template for `mise run dev:preview`. Copied to apps/backend/config.jsonc
+  // only when that file doesn't exist yet; an existing config is never
+  // overwritten. No servers or peers, so nothing needs Radarr, Sonarr, or a
+  // peer to be running.
+  //
+  // Keep "version" current: a config without it gets migrated on boot, and the
+  // rewrite drops these comments, marker included.
+  "version": 2,
+  "jack": {
+    "internalUrl": "http://jack:5225"
+  },
+
+  // Inside the container. /tmp is writable by the image's user without a mount.
+  "downloads": {
+    "completedPath": "/tmp/jack-preview/completed"
+  },
+
+  "servers": [],
+  "peers": []
+}

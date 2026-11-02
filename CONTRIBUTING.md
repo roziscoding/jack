@@ -28,8 +28,12 @@ Common tasks (run `mise tasks` to see them all):
 
 | Task | What it does |
 | --- | --- |
-| `mise run dev` | Backend dev server with hot reload |
-| `mise run ui` | Management UI dev server (Nuxt) |
+| `mise run dev` | Backend and UI in Docker with hot reload; Compose Watch syncs local edits in |
+| `mise run preview` | Production images with a seeded database; `--keep` leaves it running |
+| `mise run preview:clean` | Remove the preview containers, database, logs, and generated config |
+| `mise run ui` | Management UI dev server (Nuxt), outside Docker |
+| `mise run db:generate` | Generate a migration from schema changes |
+| `mise run db:seed` | Fill the dev database with sample downloads |
 | `mise run lint` | Lint the workspace |
 | `mise run lint:fix` | Lint and auto-fix |
 | `mise run test` | Unit tests (`bun test`) |

@@ -14,7 +14,7 @@ export default antfu(
     },
   },
   {
-    ignores: ['packages/schemas/src/generated/**'],
+    ignores: ['packages/schemas/src/generated/**', '.mise/**'],
   },
   {
     // Docs prose is full of literal `*arr`, which the emphasis rule mangles when

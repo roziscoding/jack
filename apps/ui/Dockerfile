@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# ---- build: install deps and build the Nuxt/Nitro server ----
-FROM oven/bun:1.3.14-alpine AS build
+# ---- development: install deps and copy the source, stopping before the build ----
+# Used by `mise run dev` (target: development): Compose Watch syncs local edits
+# into the copy below and `nuxt dev` hot-reloads. The build stage continues
+# from here.
+FROM oven/bun:1.3.14-alpine AS development
 WORKDIR /app
 
 # Copy only the manifests so this layer is cached unless deps change. The root
@@ -19,6 +22,12 @@ COPY packages/schemas/package.json packages/schemas/package.json
 RUN bun install --frozen-lockfile --filter '@jack/ui'
 
 COPY apps/ui ./apps/ui
+
+EXPOSE 3000
+CMD ["bun", "run", "--cwd", "apps/ui", "dev", "--host", "0.0.0.0", "--port", "3000"]
+
+# ---- build: the Nuxt/Nitro server ----
+FROM development AS build
 RUN bun run --cwd apps/ui build
 
 # ---- runtime: the self-contained Nitro output ----

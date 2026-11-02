@@ -19,7 +19,7 @@ bun apps/backend/src/index.ts
 For local development with hot reload:
 
 ```bash
-mise run dev     # bun --cwd apps/backend --hot src/index.ts
+bun --cwd apps/backend --hot src/index.ts
 ```
 
 ## Development
