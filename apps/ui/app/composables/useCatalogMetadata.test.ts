@@ -46,6 +46,8 @@ describe('useCatalogMetadata', () => {
       displayTitle: 'The Matrix',
       releaseCount: 1,
       totalSize: 100,
+      genres: [],
+      inLibrary: false,
       peers: [],
     } satisfies CatalogTitle
     let calls = 0

@@ -14,7 +14,13 @@ const name = computed(() => meta.value?.title ?? props.title.displayTitle)
 const { src: heroImage, onError: onHeroError } = useFallbackImage(() => [
   meta.value?.backdropUrl,
   meta.value?.posterUrl,
+  props.title.backdropUrl,
+  props.title.posterUrl,
 ])
+// TMDB's genres when loaded, otherwise the ones the peers' *arr reported.
+const genres = computed(() => meta.value?.genres?.length
+  ? meta.value.genres
+  : props.title.genres)
 
 onMounted(() => load(props.title))
 
@@ -46,12 +52,7 @@ function formatResolution(res?: number): string | null {
 // Distinct resolution labels a peer carries, best first — the decision-relevant "what
 // quality can I get here" without listing every individual file.
 function peerResolutions(peer: CatalogTitlePeer): string[] {
-  const nums = peer.releases
-    .map(r => r.quality?.resolution)
-    .filter((n): n is number => n != null)
-  const labels = [
-    ...new Set(nums),
-  ].sort((a, b) => b - a).map(formatResolution)
+  const labels = peer.resolutions.map(formatResolution)
   return [
     ...new Set(labels.filter((l): l is string => l != null)),
   ]
@@ -90,9 +91,10 @@ const logflixUrl = computed(() => props.title.tmdbId == null || meta.value == nu
     </div>
 
     <div class="flex flex-wrap items-center gap-2">
+      <UBadge v-if="title.inLibrary" label="In your library" icon="i-ph-check-circle-fill" color="success" variant="subtle" />
       <UBadge :label="title.mediaType === 'tv' ? 'TV' : 'Movie'" color="neutral" variant="subtle" />
       <UBadge v-if="meta?.rating" :label="meta.rating.toFixed(1)" icon="i-ph-star-fill" color="warning" variant="subtle" />
-      <UBadge v-for="g in meta?.genres ?? []" :key="g" :label="g" color="neutral" variant="soft" size="sm" />
+      <UBadge v-for="g in genres" :key="g" :label="g" color="neutral" variant="soft" size="sm" />
     </div>
 
     <p v-if="meta?.overview" class="text-sm leading-relaxed text-toned">
