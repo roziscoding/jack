@@ -3,12 +3,12 @@ import type { PeerCatalogResponse, PeerCatalogTitle } from '../../lib/peer-catal
 import type { Release } from '../../lib/release'
 import type { PeerCatalogDiff } from './catalog.lib'
 import { and, eq, gt, inArray, max, notInArray } from 'drizzle-orm'
-import { ownCatalogReleases, ownCatalogTitles } from '../../database/schema'
+import { ownCatalogMeta, ownCatalogReleases, ownCatalogSourceTitles, ownCatalogTitles } from '../../database/schema'
 import { normalizeImdbId, ReleaseCategory } from '../../lib/release'
 import { DELETE_CHUNK_SIZE, titleColumns, titleFromRow } from './catalog-cache.repository'
-import { diffPeerCatalog } from './catalog.lib'
+import { diffPeerCatalog, mergeTitle } from './catalog.lib'
 
-/** A title in the own catalog, with the releases behind it. */
+/** A title as one source carries it, with the releases behind it. */
 export interface OwnCatalogEntry {
   title: PeerCatalogTitle
   releases: Release[]
@@ -25,8 +25,9 @@ export interface ReleaseSearch {
 
 type Tx = Parameters<Parameters<AppDatabase['transaction']>[0]>[0]
 
-function releaseColumns(titleKey: string, release: Release) {
+function releaseColumns(sourceId: string, titleKey: string, release: Release) {
   return {
+    sourceId,
     titleKey,
     mediaType: release.category === ReleaseCategory.Tv
       ? 'tv' as const
@@ -42,16 +43,37 @@ function releaseColumns(titleKey: string, release: Release) {
   }
 }
 
+function chunks<T>(items: T[]): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += DELETE_CHUNK_SIZE)
+    out.push(items.slice(i, i + DELETE_CHUNK_SIZE))
+  return out
+}
+
 /**
- * This instance's own catalog: the titles served to peers on `/peer/catalog`,
- * and the releases behind them, which answer `/peer/search`. Each sync that
- * changes a title bumps the revision, so a peer can ask for just the changes
- * since the revision it last saw.
+ * This instance's own catalog. Each source's titles and releases are stored as
+ * of its last successful read; the catalog served on `/peer/catalog` is merged
+ * from the sources enabled now, and `/peer/search` reads only their releases.
+ * Each merge that changes a title bumps the revision, so a peer can ask for
+ * just the changes since the revision it last saw.
  */
 export class OwnCatalogRepository {
+  // The source set the served catalog was last merged from; null until merged.
+  private mergedFrom: string | null = null
+
   constructor(private readonly db: AppDatabase) {}
 
-  /** The latest revision; 0 before the first sync. */
+  /** This catalog's generation, created on first use and kept for the database's life. */
+  generation(): string {
+    const row = this.db.select().from(ownCatalogMeta).where(eq(ownCatalogMeta.id, 1)).get()
+    if (row)
+      return row.generation
+    const generation = crypto.randomUUID()
+    this.db.insert(ownCatalogMeta).values({ id: 1, generation }).onConflictDoNothing().run()
+    return this.db.select().from(ownCatalogMeta).where(eq(ownCatalogMeta.id, 1)).get()!.generation
+  }
+
+  /** The latest revision; 0 before the first merge. */
   currentRevision(): number {
     return this.db.select({
       revision: max(ownCatalogTitles.revision),
@@ -59,88 +81,161 @@ export class OwnCatalogRepository {
   }
 
   /**
-   * Bring the catalog in line with what the sources carry now. Changed, added,
-   * and removed titles are stamped with one new revision; unchanged ones keep
-   * theirs. Releases are diffed too, so only the ones that changed are written.
-   * Returns the title diff.
+   * Store what a source carries now. With `onlyKeys`, just those titles are
+   * replaced (a title missing from `entries` is dropped for this source);
+   * otherwise the whole source is. Only rows that changed are written.
    */
-  applySnapshot(fresh: Map<string, OwnCatalogEntry>): PeerCatalogDiff {
-    return this.db.transaction((tx) => {
-      const rows = tx.select().from(ownCatalogTitles).where(eq(ownCatalogTitles.deleted, false)).all()
-      const current = new Map(rows.map(row => [
+  replaceSource(sourceId: string, entries: Map<string, OwnCatalogEntry>, onlyKeys?: string[]): void {
+    this.db.transaction((tx) => {
+      const scope = onlyKeys
+        ? and(eq(ownCatalogSourceTitles.sourceId, sourceId), inArray(ownCatalogSourceTitles.titleKey, onlyKeys))
+        : eq(ownCatalogSourceTitles.sourceId, sourceId)
+      const stored = new Map(tx.select().from(ownCatalogSourceTitles).where(scope).all().map(row => [
         row.titleKey,
-        titleFromRow(row),
+        JSON.stringify(row.data),
       ]))
-      const titles = new Map([...fresh].map(([key, entry]) => [key, entry.title]))
-      const diff = diffPeerCatalog(current, titles)
+      for (const [titleKey, { title }] of entries) {
+        if (stored.get(titleKey) === JSON.stringify(title))
+          continue
+        tx.insert(ownCatalogSourceTitles)
+          .values({ sourceId, titleKey, data: title })
+          .onConflictDoUpdate({
+            target: [ownCatalogSourceTitles.sourceId, ownCatalogSourceTitles.titleKey],
+            set: { data: title },
+          })
+          .run()
+      }
+      const goneKeys = [
+        ...stored.keys(),
+      ].filter(key => !entries.has(key))
+      for (const chunk of chunks(goneKeys)) {
+        tx.delete(ownCatalogSourceTitles)
+          .where(and(eq(ownCatalogSourceTitles.sourceId, sourceId), inArray(ownCatalogSourceTitles.titleKey, chunk)))
+          .run()
+      }
 
-      if (diff.added.size > 0 || diff.updated.size > 0 || diff.removed.length > 0) {
-        const revision = this.nextRevision(tx)
-        // A title removed earlier and back now still has its deleted row: upsert.
-        for (const [titleKey, title] of [
-          ...diff.added,
-          ...diff.updated,
-        ])
-          this.upsertTitle(tx, titleKey, title, revision)
-        for (const titleKey of diff.removed) {
-          tx.update(ownCatalogTitles)
-            .set({ revision, deleted: true })
-            .where(eq(ownCatalogTitles.titleKey, titleKey))
-            .run()
+      this.replaceReleases(tx, sourceId, entries, onlyKeys)
+    })
+  }
+
+  /** Forget every source not in `sourceIds` (removed from the config, or no longer a source). */
+  dropSourcesExcept(sourceIds: string[]): void {
+    this.db.transaction((tx) => {
+      if (sourceIds.length === 0) {
+        tx.delete(ownCatalogSourceTitles).run()
+        tx.delete(ownCatalogReleases).run()
+        return
+      }
+      tx.delete(ownCatalogSourceTitles).where(notInArray(ownCatalogSourceTitles.sourceId, sourceIds)).run()
+      tx.delete(ownCatalogReleases).where(notInArray(ownCatalogReleases.sourceId, sourceIds)).run()
+    })
+  }
+
+  /**
+   * Merge the served catalog from the titles of `sourceIds`. Changed, added, and
+   * removed titles are stamped with one new revision; unchanged ones keep theirs.
+   * Returns the diff.
+   */
+  merge(sourceIds: string[]): PeerCatalogDiff {
+    const diff = this.db.transaction((tx) => {
+      const rows = sourceIds.length === 0
+        ? []
+        : tx.select().from(ownCatalogSourceTitles).where(inArray(ownCatalogSourceTitles.sourceId, sourceIds)).all()
+      // Two sources can carry the same title (e.g. a 4K and a 1080p Radarr).
+      const fresh = new Map<string, PeerCatalogTitle>()
+      for (const row of rows) {
+        const existing = fresh.get(row.titleKey)
+        if (existing) {
+          mergeTitle(existing, row.data)
+        }
+        else {
+          fresh.set(row.titleKey, {
+            ...row.data,
+            resolutions: [...row.data.resolutions],
+          })
         }
       }
 
-      this.syncReleases(tx, fresh)
-      // Titles that are gone take their releases with them.
-      const keep = [
-        ...fresh.keys(),
-      ]
-      if (keep.length === 0)
-        tx.delete(ownCatalogReleases).run()
-      else
-        tx.delete(ownCatalogReleases).where(notInArray(ownCatalogReleases.titleKey, keep)).run()
+      const served = tx.select().from(ownCatalogTitles).where(eq(ownCatalogTitles.deleted, false)).all()
+      const current = new Map(served.map(row => [
+        row.titleKey,
+        titleFromRow(row),
+      ]))
+      const diff = diffPeerCatalog(current, fresh)
+      if (diff.added.size === 0 && diff.updated.size === 0 && diff.removed.length === 0)
+        return diff
+
+      const revision = (tx.select({
+        revision: max(ownCatalogTitles.revision),
+      }).from(ownCatalogTitles).get()?.revision ?? 0) + 1
+      // A title removed earlier and back now still has its deleted row: upsert.
+      for (const [titleKey, title] of [
+        ...diff.added,
+        ...diff.updated,
+      ]) {
+        const columns = {
+          ...titleColumns(title),
+          revision,
+          deleted: false,
+        }
+        tx.insert(ownCatalogTitles)
+          .values({ titleKey, ...columns })
+          .onConflictDoUpdate({ target: ownCatalogTitles.titleKey, set: columns })
+          .run()
+      }
+      for (const titleKey of diff.removed) {
+        tx.update(ownCatalogTitles)
+          .set({ revision, deleted: true })
+          .where(eq(ownCatalogTitles.titleKey, titleKey))
+          .run()
+      }
       return diff
     })
+    this.mergedFrom = sourceKey(sourceIds)
+    return diff
   }
 
   /**
-   * Put one title in the catalog as the sources carry it now, under a new
-   * revision when it differs from what's stored, and replace its releases.
-   * Returns whether the title changed.
+   * What changed after `since`: the whole catalog when `since` is absent, comes
+   * from another generation, or is newer than anything here; otherwise the titles
+   * stamped after it plus the keys removed after it. Re-merges first when the
+   * enabled sources changed since the last merge.
    */
-  applyTitle(titleKey: string, entry: OwnCatalogEntry): boolean {
-    return this.db.transaction((tx) => {
-      const row = tx.select().from(ownCatalogTitles).where(eq(ownCatalogTitles.titleKey, titleKey)).get()
-      const current = row && !row.deleted
-        ? new Map([
-            [
-              titleKey,
-              titleFromRow(row),
-            ],
-          ])
-        : new Map<string, PeerCatalogTitle>()
-      const diff = diffPeerCatalog(current, new Map([
-        [titleKey, entry.title],
-      ]))
-      const changed = diff.added.size > 0 || diff.updated.size > 0
-      if (changed)
-        this.upsertTitle(tx, titleKey, entry.title, this.nextRevision(tx))
-      this.syncReleases(tx, new Map([
-        [titleKey, entry],
-      ]))
-      return changed
-    })
+  changesSince(sourceIds: string[], since?: number, generation?: string): PeerCatalogResponse {
+    this.ensureMerged(sourceIds)
+    const current = this.generation()
+    const revision = this.currentRevision()
+    if (since === undefined || generation !== current || since > revision) {
+      const rows = this.db.select().from(ownCatalogTitles).where(eq(ownCatalogTitles.deleted, false)).all()
+      return {
+        revision,
+        generation: current,
+        full: true,
+        titles: rows.map(titleFromRow),
+        removed: [],
+      }
+    }
+    const rows = this.db.select().from(ownCatalogTitles).where(gt(ownCatalogTitles.revision, since)).all()
+    return {
+      revision,
+      generation: current,
+      full: false,
+      titles: rows.filter(row => !row.deleted).map(titleFromRow),
+      removed: rows.filter(row => row.deleted).map(row => row.titleKey),
+    }
   }
 
   /**
-   * Releases matching a `/peer/search` query, mirroring what the sources answer
-   * live: a tmdb or imdb id finds movies, a tvdb id (optionally narrowed to a
-   * season and episode) finds episodes, and no id lists everything. Null before
-   * the first sync, so the caller asks the sources instead.
+   * Releases from `sourceIds` matching a `/peer/search` query, mirroring what the
+   * sources answer live: a tmdb or imdb id finds movies, a tvdb id (optionally
+   * narrowed to a season and episode) finds episodes, and no id lists everything.
+   * Null until a source has been read, so the caller asks the sources instead.
    */
-  searchReleases(params: ReleaseSearch): Release[] | null {
-    if (!this.db.select({ titleKey: ownCatalogTitles.titleKey }).from(ownCatalogTitles).limit(1).get())
+  searchReleases(sourceIds: string[], params: ReleaseSearch): Release[] | null {
+    if (!this.db.select({ sourceId: ownCatalogSourceTitles.sourceId }).from(ownCatalogSourceTitles).limit(1).get())
       return null
+    if (sourceIds.length === 0)
+      return []
 
     let condition
     if (params.tmdbId) {
@@ -168,85 +263,51 @@ export class OwnCatalogRepository {
       )
     }
 
-    return this.db.select({ data: ownCatalogReleases.data }).from(ownCatalogReleases).where(condition).all().map(row => row.data)
+    return this.db.select({ data: ownCatalogReleases.data })
+      .from(ownCatalogReleases)
+      .where(and(inArray(ownCatalogReleases.sourceId, sourceIds), condition))
+      .all()
+      .map(row => row.data)
   }
 
-  /**
-   * What changed after `since`: the whole catalog when `since` is absent or newer
-   * than anything here (this instance's database was reset), otherwise the titles
-   * stamped after it plus the keys removed after it.
-   */
-  changesSince(since?: number): PeerCatalogResponse {
-    const revision = this.currentRevision()
-    if (since === undefined || since > revision) {
-      const rows = this.db.select().from(ownCatalogTitles).where(eq(ownCatalogTitles.deleted, false)).all()
-      return {
-        revision,
-        full: true,
-        titles: rows.map(titleFromRow),
-        removed: [],
-      }
-    }
-    const rows = this.db.select().from(ownCatalogTitles).where(gt(ownCatalogTitles.revision, since)).all()
-    return {
-      revision,
-      full: false,
-      titles: rows.filter(row => !row.deleted).map(titleFromRow),
-      removed: rows.filter(row => row.deleted).map(row => row.titleKey),
+  private ensureMerged(sourceIds: string[]): void {
+    if (this.mergedFrom !== sourceKey(sourceIds)) {
+      this.dropSourcesExcept(sourceIds)
+      this.merge(sourceIds)
     }
   }
 
-  private nextRevision(tx: Tx): number {
-    return (tx.select({
-      revision: max(ownCatalogTitles.revision),
-    }).from(ownCatalogTitles).get()?.revision ?? 0) + 1
-  }
-
-  private upsertTitle(tx: Tx, titleKey: string, title: PeerCatalogTitle, revision: number): void {
-    const columns = {
-      ...titleColumns(title),
-      revision,
-      deleted: false,
-    }
-    tx.insert(ownCatalogTitles)
-      .values({ titleKey, ...columns })
-      .onConflictDoUpdate({ target: ownCatalogTitles.titleKey, set: columns })
-      .run()
-  }
-
-  /** Make each given title's releases match `entries`, writing only what changed. */
-  private syncReleases(tx: Tx, entries: Map<string, OwnCatalogEntry>): void {
-    const keys = [
-      ...entries.keys(),
-    ]
-    const stored = new Map<string, string>()
-    for (let i = 0; i < keys.length; i += DELETE_CHUNK_SIZE) {
-      const rows = tx.select({ id: ownCatalogReleases.id, data: ownCatalogReleases.data })
-        .from(ownCatalogReleases)
-        .where(inArray(ownCatalogReleases.titleKey, keys.slice(i, i + DELETE_CHUNK_SIZE)))
-        .all()
-      for (const row of rows)
-        stored.set(row.id, JSON.stringify(row.data))
-    }
+  /** Make a source's releases (for `onlyKeys`, or all of them) match `entries`. */
+  private replaceReleases(tx: Tx, sourceId: string, entries: Map<string, OwnCatalogEntry>, onlyKeys?: string[]): void {
+    const scope = onlyKeys
+      ? and(eq(ownCatalogReleases.sourceId, sourceId), inArray(ownCatalogReleases.titleKey, onlyKeys))
+      : eq(ownCatalogReleases.sourceId, sourceId)
+    const stored = new Map(tx.select({ id: ownCatalogReleases.id, titleKey: ownCatalogReleases.titleKey, data: ownCatalogReleases.data })
+      .from(ownCatalogReleases)
+      .where(scope)
+      .all()
+      .map(row => [row.id, `${row.titleKey}\n${JSON.stringify(row.data)}`]))
 
     const seen = new Set<string>()
     for (const [titleKey, { releases }] of entries) {
       for (const release of releases) {
         seen.add(release.id)
-        if (stored.get(release.id) === JSON.stringify(release))
+        if (stored.get(release.id) === `${titleKey}\n${JSON.stringify(release)}`)
           continue
-        const columns = releaseColumns(titleKey, release)
+        const columns = releaseColumns(sourceId, titleKey, release)
         tx.insert(ownCatalogReleases)
           .values({ id: release.id, ...columns })
           .onConflictDoUpdate({ target: ownCatalogReleases.id, set: columns })
           .run()
       }
     }
-
-    const gone = [
+    for (const chunk of chunks([
       ...stored.keys(),
-    ].filter(id => !seen.has(id))
-    for (let i = 0; i < gone.length; i += DELETE_CHUNK_SIZE)
-      tx.delete(ownCatalogReleases).where(inArray(ownCatalogReleases.id, gone.slice(i, i + DELETE_CHUNK_SIZE))).run()
+    ].filter(id => !seen.has(id))))
+      tx.delete(ownCatalogReleases).where(inArray(ownCatalogReleases.id, chunk)).run()
   }
+}
+
+function sourceKey(sourceIds: string[]): string {
+  return [...sourceIds].sort().join('\n')
 }

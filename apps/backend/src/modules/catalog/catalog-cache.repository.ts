@@ -132,18 +132,29 @@ export class CatalogCacheRepository {
     })
   }
 
-  /** The last revision applied for a peer; undefined when never synced or the peer serves no revisions. */
-  getRevision(peerId: string): number | undefined {
-    return this.db.select().from(peerCatalogSync).where(eq(peerCatalogSync.peerId, peerId)).get()?.revision ?? undefined
+  /**
+   * The last revision applied for a peer, with the catalog generation it belongs
+   * to; undefined when never synced or the peer serves no revisions.
+   */
+  getRevision(peerId: string): { revision: number, generation?: string } | undefined {
+    const row = this.db.select().from(peerCatalogSync).where(eq(peerCatalogSync.peerId, peerId)).get()
+    return row?.revision == null
+      ? undefined
+      : { revision: row.revision, generation: row.generation ?? undefined }
   }
 
-  setRevision(peerId: string, revision: number | null): void {
+  setRevision(peerId: string, revision: number | null, generation: string | null = null): void {
     const syncedAt = new Date().toISOString()
     this.db.insert(peerCatalogSync)
-      .values({ peerId, revision, syncedAt })
+      .values({
+        peerId,
+        revision,
+        generation,
+        syncedAt,
+      })
       .onConflictDoUpdate({
         target: peerCatalogSync.peerId,
-        set: { revision, syncedAt },
+        set: { revision, generation, syncedAt },
       })
       .run()
   }

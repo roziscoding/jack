@@ -1,5 +1,11 @@
+CREATE TABLE `own_catalog_meta` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`generation` text NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `own_catalog_releases` (
 	`id` text PRIMARY KEY NOT NULL,
+	`source_id` text NOT NULL,
 	`title_key` text NOT NULL,
 	`media_type` text NOT NULL,
 	`tmdb_id` integer,
@@ -11,10 +17,18 @@ CREATE TABLE `own_catalog_releases` (
 	CONSTRAINT "own_catalog_releases_media_type_check" CHECK("own_catalog_releases"."media_type" in ('movie', 'tv'))
 );
 --> statement-breakpoint
+CREATE INDEX `own_catalog_releases_source_id_idx` ON `own_catalog_releases` (`source_id`);--> statement-breakpoint
 CREATE INDEX `own_catalog_releases_title_key_idx` ON `own_catalog_releases` (`title_key`);--> statement-breakpoint
 CREATE INDEX `own_catalog_releases_tmdb_id_idx` ON `own_catalog_releases` (`tmdb_id`);--> statement-breakpoint
 CREATE INDEX `own_catalog_releases_imdb_id_idx` ON `own_catalog_releases` (`imdb_id`);--> statement-breakpoint
 CREATE INDEX `own_catalog_releases_tvdb_id_idx` ON `own_catalog_releases` (`tvdb_id`);--> statement-breakpoint
+CREATE TABLE `own_catalog_source_titles` (
+	`source_id` text NOT NULL,
+	`title_key` text NOT NULL,
+	`data` text NOT NULL,
+	PRIMARY KEY(`source_id`, `title_key`)
+);
+--> statement-breakpoint
 CREATE TABLE `own_catalog_titles` (
 	`title_key` text PRIMARY KEY NOT NULL,
 	`media_type` text NOT NULL,
@@ -37,6 +51,7 @@ CREATE INDEX `own_catalog_titles_revision_idx` ON `own_catalog_titles` (`revisio
 CREATE TABLE `peer_catalog_sync` (
 	`peer_id` text PRIMARY KEY NOT NULL,
 	`revision` integer,
+	`generation` text,
 	`synced_at` text NOT NULL
 );
 --> statement-breakpoint

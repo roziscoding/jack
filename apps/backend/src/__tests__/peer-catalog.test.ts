@@ -1,5 +1,6 @@
-import type { PeerCatalogTitle } from '../lib/peer-catalog'
+import type { PeerCatalogResponse, PeerCatalogTitle } from '../lib/peer-catalog'
 import type { Release } from '../lib/release'
+import type { OwnCatalogEntry } from '../modules/catalog/own-catalog.repository'
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
@@ -47,7 +48,7 @@ describe('PeerConnector.listCatalog', () => {
     })
   })
 
-  test('asks a 0.2.0+ peer for the changes since a revision', async () => {
+  test('asks a 0.2.0+ peer for the changes since a revision of a generation', async () => {
     const peer = await connectedPeer('0.2.0')
     const title: PeerCatalogTitle = {
       mediaType: 'movie',
@@ -57,28 +58,41 @@ describe('PeerConnector.listCatalog', () => {
       totalSize: 100,
       resolutions: [2160],
     }
-    const seen: Array<string | null> = []
+    const seen: string[] = []
     server.use(http.get('http://peer.test/peer/catalog', ({ request }) => {
-      seen.push(new URL(request.url).searchParams.get('since'))
+      seen.push(new URL(request.url).search)
       return HttpResponse.json({
         revision: 7,
+        generation: 'g1',
         full: false,
         titles: [title],
         removed: ['movie:id:604'],
       })
     }))
 
-    expect(await peer.listCatalog(5)).toEqual({
+    expect(await peer.listCatalog({ revision: 5, generation: 'g1' })).toEqual({
       kind: 'titles',
       revision: 7,
+      generation: 'g1',
       full: false,
       titles: [title],
       removed: ['movie:id:604'],
     })
     await peer.listCatalog()
-    expect(seen).toEqual(['5', null])
+    expect(seen).toEqual(['?since=5&generation=g1', ''])
   })
 })
+
+// The own catalog as a sync leaves it: `sources` maps a source id to its titles,
+// then the catalog is merged from the given enabled sources.
+function publish(own: OwnCatalogRepository, sources: Record<string, OwnCatalogEntry[]>, enabled = Object.keys(sources)) {
+  for (const [sourceId, entries] of Object.entries(sources))
+    own.replaceSource(sourceId, indexEntries(entries))
+  own.dropSourcesExcept(enabled)
+  own.merge(enabled)
+}
+
+const entry = (title: PeerCatalogTitle, releases: Release[] = []): OwnCatalogEntry => ({ title, releases })
 
 describe('GET /peer/catalog', () => {
   const matrix: PeerCatalogTitle = {
@@ -91,24 +105,27 @@ describe('GET /peer/catalog', () => {
   }
   const reloaded: PeerCatalogTitle = { ...matrix, tmdbId: 604, title: 'The Matrix Reloaded' }
 
-  function serve() {
-    const own = new OwnCatalogRepository(openMemoryDatabase())
-    const app = getPeerRouter(new PeerController(() => [], own))
-    const get = async (query = '') => (await app.request(`/catalog${query}`)).json()
-    return { own, get }
-  }
-
-  // The catalog as the sources would report it, without releases.
-  function snapshot(...titles: PeerCatalogTitle[]) {
-    return indexEntries(titles.map(title => ({ title, releases: [] })))
+  function serve(sourceIds = ['radarr']) {
+    const db = openMemoryDatabase()
+    const own = new OwnCatalogRepository(db)
+    const sources = sourceIds.map(id => ({ id, canSource: true }))
+    const app = getPeerRouter(new PeerController(() => sources as any, own))
+    const get = async (query = '') => (await app.request(`/catalog${query}`)).json() as Promise<PeerCatalogResponse>
+    return { own, get, db, sources }
   }
 
   test('serves the whole catalog without `since`', async () => {
     const { own, get } = serve()
-    own.applySnapshot(snapshot(matrix, reloaded))
+    publish(own, {
+      radarr: [
+        entry(matrix),
+        entry(reloaded),
+      ],
+    })
 
     expect(await get()).toEqual({
       revision: 1,
+      generation: own.generation(),
       full: true,
       titles: [matrix, reloaded],
       removed: [],
@@ -117,14 +134,25 @@ describe('GET /peer/catalog', () => {
 
   test('serves only what changed after `since`, removals included', async () => {
     const { own, get } = serve()
-    own.applySnapshot(snapshot(matrix, reloaded))
-    own.applySnapshot(snapshot({
-      ...matrix,
-      resolutions: [2160, 1080],
-    }))
+    publish(own, {
+      radarr: [
+        entry(matrix),
+        entry(reloaded),
+      ],
+    })
+    publish(own, {
+      radarr: [
+        entry({
+          ...matrix,
+          resolutions: [2160, 1080],
+        }),
+      ],
+    })
+    const generation = own.generation()
 
-    expect(await get('?since=1')).toEqual({
+    expect(await get(`?since=1&generation=${generation}`)).toEqual({
       revision: 2,
+      generation,
       full: false,
       titles: [
         {
@@ -134,33 +162,93 @@ describe('GET /peer/catalog', () => {
       ],
       removed: ['movie:id:604'],
     })
-    expect(await get('?since=2')).toEqual({
+    expect(await get(`?since=2&generation=${generation}`)).toEqual({
       revision: 2,
+      generation,
       full: false,
       titles: [],
       removed: [],
     })
   })
 
-  test('serves the whole catalog when `since` is newer than anything here', async () => {
+  test('serves the whole catalog to a revision from another generation', async () => {
     const { own, get } = serve()
-    own.applySnapshot(snapshot(matrix))
-
-    expect(await get('?since=99')).toEqual({
-      revision: 1,
-      full: true,
-      titles: [matrix],
-      removed: [],
+    // The peer's database was reset: it rebuilt its catalog up to revision 1
+    // again, so a client's revision 1 from before means nothing now.
+    publish(own, {
+      radarr: [
+        entry(matrix),
+      ],
     })
+
+    const response = await get('?since=1&generation=from-before-the-reset')
+
+    expect(response.full).toBe(true)
+    expect(response.titles).toEqual([matrix])
+  })
+
+  test('merges a title two sources carry', async () => {
+    const { own, get } = serve(['radarr-4k', 'radarr-hd'])
+    publish(own, {
+      'radarr-4k': [
+        entry({
+          ...matrix,
+          resolutions: [2160],
+          genres: ['Action'],
+        }),
+      ],
+      'radarr-hd': [
+        entry({
+          ...matrix,
+          totalSize: 50,
+          genres: ['Science Fiction'],
+        }),
+      ],
+    })
+
+    expect((await get()).titles).toEqual([
+      {
+        ...matrix,
+        releaseCount: 2,
+        totalSize: 150,
+        resolutions: [2160, 1080],
+        genres: ['Action', 'Science Fiction'],
+      },
+    ])
+  })
+
+  test('drops a source as soon as it is no longer enabled', async () => {
+    const { own, get, sources } = serve(['radarr', 'sonarr'])
+    publish(own, {
+      radarr: [
+        entry(matrix),
+      ],
+      sonarr: [
+        entry({ ...reloaded, mediaType: 'tv', tvdbId: 1 }),
+      ],
+    })
+
+    // The operator turns the Sonarr source off; no sync has run since.
+    sources.splice(1, 1)
+
+    expect((await get()).titles).toEqual([matrix])
   })
 
   test('brings a removed title back as a change', async () => {
     const { own, get } = serve()
-    own.applySnapshot(snapshot(matrix))
-    own.applySnapshot(new Map())
-    own.applySnapshot(snapshot(matrix))
+    publish(own, {
+      radarr: [
+        entry(matrix),
+      ],
+    })
+    publish(own, { radarr: [] })
+    publish(own, {
+      radarr: [
+        entry(matrix),
+      ],
+    })
 
-    expect(await get('?since=2')).toEqual({
+    expect(await get(`?since=2&generation=${own.generation()}`)).toMatchObject({
       revision: 3,
       full: false,
       titles: [matrix],
@@ -172,12 +260,12 @@ describe('GET /peer/catalog', () => {
 describe('GET /peer/search from the catalog cache', () => {
   const matrixRelease: Release = {
     ...release,
-    id: 'src:movie:1',
+    id: 'radarr:movie:1',
     tmdbId: 603,
     imdbId: 'tt0133093',
   }
   const episode = (n: number): Release => ({
-    id: `src:episode:${n}`,
+    id: `sonarr:episode:${n}`,
     title: `Silo.S01E0${n}`,
     filename: `Silo.S01E0${n}.mkv`,
     category: 5000,
@@ -188,60 +276,65 @@ describe('GET /peer/search from the catalog cache', () => {
     season: 1,
     episode: n,
   })
+  const matrixTitle: PeerCatalogTitle = {
+    mediaType: 'movie',
+    tmdbId: 603,
+    imdbId: 'tt0133093',
+    title: 'The Matrix',
+    releaseCount: 1,
+    totalSize: 100,
+    resolutions: [],
+  }
+  const siloTitle: PeerCatalogTitle = {
+    mediaType: 'tv',
+    tvdbId: 403245,
+    tmdbId: 125988,
+    title: 'Silo',
+    releaseCount: 2,
+    totalSize: 20,
+    resolutions: [],
+  }
 
   function serve(liveSearch = mock(async () => [] as Release[])) {
     const own = new OwnCatalogRepository(openMemoryDatabase())
-    const source = {
+    const source = (id: string) => ({
+      id,
       canSource: true,
-      name: 'Radarr',
+      name: id,
       type: 'radarr',
       searchByTmdbId: liveSearch,
       searchByImdbId: liveSearch,
       searchByTvdbId: liveSearch,
       listReleases: liveSearch,
-    }
-    const app = getPeerRouter(new PeerController(() => [source] as any, own))
+    })
+    const sources = [
+      source('radarr'),
+      source('sonarr'),
+    ]
+    const app = getPeerRouter(new PeerController(() => sources as any, own))
     const search = async (query = '') => ((await (await app.request(`/search${query}`)).json()) as { items: Release[] }).items
-    return { own, search, liveSearch }
+    return { own, search, liveSearch, sources }
   }
 
   function syncWith(own: OwnCatalogRepository) {
-    own.applySnapshot(indexEntries([
-      {
-        title: {
-          mediaType: 'movie',
-          tmdbId: 603,
-          imdbId: 'tt0133093',
-          title: 'The Matrix',
-          releaseCount: 1,
-          totalSize: 100,
-          resolutions: [],
-        },
-        releases: [matrixRelease],
-      },
-      {
-        title: {
-          mediaType: 'tv',
-          tvdbId: 403245,
-          tmdbId: 125988,
-          title: 'Silo',
-          releaseCount: 2,
-          totalSize: 20,
-          resolutions: [],
-        },
-        releases: [
+    publish(own, {
+      radarr: [
+        entry(matrixTitle, [matrixRelease]),
+      ],
+      sonarr: [
+        entry(siloTitle, [
           episode(1),
           episode(2),
-        ],
-      },
-    ]))
+        ]),
+      ],
+    })
   }
 
   test('asks the sources before the first sync', async () => {
     const { search, liveSearch } = serve(mock(async () => [matrixRelease]))
 
-    expect(await search('?tmdbId=603')).toEqual([matrixRelease])
-    expect(liveSearch).toHaveBeenCalledTimes(1)
+    expect(await search('?tmdbId=603')).toContainEqual(matrixRelease)
+    expect(liveSearch).toHaveBeenCalled()
   })
 
   test('answers by tmdb and imdb id (with or without tt) without asking the sources', async () => {
@@ -282,28 +375,27 @@ describe('GET /peer/search from the catalog cache', () => {
     expect(await search()).toHaveLength(3)
   })
 
-  test('drops the releases of a title that is gone, and only those', async () => {
+  test('leaves out the releases of a source that is no longer enabled', async () => {
+    const { own, search, sources } = serve()
+    syncWith(own)
+
+    sources.splice(1, 1)
+
+    expect(await search()).toEqual([matrixRelease])
+  })
+
+  test('drops the releases a source no longer has, and only that source\'s', async () => {
     const { own, search } = serve()
     syncWith(own)
 
-    own.applySnapshot(indexEntries([
-      {
-        title: {
-          mediaType: 'tv',
-          tvdbId: 403245,
-          tmdbId: 125988,
-          title: 'Silo',
-          releaseCount: 1,
-          totalSize: 10,
-          resolutions: [],
-        },
-        releases: [
-          episode(1),
-        ],
-      },
+    own.replaceSource('sonarr', indexEntries([
+      entry({ ...siloTitle, releaseCount: 1, totalSize: 10 }, [
+        episode(1),
+      ]),
     ]))
 
     expect(await search()).toEqual([
+      matrixRelease,
       episode(1),
     ])
   })

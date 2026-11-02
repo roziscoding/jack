@@ -80,11 +80,13 @@ async function update() {
 }
 
 // A sync already running on the server (at boot, or on schedule) shows up here;
-// check back until it's done so its results appear without a reload.
+// check back until a response says it's done, so its results appear without a
+// reload. Each response is a new object, so a run of "still syncing" answers
+// keeps scheduling.
 let syncPoll: ReturnType<typeof setTimeout> | undefined
-watch(() => data.value?.sync.syncing, (running) => {
+watch(data, (response) => {
   clearTimeout(syncPoll)
-  if (running && !syncing.value)
+  if (response?.sync.syncing && !syncing.value)
     syncPoll = setTimeout(refresh, 5000)
 })
 onBeforeUnmount(() => clearTimeout(syncPoll))

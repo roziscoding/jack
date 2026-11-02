@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "540b1f67-0442-42b4-aac3-ab5d8bf401da",
+  "id": "3fd628a9-0718-4caa-9bc7-b37c378b24fd",
   "prevId": "98a73f51-7c4b-4de6-9869-9a1939f29413",
   "tables": {
     "api_keys": {
@@ -370,6 +370,30 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "own_catalog_meta": {
+      "name": "own_catalog_meta",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation": {
+          "name": "generation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "own_catalog_releases": {
       "name": "own_catalog_releases",
       "columns": {
@@ -377,6 +401,13 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -438,6 +469,13 @@
         }
       },
       "indexes": {
+        "own_catalog_releases_source_id_idx": {
+          "name": "own_catalog_releases_source_id_idx",
+          "columns": [
+            "source_id"
+          ],
+          "isUnique": false
+        },
         "own_catalog_releases_title_key_idx": {
           "name": "own_catalog_releases_title_key_idx",
           "columns": [
@@ -476,6 +514,45 @@
           "value": "\"own_catalog_releases\".\"media_type\" in ('movie', 'tv')"
         }
       }
+    },
+    "own_catalog_source_titles": {
+      "name": "own_catalog_source_titles",
+      "columns": {
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title_key": {
+          "name": "title_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "data": {
+          "name": "data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "own_catalog_source_titles_source_id_title_key_pk": {
+          "columns": [
+            "source_id",
+            "title_key"
+          ],
+          "name": "own_catalog_source_titles_source_id_title_key_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "own_catalog_titles": {
       "name": "own_catalog_titles",
@@ -612,6 +689,13 @@
         "revision": {
           "name": "revision",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generation": {
+          "name": "generation",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

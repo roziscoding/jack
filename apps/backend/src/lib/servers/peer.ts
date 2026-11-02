@@ -195,22 +195,25 @@ export class PeerConnector extends ServerConnector {
    * full release list from older ones, which the caller summarizes itself.
    */
   @requiresInitialization
-  async listCatalog(since?: number): Promise<{ kind: 'titles' } & PeerCatalogResponse | { kind: 'releases', releases: Release[] }> {
+  async listCatalog(since?: { revision: number, generation?: string }): Promise<{ kind: 'titles' } & PeerCatalogResponse | { kind: 'releases', releases: Release[] }> {
     if (!this._peerVersion || compareVersions(this._peerVersion, PEER_CATALOG_SUMMARY_VERSION) < 0)
       return { kind: 'releases', releases: await this.listReleases() }
 
     return withSpan('peer.catalog_summary', {
       'peer.name': this.name,
       'peer.id': this.id,
-      'catalog.since': since,
+      'catalog.since': since?.revision,
+      'catalog.generation': since?.generation,
     }, async (span) => {
+      const query: Record<string, string> = {}
+      if (since) {
+        query.since = String(since.revision)
+        if (since.generation)
+          query.generation = since.generation
+      }
       const response = await this.fetch('/peer/catalog', {
         method: 'GET',
-        query: since === undefined
-          ? undefined
-          : {
-              since: String(since),
-            },
+        query,
         schema: PeerCatalogResponse,
       })
       setSpanAttributes(span, {

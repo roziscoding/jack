@@ -1,4 +1,5 @@
 import type { FileSystemErrorDetails } from '../lib/errors/FileSystemError'
+import type { PeerCatalogTitle } from '../lib/peer-catalog'
 import type { Release } from '../lib/release'
 import type { TmdbMetadata } from '../lib/tmdb/client'
 import { sql } from 'drizzle-orm'
@@ -134,8 +135,31 @@ export const peerCatalogSync = sqliteTable('peer_catalog_sync', {
   peerId: text('peer_id').primaryKey(),
   // Null for peers older than protocol 0.2.0, which only serve full catalogs.
   revision: integer('revision'),
+  // The peer's catalog generation that revision belongs to (see ownCatalogMeta).
+  generation: text('generation'),
   syncedAt: text('synced_at').notNull(),
 })
+
+// A single row naming this instance's catalog generation: a random id created
+// with the database. Revisions only compare within one generation, so a peer
+// holding a revision from before a database reset gets the whole catalog.
+export const ownCatalogMeta = sqliteTable('own_catalog_meta', {
+  id: integer('id').primaryKey(),
+  generation: text('generation').notNull(),
+})
+
+// Each source's own titles as of its last successful read. The served catalog
+// (ownCatalogTitles) is merged from the rows of the sources that are enabled
+// now, so a source that fails keeps its titles and a disabled one drops them.
+export const ownCatalogSourceTitles = sqliteTable('own_catalog_source_titles', {
+  sourceId: text('source_id').notNull(),
+  titleKey: text('title_key').notNull(),
+  data: text('data', { mode: 'json' }).$type<PeerCatalogTitle>().notNull(),
+}, t => [
+  primaryKey({
+    columns: [t.sourceId, t.titleKey],
+  }),
+])
 
 // This instance's own catalog as served to peers, rebuilt from the source
 // Radarr/Sonarr on each sync. Every change stamps the row with the next
@@ -170,6 +194,8 @@ export type OwnCatalogTitleRow = typeof ownCatalogTitles.$inferSelect
 // still fetch the item and its file live.
 export const ownCatalogReleases = sqliteTable('own_catalog_releases', {
   id: text('id').primaryKey(),
+  // The source connector that holds the file.
+  sourceId: text('source_id').notNull(),
   titleKey: text('title_key').notNull(),
   mediaType: text('media_type', {
     enum: ['movie', 'tv'],
@@ -184,6 +210,7 @@ export const ownCatalogReleases = sqliteTable('own_catalog_releases', {
   data: text('data', { mode: 'json' }).$type<Release>().notNull(),
 }, t => [
   check('own_catalog_releases_media_type_check', sql`${t.mediaType} in ('movie', 'tv')`),
+  index('own_catalog_releases_source_id_idx').on(t.sourceId),
   index('own_catalog_releases_title_key_idx').on(t.titleKey),
   index('own_catalog_releases_tmdb_id_idx').on(t.tmdbId),
   index('own_catalog_releases_imdb_id_idx').on(t.imdbId),

@@ -85,8 +85,8 @@ function revert() {
 
 <template>
   <SettingsSection
-    title="Peer catalog"
-    description="How often jack refreshes its own catalog and every peer's. The Peer Catalog page searches the result."
+    title="Catalog sync"
+    description="How often jack syncs its own catalog, every peer's, and the local library. The Peer Catalog page searches the result."
   >
     <UAlert v-if="loadError" color="error" variant="soft" icon="i-ph-warning" title="Failed to load the catalog settings." />
 

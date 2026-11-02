@@ -12,9 +12,9 @@ import { logger } from '../../logger'
 import { indexPeerTitles, mergeTitle, peerTitleKey, summarizeReleases } from './catalog.lib'
 
 /**
- * Key source entries the way the catalog is keyed. Two sources can carry the
- * same title (e.g. a 4K and a 1080p Radarr): their summaries merge and their
- * releases are kept side by side.
+ * Key one source's entries the way the catalog is keyed. A source listing the
+ * same title twice gets one entry with the summaries merged and the releases
+ * side by side.
  */
 export function indexEntries(entries: CatalogEntry[]): Map<string, OwnCatalogEntry> {
   const byKey = new Map<string, OwnCatalogEntry>()
@@ -26,7 +26,7 @@ export function indexEntries(entries: CatalogEntry[]): Map<string, OwnCatalogEnt
       existing.releases.push(...releases)
     }
     else {
-      // Copied, since mergeTitle mutates it when a second source carries the title.
+      // Copied, since mergeTitle mutates it when the title comes up again.
       byKey.set(key, {
         title: { ...title },
         releases: [...releases],
@@ -60,10 +60,18 @@ export interface CatalogSyncDeps {
  * - every peer's catalog, fetched as changes since the last revision applied
  * - the local library, which marks the titles already owned
  *
- * Searching the Peer Catalog only reads what this leaves in the cache.
+ * Searching the Peer Catalog only reads what this leaves in the cache. Full
+ * syncs and import refreshes run one at a time, so a sync that read the sources
+ * before an import can't undo it.
  */
 export class CatalogSyncService {
-  private library: LibraryEntry[] = []
+  // Each server's library as of its last successful read.
+  private readonly libraryByServer = new Map<string, LibraryEntry[]>()
+  // Titles marked owned by an import since, tagged with when, so a library read
+  // only retires the ones it could have seen.
+  private imported: Array<{ seq: number, entry: LibraryEntry }> = []
+  private importSeq = 0
+  private queue: Promise<unknown> = Promise.resolve()
   private running: Promise<void> | null = null
   private job: Bun.CronJob | null = null
   private activeSchedule: string | null = null
@@ -71,18 +79,23 @@ export class CatalogSyncService {
 
   constructor(private readonly deps: CatalogSyncDeps) {}
 
-  /** The local library as of the last sync. */
+  /** The local library as of the last sync, plus anything imported since. */
   get libraryEntries(): LibraryEntry[] {
-    return this.library
+    return [
+      ...[
+        ...this.libraryByServer.values(),
+      ].flat(),
+      ...this.imported.map(i => i.entry),
+    ]
   }
 
   get status(): CatalogSyncStatus {
     return { syncing: this.running !== null, syncedAt: this.syncedAt }
   }
 
-  /** Sync now, or join the sync already running. Never rejects. */
+  /** Sync now, or join the sync already running or queued. Never rejects. */
   sync(): Promise<void> {
-    this.running ??= this.run().finally(() => this.running = null)
+    this.running ??= this.exclusive(() => this.run()).finally(() => this.running = null)
     return this.running
   }
 
@@ -114,62 +127,74 @@ export class CatalogSyncService {
     }
   }
 
+  stop(): void {
+    this.job?.stop()
+    this.job = null
+    this.activeSchedule = null
+  }
+
   /**
    * Reflect one download *arr just imported without waiting for the next sync:
-   * mark it as owned, and refresh that one title in the own catalog so peers get
-   * it on their next sync. Never rejects; the next full sync corrects anything
-   * this misses.
+   * mark it as owned right away, and refresh that one title in the own catalog
+   * so peers get it on their next sync. Never rejects; the next full sync
+   * corrects anything this misses.
    */
   async addImported(release: Release): Promise<void> {
     const mediaType = release.category === ReleaseCategory.Tv
       ? 'tv'
       : 'movie'
-    this.library = [
-      ...this.library,
-      {
+    this.imported.push({
+      seq: ++this.importSeq,
+      entry: {
         mediaType,
         tmdbId: release.tmdbId,
         imdbId: release.imdbId,
         tvdbId: release.tvdbId,
       },
-    ]
+    })
 
     const only = mediaType === 'tv'
       ? { tvdbId: release.tvdbId }
       : { tmdbId: release.tmdbId }
     if (only.tmdbId == null && only.tvdbId == null)
       return
+    const titleKey = peerTitleKey({
+      mediaType,
+      ...only,
+      title: '',
+      releaseCount: 0,
+      totalSize: 0,
+      resolutions: [],
+    })
 
-    await withSpan('catalog.add_imported', { 'catalog.media_type': mediaType, 'catalog.tmdb_id': only.tmdbId, 'catalog.tvdb_id': only.tvdbId }, async (span) => {
+    await this.exclusive(() => withSpan('catalog.add_imported', {
+      'catalog.media_type': mediaType,
+      'catalog.tmdb_id': only.tmdbId,
+      'catalog.tvdb_id': only.tvdbId,
+    }, async () => {
       try {
         const sources = this.deps.connectors.servers.filter(s => s.canSource)
         const results = await Promise.allSettled(sources.map(source => source.listCatalog(only)))
-        // Without every source, the title's totals would come out short; leave it
-        // to the next full sync.
-        if (results.some(result => result.status === 'rejected')) {
-          logger.warn({ only }, 'Could not read every source; the imported title joins the catalog on the next sync')
-          return
+        for (const [i, result] of results.entries()) {
+          // A source that can't be read keeps what it had for this title.
+          if (result.status === 'fulfilled')
+            this.deps.own.replaceSource(sources[i]!.id, indexEntries(result.value), [titleKey])
+          else
+            logger.warn({ source: sources[i]!.name, only, err: result.reason }, 'Could not read the imported title from a source')
         }
-        const entries = results.flatMap(result => result.status === 'fulfilled'
-          ? result.value
-          : [])
-        let changed = 0
-        for (const [titleKey, entry] of indexEntries(entries)) {
-          if (this.deps.own.applyTitle(titleKey, entry))
-            changed++
-        }
-        setSpanAttributes(span, { 'title.changed_count': changed })
+        this.deps.own.merge(sources.map(s => s.id))
       }
       catch (err) {
         logger.warn({ only, err }, 'Could not add the imported title to the catalog')
       }
-    })
+    }))
   }
 
-  stop(): void {
-    this.job?.stop()
-    this.job = null
-    this.activeSchedule = null
+  /** Run `task` after every task queued before it. */
+  private exclusive<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task)
+    this.queue = run.catch(() => {})
+    return run
   }
 
   private async run(): Promise<void> {
@@ -194,23 +219,20 @@ export class CatalogSyncService {
     const sources = this.deps.connectors.servers.filter(s => s.canSource)
     await withSpan('catalog.sync_own', { 'source.count': sources.length }, async (span) => {
       const results = await Promise.allSettled(sources.map(source => source.listCatalog()))
-      const failed = results.flatMap((result, i) => result.status === 'rejected'
-        ? [
-            { source: sources[i]!.name, err: result.reason },
-          ]
-        : [])
-      // A failed source would read as every one of its titles being removed, and
-      // peers would drop them until the next sync. Keep the last catalog instead.
-      if (failed.length > 0) {
-        logger.warn({ failed }, 'Could not read every source; keeping the previous own catalog')
-        return
+      for (const [i, result] of results.entries()) {
+        // A source that can't be read keeps its last titles instead of having
+        // them all read as removed.
+        if (result.status === 'fulfilled')
+          this.deps.own.replaceSource(sources[i]!.id, indexEntries(result.value))
+        else
+          logger.warn({ source: sources[i]!.name, err: result.reason }, 'Could not read a source; keeping its previous catalog')
       }
-      const entries = results.flatMap(result => result.status === 'fulfilled'
-        ? result.value
-        : [])
-      const diff = this.deps.own.applySnapshot(indexEntries(entries))
+      const ids = sources.map(s => s.id)
+      // Sources removed from the config, or no longer sources, drop out here.
+      this.deps.own.dropSourcesExcept(ids)
+      const diff = this.deps.own.merge(ids)
       setSpanAttributes(span, {
-        'title.count': entries.length,
+        'source.failed_count': results.filter(r => r.status === 'rejected').length,
         'title.added_count': diff.added.size,
         'title.updated_count': diff.updated.size,
         'title.removed_count': diff.removed.length,
@@ -218,24 +240,33 @@ export class CatalogSyncService {
     })
   }
 
-  // A server that can't list its library would unmark everything it owns, so a
-  // failure keeps the previous library.
+  // A server that can't be read keeps its previous library, so its titles don't
+  // lose their owned mark; servers no longer configured drop out.
   private async syncLibrary(): Promise<void> {
-    const servers = this.deps.connectors.servers.filter(s => s.isInitialized)
-    try {
-      const libraries = await Promise.all(servers.map(s => s.listLibrary()))
-      this.library = libraries.flat()
+    const servers = this.deps.connectors.servers
+    const cutoff = this.importSeq
+    const results = await Promise.allSettled(servers.map(s => s.listLibrary()))
+    for (const [i, result] of results.entries()) {
+      if (result.status === 'fulfilled')
+        this.libraryByServer.set(servers[i]!.id, result.value)
+      else
+        logger.warn({ server: servers[i]!.name, err: result.reason }, 'Could not read a library; keeping its previous one')
     }
-    catch (err) {
-      logger.warn({ err }, 'Could not read the local library; keeping the previous one')
+    const ids = new Set(servers.map(s => s.id))
+    for (const id of this.libraryByServer.keys()) {
+      if (!ids.has(id))
+        this.libraryByServer.delete(id)
     }
+    // Imports that happened before this read are in it now.
+    this.imported = this.imported.filter(i => i.seq > cutoff)
   }
 
   private async syncPeers(): Promise<void> {
     const configured = this.deps.connectors.peers
     this.deps.peerCache.deleteOrphans(configured.map(p => p.id))
-    // Offline peers keep their cached catalog until they answer again.
-    await Promise.all(configured.filter(p => p.isInitialized).map(peer => this.syncPeer(peer)))
+    // Every configured peer is asked: listCatalog retries the handshake of one
+    // that was offline. A peer that still can't answer keeps its cached catalog.
+    await Promise.all(configured.map(peer => this.syncPeer(peer)))
   }
 
   private async syncPeer(peer: PeerConnector): Promise<void> {
@@ -255,7 +286,7 @@ export class CatalogSyncService {
           this.deps.peerCache.applyPeerCatalog(peer.id, titles)
         else
           this.deps.peerCache.applyPeerChanges(peer.id, titles, result.removed)
-        this.deps.peerCache.setRevision(peer.id, result.revision)
+        this.deps.peerCache.setRevision(peer.id, result.revision, result.generation)
         setSpanAttributes(span, {
           'catalog.format': 'titles',
           'catalog.full': result.full,

@@ -54,7 +54,7 @@ export function getPeerRouter(controller: PeerController) {
   app.get('/catalog', describeRoute({
     tags: ['Peer'],
     summary: 'List this library by title',
-    description: 'One entry per movie or series that has files in the source Radarr/Sonarr libraries, with release totals, the distinct resolutions available, artwork, and genres. Served from the catalog as of the last sync. Pass the `revision` from a previous response as `since` to get only what changed after it; without `since`, or with one newer than this instance knows, the whole catalog comes back with `full: true`. Added in protocol 0.2.0; older peers only serve `/search`.',
+    description: 'One entry per movie or series that has files in the source Radarr/Sonarr libraries, with release totals, the distinct resolutions available, artwork, and genres. Served from the catalog as of the last sync, limited to the sources enabled now. Pass the `revision` and `generation` from a previous response as `since` and `generation` to get only what changed after it; without them, or when the generation changed (this instance\'s database was reset), the whole catalog comes back with `full: true`. Added in protocol 0.2.0; older peers only serve `/search`.',
     security: [
       { 'X-Api-Key': [] },
     ],
@@ -70,7 +70,11 @@ export function getPeerRouter(controller: PeerController) {
     },
   }), zValidator('query', z.object({
     since: z.coerce.number().int().nonnegative().optional(),
-  })), c => c.json(controller.catalog(c.req.valid('query').since)))
+    generation: z.string().optional(),
+  })), (c) => {
+    const { since, generation } = c.req.valid('query')
+    return c.json(controller.catalog(since, generation))
+  })
 
   app.get('/items/:itemId', describeRoute({
     tags: ['Peer'],

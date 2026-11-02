@@ -84,7 +84,7 @@ export class PeerController {
       // Answered from the catalog the sync keeps, so a search never waits on
       // Radarr/Sonarr. Before the first sync there is nothing cached yet, so the
       // sources are asked directly.
-      const cached = this.ownCatalog?.searchReleases(params)
+      const cached = this.ownCatalog?.searchReleases(this.sourceIds, params)
       if (cached) {
         setSpanAttributes(span, { 'search.from_cache': true, 'release.count': cached.length })
         return cached
@@ -131,19 +131,25 @@ export class PeerController {
 
   /**
    * The library by title, as of the last catalog sync: everything, or only what
-   * changed after `since`. Served from the cache, so peers asking never reach
-   * Radarr or Sonarr.
+   * changed after revision `since` of `generation`. Served from the cache, so
+   * peers asking never reach Radarr or Sonarr, and limited to the sources that
+   * are enabled now.
    */
-  catalog(since?: number): PeerCatalogResponse {
+  catalog(since?: number, generation?: string): PeerCatalogResponse {
     if (!this.ownCatalog) {
       return {
         revision: 0,
+        generation: '',
         full: true,
         titles: [],
         removed: [],
       }
     }
-    return this.ownCatalog.changesSince(since)
+    return this.ownCatalog.changesSince(this.sourceIds, since, generation)
+  }
+
+  private get sourceIds(): string[] {
+    return this.sourceServers.map(s => s.id)
   }
 
   async getItem(id: string): Promise<Release | null> {
