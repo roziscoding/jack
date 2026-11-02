@@ -56,13 +56,34 @@ export function mapTmdbDetail(raw: TmdbRawDetail): TmdbMetadata {
   }
 }
 
+/** Where looked-up metadata is kept. `get` returns undefined for an id never looked up. */
+export interface TmdbMetadataStore {
+  get: (mediaType: TmdbMediaType, tmdbId: number) => TmdbMetadata | null | undefined
+  set: (mediaType: TmdbMediaType, tmdbId: number, data: TmdbMetadata | null) => void
+}
+
+/** Per-process store, used when no persistent one is supplied. */
+class MemoryTmdbMetadataStore implements TmdbMetadataStore {
+  private readonly cache = new Map<string, TmdbMetadata | null>()
+
+  get(mediaType: TmdbMediaType, tmdbId: number) {
+    return this.cache.get(`${mediaType}:${tmdbId}`)
+  }
+
+  set(mediaType: TmdbMediaType, tmdbId: number, data: TmdbMetadata | null) {
+    this.cache.set(`${mediaType}:${tmdbId}`, data)
+  }
+}
+
 /**
- * Thin TMDB v3 read client. Holds a per-process cache keyed by media/id so a
- * catalog full of repeated titles enriches each unique id once.
+ * Thin TMDB v3 read client. Each id is looked up once and kept in the store,
+ * including ids TMDB has no entry for; failed lookups are not stored and retry.
  */
 export class TmdbClient {
-  private readonly cache = new Map<string, TmdbMetadata | null>()
-  constructor(private readonly apiKey: string) {}
+  constructor(
+    private readonly apiKey: string,
+    private readonly store: TmdbMetadataStore = new MemoryTmdbMetadataStore(),
+  ) {}
 
   /** True when the key authenticates against TMDB (`/configuration` returns 200). */
   async ping(): Promise<boolean> {
@@ -70,23 +91,22 @@ export class TmdbClient {
     return res.ok
   }
 
-  /** Normalized metadata for a tmdb id, cached per process; null on 404. */
+  /** Normalized metadata for a tmdb id, from the store when known; null on 404. */
   async getMetadata(mediaType: TmdbMediaType, tmdbId: number): Promise<TmdbMetadata | null> {
-    const key = `${mediaType}:${tmdbId}`
-    const cached = this.cache.get(key)
+    const cached = this.store.get(mediaType, tmdbId)
     if (cached !== undefined)
       return cached
 
     const res = await fetch(`${TMDB_API_BASE}/${mediaType}/${tmdbId}?api_key=${this.apiKey}`)
     if (res.status === 404) {
-      this.cache.set(key, null)
+      this.store.set(mediaType, tmdbId, null)
       return null
     }
     if (!res.ok)
       throw new Error(`TMDB ${mediaType}/${tmdbId} failed: ${res.status}`)
     const raw = await res.json() as TmdbRawDetail
     const meta = mapTmdbDetail(raw)
-    this.cache.set(key, meta)
+    this.store.set(mediaType, tmdbId, meta)
     return meta
   }
 }
