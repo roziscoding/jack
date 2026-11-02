@@ -3,9 +3,8 @@
 // is the marker above, so a config you wrote yourself is never removed.
 {
   // Template for `mise run dev:preview`. Copied to apps/backend/config.jsonc
-  // only when that file doesn't exist yet; an existing config is never
-  // overwritten. No servers or peers, so nothing needs Radarr, Sonarr, or a
-  // peer to be running.
+  // when that file doesn't exist or still starts with the marker above; a
+  // config without the marker is never overwritten. No servers, so nothing needs Radarr or Sonarr to be running.
   //
   // Keep "version" current: a config without it gets migrated on boot, and the
   // rewrite drops these comments, marker included.
@@ -20,5 +19,14 @@
   },
 
   "servers": [],
-  "peers": []
+
+  // Sample peers that never connect (.invalid never resolves), so they show as
+  // offline. db:seed fills the catalog cache for them, which the Peer Catalog
+  // keeps showing while a peer is unreachable. The names match the peers in
+  // the seeded downloads.
+  "peers": [
+    { "name": "Alice", "url": "http://alice.invalid:5225", "apiKey": "preview-peer-key" },
+    { "name": "Bob", "url": "http://bob.invalid:5225", "apiKey": "preview-peer-key" },
+    { "name": "Carol", "url": "http://carol.invalid:5225", "apiKey": "preview-peer-key" }
+  ]
 }

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Migrate and seed the dev database, then run the backend and UI from the working tree in Docker (attached). Removes the containers and the database on exit unless --keep is set."
 #MISE alias="preview"
-#MISE depends=["db:seed"]
 #USAGE flag "--keep" help="Keep the containers and the seeded database after compose exits"
 set -euo pipefail
 
@@ -15,10 +14,22 @@ compose_file="$preview_dir/compose.yaml"
 # Same config the container mounts as /config/config.jsonc.
 config_file="apps/backend/config.jsonc"
 
+marker="// <<< preview config file >>>"
+
+# A config that starts with the marker came from this template, so it's
+# refreshed to pick up template changes. A config you wrote yourself is never
+# touched.
 if [ ! -f "$config_file" ]; then
   cp "$preview_dir/config.jsonc" "$config_file"
   echo "Created $config_file from the preview template"
+elif [ "$(head -n 1 "$config_file")" = "$marker" ]; then
+  cp "$preview_dir/config.jsonc" "$config_file"
+  echo "Refreshed $config_file from the preview template"
 fi
+
+# After the config exists: the seed fills the catalog cache for the configured
+# peers, so it has to see the template's sample peers.
+mise run db:seed
 
 teardown() {
   if [ "${usage_keep:-false}" = "true" ]; then
