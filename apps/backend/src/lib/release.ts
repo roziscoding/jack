@@ -47,6 +47,9 @@ export const Release = z.object({
   // The *arr MediaInfoResource as-is (codecs, runtime, resolution, ...).
   mediaInfo: z.record(z.string(), z.unknown()).optional(),
   seriesTitle: z.string().optional(),
+  // The movie's TMDB title as Radarr reports it (`title` is the scene name).
+  // Absent from peers older than protocol 0.2.0.
+  movieTitle: z.string().optional(),
   season: z.number().optional(),
   episode: z.number().optional(),
   publishDate: z.string().optional(),

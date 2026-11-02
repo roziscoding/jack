@@ -1,13 +1,13 @@
 import type { EpisodeFileResource, EpisodeResource, SeriesResource } from '@jack/schemas/sonarr/types'
 import type { AutoRegisterConfig, ConnectorHeadersConfig } from '../../config'
 import type { Release } from '../../release'
-import type { AddParams, ManualImportParams } from './base'
+import type { AddParams, CatalogEntry, CatalogTitleFilter, LibraryEntry, ManualImportParams } from './base'
 import { z } from 'zod'
 import { BadRequestError } from '../../errors/BadRequestError'
 import { ReleaseCategory } from '../../release'
 import { setSpanAttributes } from '../../span-attributes'
 import { withSpan } from '../../tracing'
-import { ArrServerConnector, basename, PermanentManualImportError, stripExtension } from './base'
+import { ArrServerConnector, artworkFrom, basename, PermanentManualImportError, resolutionsOf, stripExtension } from './base'
 
 type SeriesWithId = SeriesResource & { id: number }
 
@@ -141,6 +141,52 @@ export class SonarrServerConnector extends ArrServerConnector {
   protected override async doSearchByTmdbId(): Promise<Release[]> {
     // tmdb (movie) searches map to Radarr; Sonarr is queried by tvdb.
     return []
+  }
+
+  protected override async doListLibrary(): Promise<LibraryEntry[]> {
+    // The series list carries per-series file statistics, so this needs one call
+    // instead of the per-series episode fan-out doListReleases does.
+    const series = await this.listSeries()
+    return series
+      .filter(s => (s.statistics?.episodeFileCount ?? 0) > 0)
+      .map(s => ({
+        mediaType: 'tv' as const,
+        tmdbId: s.tmdbId ?? undefined,
+        imdbId: s.imdbId ?? undefined,
+        tvdbId: s.tvdbId ?? undefined,
+      }))
+  }
+
+  protected override async doListCatalog(only?: CatalogTitleFilter): Promise<CatalogEntry[]> {
+    if (only && only.tvdbId == null)
+      return []
+    // Sonarr filters /series by tvdbId server-side.
+    const series = await this.listSeries(only
+      ? {
+          tvdbId: String(only.tvdbId),
+        }
+      : undefined)
+    const perSeries = await Promise.all(series.map(async (s): Promise<CatalogEntry | null> => {
+      const releases = await this.releasesForSeries(s)
+      if (releases.length === 0)
+        return null
+      return {
+        title: {
+          mediaType: 'tv',
+          tmdbId: s.tmdbId ?? undefined,
+          imdbId: s.imdbId ?? undefined,
+          tvdbId: s.tvdbId ?? undefined,
+          title: s.title ?? releases[0]!.title,
+          releaseCount: releases.length,
+          totalSize: releases.reduce((sum, r) => sum + r.size, 0),
+          resolutions: resolutionsOf(releases),
+          ...artworkFrom(s.images),
+          genres: s.genres?.length ? s.genres : undefined,
+        },
+        releases,
+      }
+    }))
+    return perSeries.filter((entry): entry is CatalogEntry => entry !== null)
   }
 
   protected override async doListReleases(): Promise<Release[]> {
