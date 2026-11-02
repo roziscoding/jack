@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- deps: install production dependencies only ----
-FROM oven/bun:1.3.14-alpine AS deps
+FROM oven/bun:1.4.4-alpine AS deps
 WORKDIR /app
 
 # Copy only the manifests so this layer is cached unless deps change.
@@ -18,7 +18,7 @@ RUN bun install --frozen-lockfile --production \
     --filter '@jack/backend' --filter '@jack/schemas'
 
 # ---- generate: full install + generate the API clients (gitignored) ----
-FROM oven/bun:1.3.14-alpine AS generate
+FROM oven/bun:1.4.4-alpine AS generate
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -58,7 +58,7 @@ EXPOSE 5225
 CMD ["bun", "--hot", "apps/backend/src/index.ts"]
 
 # ---- runtime ----
-FROM oven/bun:1.3.14-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 WORKDIR /app
 
 ENV ENVIRONMENT=production \

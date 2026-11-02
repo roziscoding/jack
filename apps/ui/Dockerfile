@@ -4,7 +4,7 @@
 # Used by `mise run dev` (target: development): Compose Watch syncs local edits
 # into the copy below and `nuxt dev` hot-reloads. The build stage continues
 # from here.
-FROM oven/bun:1.3.14-alpine AS development
+FROM oven/bun:1.4.4-alpine AS development
 WORKDIR /app
 
 # Copy only the manifests so this layer is cached unless deps change. The root
@@ -31,7 +31,7 @@ FROM development AS build
 RUN bun run --cwd apps/ui build
 
 # ---- runtime: the self-contained Nitro output ----
-FROM oven/bun:1.3.14-alpine AS runtime
+FROM oven/bun:1.4.4-alpine AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
