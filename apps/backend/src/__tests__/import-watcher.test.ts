@@ -73,6 +73,23 @@ describe('ImportWatcher', () => {
     expect(repo.get(row.id)?.status).toBe('imported')
   })
 
+  test('reports each import to onImported, once', async () => {
+    const repo = makeRepo()
+    queuedRow(repo, 'My Radarr')
+    const onImported = mock(() => {})
+    const watcher = new ImportWatcher(repo, {
+      servers: [
+        fakeServer('My Radarr', [HASH]),
+      ],
+    }, 1000, undefined, undefined, undefined, onImported)
+
+    await watcher.tick()
+    await watcher.tick()
+
+    expect(onImported).toHaveBeenCalledTimes(1)
+    expect(onImported).toHaveBeenCalledWith(release)
+  })
+
   test('leaves the row at import_queued until *arr imports it', async () => {
     const repo = makeRepo()
     const row = queuedRow(repo, 'My Radarr')

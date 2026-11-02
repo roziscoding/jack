@@ -1,3 +1,4 @@
+import type { Release } from '../../lib/release'
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { DownloadOperationCoordinator } from './download-operation-coordinator'
 import type { DownloadRecord, DownloadsRepository } from './downloads.repository'
@@ -61,6 +62,9 @@ export class ImportWatcher {
     coordinator?: DownloadOperationCoordinator,
     // Omitted → imported files are always kept.
     private readonly importedFileCleanup?: ImportedFileCleanup,
+    // Told about each download *arr imported, e.g. to put it in the catalog right
+    // away. Must not throw; it isn't awaited.
+    private readonly onImported?: (release: Release) => void,
   ) {
     this.coordinator = coordinator ?? coordinatorFor(repository)
   }
@@ -74,6 +78,11 @@ export class ImportWatcher {
    * itself) and never throws: the import already succeeded, so a cleanup failure
    * is logged and the row stays `imported`.
    */
+  private async afterImported(row: DownloadRecord): Promise<void> {
+    this.onImported?.(row.release)
+    await this.cleanUpImportedFile(row)
+  }
+
   private async cleanUpImportedFile(row: DownloadRecord): Promise<void> {
     if (!this.importedFileCleanup?.enabled())
       return
@@ -223,7 +232,7 @@ export class ImportWatcher {
         if (importedIds.has(hash)) {
           this.repository.markImported(row.id)
           logger.info({ id: row.id, filename: row.filename, server: connector.name }, 'Download imported by *arr')
-          await this.cleanUpImportedFile(row)
+          await this.afterImported(row)
           return 1
         }
 
@@ -241,7 +250,7 @@ export class ImportWatcher {
                 server: connector.name,
                 commandId: row.manualImportCommandId,
               }, 'Manual import command completed')
-              await this.cleanUpImportedFile(row)
+              await this.afterImported(row)
               return 1
             }
             if (status.state === 'failed') {
