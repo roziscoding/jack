@@ -21,6 +21,6 @@
   "devDependencies": {
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "vue-tsc": "3.3.13"
+    "vue-tsc": "3.3.14"
   }
 }
