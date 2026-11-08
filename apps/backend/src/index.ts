@@ -16,8 +16,10 @@ import { CatalogSyncService } from './modules/catalog/catalog-sync.service'
 import { OwnCatalogRepository } from './modules/catalog/own-catalog.repository'
 import { TmdbMetadataRepository } from './modules/catalog/tmdb-metadata.repository'
 import { ConfigService } from './modules/config/config.service'
+import { DownloadsManagementController } from './modules/downloads/downloads.controller'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
+import { FailedDownloadReaper } from './modules/downloads/failed-download-reaper'
 import { ImportWatcher } from './modules/downloads/import-watcher'
 import { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { ManagedApiKeys } from './modules/managed-keys/managed-keys.service'
@@ -120,6 +122,23 @@ const importWatcher = downloadsConfig
     })
   : undefined
 
+// Retries failed downloads with backoff, then deletes the ones that keep failing.
+// Routed through the management controller so transfers and imports each retry the
+// way the ***Retry*** button does.
+const downloadsController = new DownloadsManagementController(downloadsRepository, downloadsService, importWatcher)
+const failedDownloadReaper = downloadsConfig
+  ? new FailedDownloadReaper({
+      // Read per tick, like unlinkImportedFiles, so the UI toggle applies live.
+      enabled: () => configService?.getRawDownloads()?.removeFailedDownloads ?? downloadsConfig.removeFailedDownloads,
+      list: () => downloadsRepository.list(),
+      retry: id => downloadsController.retry(id),
+      remove: id => downloadsController.delete(id),
+      maxRetries: downloadsConfig.failedDownloadRetries,
+      baseDelayMs: downloadsConfig.failedRetryBaseDelayMs,
+      maxDelayMs: downloadsConfig.retryMaxDelayMs,
+    })
+  : undefined
+
 function startManagementServer() {
   if (!envs.MANAGEMENT_KEY)
     return undefined
@@ -185,6 +204,8 @@ for (const dest of registrable) {
 managedApiKeys.prune(registrable.map(d => d.id))
 
 importWatcher?.start()
+if (downloadsConfig)
+  failedDownloadReaper?.start(downloadsConfig.importPollIntervalMs)
 
 // Re-drive interrupted downloads from a prior run.
 if (config.downloads && downloadsService) {
@@ -204,6 +225,7 @@ else {
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
   importWatcher?.stop()
+  failedDownloadReaper?.stop()
   catalogSync.stop()
   database.close()
   server.stop()
@@ -215,6 +237,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
   importWatcher?.stop()
+  failedDownloadReaper?.stop()
   catalogSync.stop()
   database.close()
   server.stop()

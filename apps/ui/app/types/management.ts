@@ -232,6 +232,9 @@ export interface DownloadsConfig {
   manualImportBackoffBaseMs?: number
   manualImportBackoffMaxMs?: number
   unlinkImportedFiles?: boolean
+  removeFailedDownloads?: boolean
+  failedDownloadRetries?: number
+  failedRetryBaseDelayMs?: number
 }
 
 // PATCH body for config.downloads. Absent leaves the stored value alone; `null` drops
