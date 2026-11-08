@@ -511,6 +511,9 @@ const columns: TableColumn<DownloadItem>[] = [
             <template #progress-cell="{ row }">
               <div class="w-44">
                 <ProgressBar :value="row.original.progress" />
+                <p v-if="row.original.speedBps != null" class="mt-1 text-xs tabular-nums text-muted">
+                  {{ formatTransferRate(row.original.speedBps, row.original.etaSeconds) }}
+                </p>
               </div>
             </template>
 
@@ -563,6 +566,9 @@ const columns: TableColumn<DownloadItem>[] = [
                 <UBadge v-bind="statusBadge[d.status]" variant="subtle" class="shrink-0" />
               </div>
               <ProgressBar :value="d.progress" />
+              <p v-if="d.speedBps != null" class="text-xs tabular-nums text-muted">
+                {{ formatTransferRate(d.speedBps, d.etaSeconds) }}
+              </p>
               <div class="flex items-center justify-between gap-2 text-xs text-muted">
                 <span class="truncate">{{ d.peerName }}</span>
                 <span class="shrink-0 tabular-nums">{{ formatBytes(d.totalBytes) }} · {{ formatAgo(d.updatedAt) }} ago</span>

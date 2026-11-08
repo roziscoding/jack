@@ -14,6 +14,7 @@ import { logger } from '../../logger'
 import { unlinkDownloadArtifact } from './artifact-cleanup'
 import { transferErrorCode, transferErrorLogFields } from './download-error-codes'
 import { coordinatorFor } from './download-operation-coordinator'
+import { liveProgressFor } from './live-progress'
 import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
 type DownloadsServiceConfig = NonNullable<AppConfig['downloads']>
@@ -374,11 +375,14 @@ export class DownloadsService {
     }
     finally {
       this.active.delete(record.destPath)
+      if (this.downloadsRepository)
+        liveProgressFor(this.downloadsRepository).clear(record.id)
     }
   }
 
   private async downloadWithRetry(record: DownloadRecord, signal: AbortSignal): Promise<void> {
     const repo = this.downloadsRepository
+    const live = repo && liveProgressFor(repo)
     const peer = this.peers.find(p => p.id === record.peerId)
     if (!peer) {
       repo?.markFailed(record.id, 'PEER_NOT_FOUND', `Peer ${record.peerId} not found`)
@@ -391,12 +395,18 @@ export class DownloadsService {
         repo?.setExpectedBytes(record.id, event.expectedBytes, event.expectedBytesSource, event.expectedBytesMismatch)
         return
       }
+      if (event.type === 'bytes') {
+        live?.record(record.id, event.downloadedBytes)
+        return
+      }
       if (event.type === 'progress') {
         repo?.updateProgress(record.id, event.downloadedBytes)
+        live?.record(record.id, event.downloadedBytes)
         return
       }
       if (event.type === 'restart') {
         repo?.markResumeReset(record.id)
+        live?.clear(record.id)
         return
       }
       // event.type === 'completed': the transfer finished. Record the final byte

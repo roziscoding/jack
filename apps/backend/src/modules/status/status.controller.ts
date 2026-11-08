@@ -3,7 +3,9 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
+import type { LiveProgressTracker } from '../downloads/live-progress'
 import { DOWNLOAD_STATUSES } from '../../database/schema'
+import { liveProgressFor } from '../downloads/live-progress'
 
 // The management surface can expose richer detail than the public API: every
 // connector here carries its URL-derived `id` (the management UI keys edit/delete
@@ -25,15 +27,32 @@ function baseConnector(c: ServerConnector) {
   }
 }
 
-export function enrichDownload(d: DownloadRecord) {
+export function enrichDownload(d: DownloadRecord, live?: LiveProgressTracker) {
   // Prefer the negotiated expected size; fall back to the release-advertised size.
   const totalBytes = d.expectedBytes ?? (d.releaseSize > 0
     ? d.releaseSize
     : null)
-  const progress = totalBytes && totalBytes > 0
-    ? Math.min(1, d.downloadedBytes / totalBytes)
+  // A running transfer reports bytes about once a second in memory; the row is only
+  // written every 10 s / 64 MiB, so prefer the live count while it's downloading.
+  const current = d.status === 'downloading'
+    ? live?.get(d.id)
     : null
-  return { ...d, totalBytes, progress }
+  const downloadedBytes = Math.max(d.downloadedBytes, current?.downloadedBytes ?? 0)
+  const progress = totalBytes && totalBytes > 0
+    ? Math.min(1, downloadedBytes / totalBytes)
+    : null
+  const speedBps = current?.speedBps ?? null
+  const etaSeconds = speedBps && speedBps > 0 && totalBytes
+    ? Math.max(0, Math.round((totalBytes - downloadedBytes) / speedBps))
+    : null
+  return {
+    ...d,
+    downloadedBytes,
+    totalBytes,
+    progress,
+    speedBps,
+    etaSeconds,
+  }
 }
 
 export class StatusController {
@@ -42,10 +61,17 @@ export class StatusController {
     private readonly downloads?: DownloadsRepository,
   ) {}
 
+  private get live(): LiveProgressTracker | undefined {
+    return this.downloads && liveProgressFor(this.downloads)
+  }
+
+  private enrich = (d: DownloadRecord) => enrichDownload(d, this.live)
+
   subscribeOverview(subscriber: () => void): () => void {
     const unsubscribers = [
       this.connectors.subscribe?.(subscriber),
       this.downloads?.subscribe(subscriber),
+      this.live?.subscribe(subscriber),
     ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
     return () => {
       for (const unsubscribe of unsubscribers)
@@ -54,7 +80,14 @@ export class StatusController {
   }
 
   subscribeDownloads(subscriber: () => void): () => void {
-    return this.downloads?.subscribe(subscriber) ?? (() => {})
+    const unsubscribers = [
+      this.downloads?.subscribe(subscriber),
+      this.live?.subscribe(subscriber),
+    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
+    return () => {
+      for (const unsubscribe of unsubscribers)
+        unsubscribe()
+    }
   }
 
   /** Whether download-backed endpoints are available (a repository was injected). */
@@ -107,9 +140,9 @@ export class StatusController {
         bytesMoved,
         mismatched,
         // `records` is sorted by updatedAt desc, so each slice is the most recent.
-        active: records.filter(r => r.status === 'downloading').map(enrichDownload),
-        importQueued: records.filter(r => r.status === 'import_queued').slice(0, ATTENTION_LIMIT).map(enrichDownload),
-        failed: records.filter(r => r.status === 'failed').slice(0, ATTENTION_LIMIT).map(enrichDownload),
+        active: records.filter(r => r.status === 'downloading').map(this.enrich),
+        importQueued: records.filter(r => r.status === 'import_queued').slice(0, ATTENTION_LIMIT).map(this.enrich),
+        failed: records.filter(r => r.status === 'failed').slice(0, ATTENTION_LIMIT).map(this.enrich),
       },
     }
   }
@@ -117,7 +150,7 @@ export class StatusController {
   listDownloads() {
     const records = this.downloads?.list() ?? []
     return {
-      downloads: records.map(enrichDownload),
+      downloads: records.map(this.enrich),
     }
   }
 }

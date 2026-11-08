@@ -111,6 +111,9 @@ function serverRole(server: { source: boolean, destination: boolean }) {
                     {{ formatBytes(d.downloadedBytes) }} / {{ formatBytes(d.totalBytes) }}
                   </span>
                 </div>
+                <p v-if="d.speedBps != null" class="mt-1 text-xs tabular-nums text-muted">
+                  {{ formatTransferRate(d.speedBps, d.etaSeconds) }}
+                </p>
               </div>
             </div>
           </UCard>

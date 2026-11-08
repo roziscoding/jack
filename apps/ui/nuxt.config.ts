@@ -3,7 +3,8 @@ import { execSync } from 'node:child_process'
 import process from 'node:process'
 
 // Releases are cut from git tags; package.json is never bumped. CI passes the
-// image version as APP_VERSION (`1.2.3`, `main`, `pr-12`); a local build falls
+// image's `org.opencontainers.image.version` label as APP_VERSION (`1.2.3`,
+// `main`, `pr-12`), so the UI shows what the image says it is. A local build falls
 // back to the latest tag, then to `dev` (the Docker build context has no .git).
 function appVersion(): string {
   const fromEnv = process.env.APP_VERSION?.trim()

@@ -22,11 +22,14 @@ const PeerSearchResponse = z.object({
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
 const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
 const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
+const DOWNLOAD_LIVE_INTERVAL_MS = 1000
 const CONTENT_RANGE_PATTERN = /^bytes (\d+)-(\d+)\/(\d+)$/
 
 export type PeerDownloadProgressEvent
   = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null, expectedBytesMismatch: boolean }
     | { type: 'progress', downloadedBytes: number, expectedBytes: number | null }
+    // About once a second, for live progress only; `progress` is the durable one.
+    | { type: 'bytes', downloadedBytes: number }
     | { type: 'restart', reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number }
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
 
@@ -498,6 +501,7 @@ export class PeerConnector extends ServerConnector {
       let downloadedBytes = existingBytes
       let lastLoggedAt = Date.now()
       let lastLoggedBytes = downloadedBytes
+      let lastLiveAt = 0
       let handleClosed = false
 
       const closeHandle = async () => {
@@ -564,6 +568,11 @@ export class PeerConnector extends ServerConnector {
             await options.onProgress?.({ type: 'progress', downloadedBytes, expectedBytes })
             lastLoggedAt = now
             lastLoggedBytes = downloadedBytes
+          }
+          // Cheap in-memory tick for live progress and speed: no fsync, no DB write.
+          if (now - lastLiveAt >= DOWNLOAD_LIVE_INTERVAL_MS) {
+            await options.onProgress?.({ type: 'bytes', downloadedBytes })
+            lastLiveAt = now
           }
         }
 

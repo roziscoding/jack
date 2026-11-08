@@ -59,6 +59,9 @@ export interface DownloadItem {
   downloadedBytes: number
   totalBytes: number | null
   progress: number | null
+  // Live, while downloading: averaged over the last few seconds. Null otherwise.
+  speedBps: number | null
+  etaSeconds: number | null
   releaseSize: number
   attempts: number
   error: string | null
