@@ -70,6 +70,43 @@ export function enrichUpload(u: UploadRecord) {
   return { ...u, progress, speedBps }
 }
 
+type ChangeSource = ((subscriber: () => void) => () => void) | undefined
+
+// Each stream sends a full snapshot per notification, so all of its sources are
+// folded together: the first change goes out at once, and any further changes
+// within the interval become a single trailing snapshot.
+export const STREAM_INTERVAL_MS = 1000
+
+export function coalesce(subscriber: () => void, sources: ChangeSource[], intervalMs = STREAM_INTERVAL_MS): () => void {
+  let lastFired = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const fire = () => {
+    timer = undefined
+    lastFired = Date.now()
+    subscriber()
+  }
+  const notify = () => {
+    if (timer)
+      return
+    const wait = lastFired + intervalMs - Date.now()
+    if (wait <= 0) {
+      fire()
+      return
+    }
+    timer = setTimeout(fire, wait)
+  }
+  const unsubscribers = sources.flatMap(source => source
+    ? [
+        source(notify),
+      ]
+    : [])
+  return () => {
+    clearTimeout(timer)
+    for (const unsubscribe of unsubscribers)
+      unsubscribe()
+  }
+}
+
 export class StatusController {
   constructor(
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[], subscribe?: (subscriber: () => void) => () => void },
@@ -86,31 +123,25 @@ export class StatusController {
   private enrich = (d: DownloadRecord) => enrichDownload(d, this.live)
 
   subscribeOverview(subscriber: () => void): () => void {
-    const unsubscribers = [
-      this.connectors.subscribe?.(subscriber),
-      this.downloads?.subscribe(subscriber),
-      this.live?.subscribe(subscriber),
-      this.uploads?.subscribe(subscriber),
-    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
-    return () => {
-      for (const unsubscribe of unsubscribers)
-        unsubscribe()
-    }
+    return coalesce(subscriber, [
+      this.connectors.subscribe,
+      this.downloads && (s => this.downloads!.subscribe(s)),
+      this.live && (s => this.live!.subscribe(s)),
+      this.uploads && (s => this.uploads!.subscribe(s)),
+    ])
   }
 
   subscribeUploads(subscriber: () => void): () => void {
-    return this.uploads?.subscribe(subscriber) ?? (() => {})
+    return coalesce(subscriber, [
+      this.uploads && (s => this.uploads!.subscribe(s)),
+    ])
   }
 
   subscribeDownloads(subscriber: () => void): () => void {
-    const unsubscribers = [
-      this.downloads?.subscribe(subscriber),
-      this.live?.subscribe(subscriber),
-    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
-    return () => {
-      for (const unsubscribe of unsubscribers)
-        unsubscribe()
-    }
+    return coalesce(subscriber, [
+      this.downloads && (s => this.downloads!.subscribe(s)),
+      this.live && (s => this.live!.subscribe(s)),
+    ])
   }
 
   /** Whether download-backed endpoints are available (a repository was injected). */
