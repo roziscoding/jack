@@ -10,8 +10,8 @@ instance without hand-editing `config.jsonc`. With the
 `jack-ui` service at **http://localhost:3000**, and it's the easiest way to
 operate jack day to day:
 
-- ***Overview***: your configured servers and peers, and whether each one
-  initialized cleanly, with transfer activity updating live.
+- ***Overview***: lifetime totals, your servers and peers, charts of the last
+  30 days, and transfer activity updating live. See [Overview](#overview).
 - ***Catalog***: browse everything your peers share, and request titles into
   your library.
 - ***Downloads***: inspect, cancel, retry, and delete in-flight or finished
@@ -33,6 +33,29 @@ operate jack day to day:
 
 Don't want it? Delete the `jack-ui` service and the backend's
 `JACK_MANAGEMENT_KEY` line to run jack headless.
+
+## Overview
+
+The dashboard is a stack of sections, each of which folds away:
+
+- **Lifetime**: files imported, bytes downloaded and uploaded, the
+  upload/download ratio, and the number of transfers.
+- **Connections**: each peer and server, and whether it is reachable.
+- **Activity**: bytes moved per day and the average transfer speed per day.
+  The speed counts each finished transfer from start to finish, so time spent
+  waiting between retries pulls it down.
+- **Peer split**: which peers pulled the most from you, and which you pulled
+  the most from.
+- **Library**: the title count of your catalog and each peer's over time, and
+  the files peers pulled from you most.
+- **Imports and failures**: the average time from a finished download to its
+  *arr import, and the failed downloads grouped by
+  [error code](/guide/troubleshooting#download-error-codes).
+- **Transfers**: downloads and uploads running now, with live progress.
+
+Charts cover the last 30 days in UTC and refresh every minute. The catalog
+history starts with the first catalog sync after upgrading, and import times
+are recorded for imports from then on.
 
 ## Uploads
 
