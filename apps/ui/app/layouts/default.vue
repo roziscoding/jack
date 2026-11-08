@@ -2,6 +2,7 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const { state, logout } = useAuth()
+const version = useRuntimeConfig().public.appVersion
 
 // Peers and *arr servers are managed as sections under Settings, so the nav is
 // just the three live views plus configuration.
@@ -46,22 +47,25 @@ async function onLogout() {
       </template>
 
       <template #footer="{ collapsed }">
-        <div class="flex w-full items-center gap-1.5" :class="collapsed ? 'flex-col' : ''">
-          <UButton
-            v-if="state.mode === 'cookie'"
-            :label="collapsed ? undefined : 'Sign out'"
-            icon="i-ph-sign-out"
-            color="neutral"
-            variant="ghost"
-            :loading="loggingOut"
-            :block="!collapsed"
-            :class="!collapsed && 'flex-1 justify-start'"
-            @click="onLogout"
-          />
-          <span v-else-if="!collapsed" class="flex-1 truncate px-2.5 text-xs text-muted">
-            Key injected by host
-          </span>
-          <UColorModeButton />
+        <div class="flex w-full flex-col gap-1">
+          <span v-if="!collapsed" class="px-2.5 font-mono text-xs text-dimmed">v{{ version }}</span>
+          <div class="flex w-full items-center gap-1.5" :class="collapsed ? 'flex-col' : ''">
+            <UButton
+              v-if="state.mode === 'cookie'"
+              :label="collapsed ? undefined : 'Sign out'"
+              icon="i-ph-sign-out"
+              color="neutral"
+              variant="ghost"
+              :loading="loggingOut"
+              :block="!collapsed"
+              :class="!collapsed && 'flex-1 justify-start'"
+              @click="onLogout"
+            />
+            <span v-else-if="!collapsed" class="flex-1 truncate px-2.5 text-xs text-muted">
+              Key injected by host
+            </span>
+            <UColorModeButton />
+          </div>
         </div>
       </template>
     </UDashboardSidebar>
