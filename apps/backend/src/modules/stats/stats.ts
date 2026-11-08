@@ -115,11 +115,12 @@ export function buildStats(
     const bucket = buckets.get(dayOf(u.finishedAt))
     if (!bucket)
       continue
+    // Bytes and time come from the downloading jack's receipt, so only confirmed
+    // uploads count; files go out zero-copy and jack never measures them itself.
     bucket.up += u.sentBytes
-    // Only whole transfers say anything about speed; aborts end early by design.
-    if (u.status === 'completed') {
+    if (u.status === 'completed' && u.durationMs) {
       bucket.upTimed += u.sentBytes
-      bucket.upMs += durationMs(u.startedAt, u.finishedAt)
+      bucket.upMs += u.durationMs
     }
   }
 

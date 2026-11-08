@@ -53,12 +53,14 @@ test('buckets transfers, speed and import latency per day', () => {
     // Outside the window: counts toward lifetime peers, not the daily series.
     download({ downloadedBytes: 7, completedAt: '2026-10-01T00:00:00Z' }),
   ], [
-    upload({ sentBytes: 400, startedAt: '2026-11-07T09:00:00Z', finishedAt: '2026-11-07T09:00:04Z' }),
-    upload({ sentBytes: 100, status: 'aborted', finishedAt: '2026-11-07T09:30:00Z' }),
+    // Confirmed by a receipt: 400 bytes in 4 s.
+    upload({ sentBytes: 400, durationMs: 4000, finishedAt: '2026-11-07T09:00:04Z' }),
+    // No receipt, so nothing is known to have arrived.
+    upload({ sentBytes: 0, status: 'aborted', finishedAt: '2026-11-07T09:30:00Z' }),
     upload({
       filename: 'Show.mkv',
       peerName: 'Ranieri',
-      sentBytes: 50,
+      status: 'uploading',
       finishedAt: null,
     }),
   ], [], 3, NOW)
@@ -71,23 +73,22 @@ test('buckets transfers, speed and import latency per day', () => {
     downloadBps: 100,
     uploadBps: null,
   })
-  // Aborted bytes count as moved but don't drag the speed down.
-  expect(stats.transfers[1]).toMatchObject({ uploadedBytes: 500, uploadBps: 100 })
+  // Upload speed is the receipt's bytes over its duration.
+  expect(stats.transfers[1]).toMatchObject({ uploadedBytes: 400, uploadBps: 100 })
   expect(stats.importLatency[2]).toEqual({ day: '2026-11-08', avgSeconds: 60, count: 1 })
   expect(stats.peers.gaveToMe).toEqual([
     { name: 'Ranieri', bytes: 1007 },
     { name: 'Roz', bytes: 500 },
   ])
   expect(stats.peers.tookFromMe).toEqual([
-    { name: 'Roz', bytes: 500 },
-    { name: 'Ranieri', bytes: 50 },
+    { name: 'Roz', bytes: 400 },
   ])
   expect(stats.failures).toEqual([
     { code: 'PEER_UNREACHABLE', count: 1 },
   ])
   expect(stats.topTitles[0]).toEqual({
     filename: 'Movie.mkv',
-    bytes: 500,
+    bytes: 400,
     requests: 2,
     peers: 1,
   })
