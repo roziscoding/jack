@@ -37,6 +37,8 @@ export const downloads = sqliteTable('downloads', {
   startedAt: text('started_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
+  // When *arr confirmed the import; with completedAt, how long the import took.
+  importedAt: text('imported_at'),
   error: text('error'),
   // A DownloadErrorCode (download-error-codes.ts). No check constraint, so new
   // codes don't need a migration.
@@ -126,6 +128,21 @@ export const uploads = sqliteTable('uploads', {
 
 export type UploadRow = typeof uploads.$inferSelect
 export type NewUploadRow = typeof uploads.$inferInsert
+
+// Catalog size per day: this instance's own catalog (sourceId `self`) and each
+// peer's, written after every catalog sync. One row per source per UTC day; a
+// later sync the same day overwrites it, so a day holds its last reading.
+export const catalogSizeHistory = sqliteTable('catalog_size_history', {
+  day: text('day').notNull(),
+  sourceId: text('source_id').notNull(),
+  sourceName: text('source_name').notNull(),
+  titles: integer('titles').notNull(),
+  bytes: integer('bytes').notNull(),
+}, t => [
+  primaryKey({
+    columns: [t.day, t.sourceId],
+  }),
+])
 
 export type ApiKeyRow = typeof apiKeys.$inferSelect
 export type NewApiKeyRow = typeof apiKeys.$inferInsert

@@ -4,10 +4,12 @@ import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
 import type { LiveProgressTracker } from '../downloads/live-progress'
+import type { StatsRepository } from '../stats/stats.repository'
 import type { UploadRecord } from '../uploads/uploads.repository'
 import type { UploadsService } from '../uploads/uploads.service'
 import { DOWNLOAD_STATUSES, UPLOAD_STATUSES } from '../../database/schema'
 import { liveProgressFor } from '../downloads/live-progress'
+import { buildStats } from '../stats/stats'
 
 // The management surface can expose richer detail than the public API: every
 // connector here carries its URL-derived `id` (the management UI keys edit/delete
@@ -75,6 +77,7 @@ export class StatusController {
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[], subscribe?: (subscriber: () => void) => () => void },
     private readonly downloads?: DownloadsRepository,
     private readonly uploads?: UploadsService,
+    private readonly stats?: StatsRepository,
   ) {}
 
   private enrichUpload = (u: UploadRecord) => enrichUpload(u)
@@ -185,6 +188,17 @@ export class StatusController {
       bytesSent,
       active: records.filter(r => r.status === 'uploading').map(this.enrichUpload),
     }
+  }
+
+  /** Chart data for the dashboard: the last `days` UTC days plus lifetime rankings. */
+  getStats(days: number) {
+    const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10)
+    return buildStats(
+      this.downloads?.list() ?? [],
+      this.uploads?.list() ?? [],
+      this.stats?.catalogSizesSince(since) ?? [],
+      days,
+    )
   }
 
   listUploads() {

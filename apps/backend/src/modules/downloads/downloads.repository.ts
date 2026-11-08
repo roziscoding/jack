@@ -27,6 +27,7 @@ export interface DownloadRecord {
   startedAt: string
   updatedAt: string
   completedAt: string | null
+  importedAt: string | null
   error: string | null
   errorCode: DownloadErrorCode | null
   errorDetails: FileSystemErrorDetails | null
@@ -83,6 +84,7 @@ function toRecord(row: DownloadRow): DownloadRecord {
     startedAt: row.startedAt,
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
+    importedAt: row.importedAt,
     error: row.error,
     errorCode: (row.errorCode as DownloadErrorCode | null) ?? null,
     errorDetails: row.errorDetails ?? null,
@@ -217,15 +219,17 @@ export class DownloadsRepository {
   // *arr finished importing the file into the library — terminal success. The row
   // is kept (not deleted) so the downloads list doubles as a history.
   markImported(id: number): void {
+    const timestamp = nowIso()
     this.db.update(downloads)
       .set({
         status: 'imported',
+        importedAt: timestamp,
         lastOperation: 'import',
         operationFailed: false,
         error: null,
         errorCode: null,
         errorDetails: null,
-        updatedAt: nowIso(),
+        updatedAt: timestamp,
       })
       .where(eq(downloads.id, id))
       .run()
