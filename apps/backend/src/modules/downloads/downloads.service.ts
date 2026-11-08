@@ -150,6 +150,7 @@ export class DownloadsService {
         startedAt: '',
         updatedAt: '',
         completedAt: null,
+        importedAt: null,
         error: null,
         errorCode: null,
         errorDetails: null,

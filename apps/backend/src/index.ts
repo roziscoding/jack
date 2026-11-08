@@ -24,6 +24,7 @@ import { ImportWatcher } from './modules/downloads/import-watcher'
 import { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { ManagedApiKeys } from './modules/managed-keys/managed-keys.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
+import { StatsRepository } from './modules/stats/stats.repository'
 import { UploadsRepository } from './modules/uploads/uploads.repository'
 import { UploadsService } from './modules/uploads/uploads.service'
 
@@ -54,6 +55,7 @@ const managedKeysRepository = new ManagedKeysRepository(database.db)
 const catalogCacheRepository = new CatalogCacheRepository(database.db)
 const tmdbMetadataRepository = new TmdbMetadataRepository(database.db)
 const uploadsService = new UploadsService(new UploadsRepository(database.db))
+const statsRepository = new StatsRepository(database.db)
 
 // Peers connected to the previous run lost those transfers with it.
 const interruptedUploads = uploadsService.repository.reconcileInterrupted()
@@ -86,6 +88,15 @@ const catalogSync = new CatalogSyncService({
   peerCache: catalogCacheRepository,
   metadata: tmdbMetadataRepository,
   schedule: () => configService?.getCatalog().refreshSchedule ?? config.catalog.refreshSchedule,
+  // Record today's catalog sizes for the dashboard's history chart.
+  onSynced: () => {
+    try {
+      statsRepository.recordCatalogSizes(new Map(connectorManager.peers.map(p => [p.id, p.name ?? p.url])))
+    }
+    catch (err) {
+      logger.warn({ err }, 'Could not record catalog sizes')
+    }
+  },
 })
 catalogSync.start()
 // A schedule edited in the UI applies without a restart.
@@ -173,6 +184,7 @@ function startManagementServer() {
     downloadsService,
     importWatcher,
     uploadsService,
+    statsRepository,
     apiKeysRepository,
     catalogCacheRepository,
     tmdbMetadataRepository,

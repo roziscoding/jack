@@ -91,5 +91,26 @@ export function getStatusRouter(controller: StatusController) {
     },
   }), c => streamSnapshots(c, () => controller.listUploads(), subscriber => controller.subscribeUploads(subscriber)))
 
+  app.get('/stats', describeRoute({
+    tags: ['Status'],
+    summary: 'Dashboard statistics',
+    description: 'Per-day transfer volume, average speed and import latency for the last `days` UTC days (default 30, at most 365), lifetime bytes per peer, current failures by error code, the files peers pulled most, and the catalog size history.',
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Dashboard statistics',
+        content: { 'application/json': {} },
+      },
+    },
+  }), (c) => {
+    const requested = Number(c.req.query('days') ?? 30)
+    const days = Number.isInteger(requested)
+      ? Math.min(365, Math.max(1, requested))
+      : 30
+    return c.json(controller.getStats(days))
+  })
+
   return app
 }
