@@ -83,6 +83,9 @@ jobs:
           push: true
           tags: ${{ steps.meta-ui.outputs.tags }}
           labels: ${{ steps.meta-ui.outputs.labels }}
+          # Shown in the UI: `1.2.3` on a v* tag, `main` or `pr-<n>` otherwise.
+          build-args: |
+            APP_VERSION=${{ steps.meta-ui.outputs.version }}
           cache-from: type=gha,scope=ui
           cache-to: type=gha,mode=max,scope=ui
 

@@ -48,7 +48,7 @@ async function onLogout() {
 
       <template #footer="{ collapsed }">
         <div class="flex w-full flex-col gap-1">
-          <span v-if="!collapsed" class="px-2.5 font-mono text-xs text-dimmed">v{{ version }}</span>
+          <span v-if="!collapsed" class="px-2.5 font-mono text-xs text-dimmed">{{ formatVersion(version) }}</span>
           <div class="flex w-full items-center gap-1.5" :class="collapsed ? 'flex-col' : ''">
             <UButton
               v-if="state.mode === 'cookie'"

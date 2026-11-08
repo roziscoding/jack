@@ -1,5 +1,23 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-import pkg from './package.json'
+import { execSync } from 'node:child_process'
+import process from 'node:process'
+
+// Releases are cut from git tags; package.json is never bumped. CI passes the
+// image version as APP_VERSION (`1.2.3`, `main`, `pr-12`); a local build falls
+// back to the latest tag, then to `dev` (the Docker build context has no .git).
+function appVersion(): string {
+  const fromEnv = process.env.APP_VERSION?.trim()
+  if (fromEnv)
+    return fromEnv
+  try {
+    return execSync('git describe --tags --abbrev=0', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim().replace(/^v/, '')
+  }
+  catch {
+    return 'dev'
+  }
+}
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
@@ -47,10 +65,10 @@ export default defineNuxtConfig({
     // (>= 32 chars) in production; the default is a clearly-insecure dev value.
     sessionKey: 'dev-insecure-session-key-change-me-please-1234',
 
-    // Browser-exposed: the app version, baked from package.json at build time and
-    // shown in Settings → About.
+    // Browser-exposed: the app version, baked in at build time (see appVersion
+    // above) and shown in the sidebar and Settings → About.
     public: {
-      appVersion: pkg.version,
+      appVersion: appVersion(),
     },
   },
 })

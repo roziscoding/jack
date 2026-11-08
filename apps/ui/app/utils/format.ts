@@ -1,3 +1,10 @@
+/** `1.2.3` -> `v1.2.3`; a branch or PR build (`main`, `pr-12`, `dev`) is shown as is. */
+export function formatVersion(version: string): string {
+  return /^\d/.test(version)
+    ? `v${version}`
+    : version
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null || Number.isNaN(bytes))
     return '—'
