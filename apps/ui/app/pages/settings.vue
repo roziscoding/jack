@@ -374,6 +374,15 @@ async function confirmRevoke() {
                 <p class="text-xs text-muted">
                   Self-hosted *arr peer bridge
                 </p>
+                <ULink
+                  to="https://github.com/roziscoding/jack"
+                  target="_blank"
+                  rel="noopener"
+                  class="mt-1 inline-flex items-center gap-1 text-xs"
+                >
+                  <UIcon name="i-ph-github-logo" class="size-3.5" />
+                  roziscoding/jack
+                </ULink>
               </div>
             </div>
 
