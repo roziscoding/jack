@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fddcd612-60ad-4dff-be2a-2b061512ac1a",
-  "prevId": "330e5a4a-3d65-4303-b438-55329bcd8ca7",
+  "id": "1a854ff0-e165-4eef-91e0-eb3b7a620ed8",
+  "prevId": "f6d7a728-eaa3-4692-9836-71fd937cbe60",
   "tables": {
     "api_keys": {
       "name": "api_keys",
@@ -1031,6 +1031,13 @@
           "autoincrement": false,
           "default": 0
         },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -1089,7 +1096,7 @@
       "checkConstraints": {
         "uploads_status_check": {
           "name": "uploads_status_check",
-          "value": "\"uploads\".\"status\" in ('uploading', 'completed', 'aborted', 'failed')"
+          "value": "\"uploads\".\"status\" in ('uploading', 'completed', 'aborted', 'unconfirmed')"
         }
       }
     }
