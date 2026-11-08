@@ -191,7 +191,14 @@ function onRowSelect(event: Event, row: { toggleExpanded: () => void }) {
 
 const columns: TableColumn<DownloadItem>[] = [
   { id: 'expand', header: '' },
-  { accessorKey: 'filename', header: 'File' },
+  // Release names run long; let them wrap so the row's actions stay in view.
+  {
+    accessorKey: 'filename',
+    header: 'File',
+    meta: {
+      class: { td: 'min-w-64 whitespace-normal' },
+    },
+  },
   { accessorKey: 'peerName', header: 'Peer' },
   { accessorKey: 'status', header: 'Status' },
   { accessorKey: 'progress', header: 'Progress' },
@@ -347,7 +354,7 @@ const columns: TableColumn<DownloadItem>[] = [
             </template>
 
             <template #filename-cell="{ row }">
-              <p class="font-medium text-default" :title="row.original.filename">
+              <p class="font-medium wrap-anywhere text-default" :title="row.original.filename">
                 {{ row.original.filename }}
               </p>
               <p v-if="row.original.status !== 'failed' && row.original.expectedBytesMismatch" class="text-xs text-warning">
