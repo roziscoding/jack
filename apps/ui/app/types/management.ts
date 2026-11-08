@@ -325,3 +325,26 @@ export interface LogRecord {
   trace_id?: string
   [key: string]: unknown
 }
+
+// GET /stats: the dashboard charts. Daily series cover `days` (UTC, oldest first).
+export interface DashboardStats {
+  days: string[]
+  transfers: {
+    day: string
+    downloadedBytes: number
+    uploadedBytes: number
+    downloadBps: number | null
+    uploadBps: number | null
+  }[]
+  importLatency: { day: string, avgSeconds: number | null, count: number }[]
+  peers: {
+    gaveToMe: { name: string, bytes: number }[]
+    tookFromMe: { name: string, bytes: number }[]
+  }
+  failures: { code: string, count: number }[]
+  topTitles: { filename: string, bytes: number, requests: number, peers: number }[]
+  catalog: {
+    sources: { id: string, name: string }[]
+    points: { day: string, sourceId: string, titles: number, bytes: number }[]
+  }
+}

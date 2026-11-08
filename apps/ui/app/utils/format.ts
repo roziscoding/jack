@@ -8,6 +8,11 @@ export function formatTransferRate(speedBps: number | null, etaSeconds: number |
     : `${rate} · ${formatDurationMs(etaSeconds * 1000)} left`
 }
 
+/** A UTC `YYYY-MM-DD` day as "Nov 8". */
+export function formatDay(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
 /** `1.2.3` -> `v1.2.3`; a branch or PR build (`main`, `pr-12`, `dev`) is shown as is. */
 export function formatVersion(version: string): string {
   return /^\d/.test(version)
