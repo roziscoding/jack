@@ -25,6 +25,13 @@ function confirmationFor(download: DownloadItem, action: DownloadAction): string
   return null
 }
 
+async function sendAction(download: DownloadItem, action: DownloadAction) {
+  if (action === 'delete')
+    await request<{ ok: true }>(`downloads/${download.id}`, { method: 'DELETE' })
+  else
+    await request<{ download: DownloadItem }>(`downloads/${download.id}/${action}`, { method: 'POST' })
+}
+
 async function runAction(download: DownloadItem, action: DownloadAction) {
   if (pendingActions.value[download.id])
     return
@@ -35,10 +42,7 @@ async function runAction(download: DownloadItem, action: DownloadAction) {
 
   pendingActions.value[download.id] = action
   try {
-    if (action === 'delete')
-      await request<{ ok: true }>(`downloads/${download.id}`, { method: 'DELETE' })
-    else
-      await request<{ download: DownloadItem }>(`downloads/${download.id}/${action}`, { method: 'POST' })
+    await sendAction(download, action)
     toast.add({
       title: action === 'cancel'
         ? 'Download cancelled'
@@ -59,6 +63,90 @@ async function runAction(download: DownloadItem, action: DownloadAction) {
   finally {
     delete pendingActions.value[download.id]
   }
+}
+
+// Row selection for bulk actions, keyed by download id (see get-row-id) so it
+// survives live updates and paging.
+const rowSelection = ref<Record<string, boolean>>({})
+const selected = computed(() => (data.value?.downloads ?? []).filter(d => rowSelection.value[String(d.id)]))
+const bulkPending = ref<DownloadAction>()
+
+const BULK_ACTIONS: { action: DownloadAction, label: string, done: string, icon: string, color: 'neutral' | 'error' | 'primary' }[] = [
+  {
+    action: 'retry',
+    label: 'Retry',
+    done: 'Retry started for',
+    icon: 'i-ph-arrow-clockwise',
+    color: 'primary',
+  },
+  {
+    action: 'cancel',
+    label: 'Cancel',
+    done: 'Cancelled',
+    icon: 'i-ph-x-circle',
+    color: 'neutral',
+  },
+  {
+    action: 'delete',
+    label: 'Delete',
+    done: 'Deleted',
+    icon: 'i-ph-trash',
+    color: 'error',
+  },
+]
+
+function pluralDownloads(count: number): string {
+  return count === 1
+    ? '1 download'
+    : `${count} downloads`
+}
+
+// Each action only applies to the selected rows that support it.
+function eligibleFor(action: DownloadAction): DownloadItem[] {
+  return selected.value.filter(d => downloadActionsFor(d).includes(action))
+}
+
+function toggleSelected(download: DownloadItem, value: boolean | 'indeterminate') {
+  rowSelection.value = { ...rowSelection.value, [String(download.id)]: value === true }
+}
+
+async function runBulkAction(action: DownloadAction) {
+  const targets = eligibleFor(action)
+  if (bulkPending.value || targets.length === 0)
+    return
+  const confirmation = action === 'cancel'
+    ? `Cancel ${pluralDownloads(targets.length)}? Partial files will be kept so the transfers can be retried.`
+    : action === 'delete'
+      ? `Delete ${pluralDownloads(targets.length)}? This removes their history and any partial or completed download artifacts.`
+      : null
+  // eslint-disable-next-line no-alert -- destructive actions require confirmation
+  if (confirmation && !window.confirm(confirmation))
+    return
+
+  bulkPending.value = action
+  const results = await Promise.allSettled(targets.map(d => sendAction(d, action)))
+  bulkPending.value = undefined
+
+  const failures = results.filter(r => r.status === 'rejected')
+  const done = targets.length - failures.length
+  // Keep the failed rows selected so they can be retried or inspected.
+  const next = { ...rowSelection.value }
+  for (const [index, result] of results.entries()) {
+    if (result.status === 'fulfilled')
+      delete next[String(targets[index]!.id)]
+  }
+  rowSelection.value = next
+
+  if (done > 0)
+    toast.add({ title: `${BULK_ACTIONS.find(b => b.action === action)!.done} ${pluralDownloads(done)}`, color: 'success' })
+  if (failures.length > 0) {
+    toast.add({
+      title: `Failed to ${action} ${pluralDownloads(failures.length)}`,
+      description: extractError(failures[0]!.reason),
+      color: 'error',
+    })
+  }
+  await refresh()
 }
 
 const statusBadge: Record<DownloadItem['status'], { color: BadgeProps['color'], label: string }> = {
@@ -167,8 +255,10 @@ const showingTo = computed(() => Math.min(page.value * PAGE_SIZE, total.value))
 
 // Switching filters starts over at page one; a refresh that shrinks the list
 // clamps the current page so we never strand the user on an empty page.
+// It also drops the selection, so a bulk action never hits rows the filters hide.
 watch([filter, search, peerFilter, codeFilter], () => {
   page.value = 1
+  rowSelection.value = {}
 })
 watch(pageCount, (count) => {
   if (page.value > count)
@@ -190,6 +280,7 @@ function onRowSelect(event: Event, row: { toggleExpanded: () => void }) {
 }
 
 const columns: TableColumn<DownloadItem>[] = [
+  { id: 'select', header: '' },
   { id: 'expand', header: '' },
   // Release names run long; let them wrap so the row's actions stay in view.
   {
@@ -329,10 +420,37 @@ const columns: TableColumn<DownloadItem>[] = [
       </UCard>
 
       <div v-else-if="data" class="space-y-4">
+        <!-- Bulk actions for the selected rows; each button counts the rows it applies to. -->
+        <div v-if="selected.length" class="flex flex-wrap items-center gap-2">
+          <span class="text-sm tabular-nums text-muted">{{ selected.length }} selected</span>
+          <UButton
+            v-for="bulk in BULK_ACTIONS"
+            :key="bulk.action"
+            :label="`${bulk.label} (${eligibleFor(bulk.action).length})`"
+            :icon="bulk.icon"
+            :color="bulk.color"
+            :loading="bulkPending === bulk.action"
+            :disabled="bulkPending !== undefined || eligibleFor(bulk.action).length === 0"
+            variant="subtle"
+            size="sm"
+            @click="runBulkAction(bulk.action)"
+          />
+          <UButton
+            label="Clear selection"
+            icon="i-ph-x"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            :disabled="bulkPending !== undefined"
+            @click="rowSelection = {}"
+          />
+        </div>
+
         <!-- Desktop: the full table. -->
         <UCard class="hidden lg:block" variant="subtle" :ui="{ body: '!p-0' }">
           <UTable
             v-model:expanded="expanded"
+            v-model:row-selection="rowSelection"
             :data="paged"
             :columns="columns"
             :get-row-id="(download: DownloadItem) => String(download.id)"
@@ -340,6 +458,22 @@ const columns: TableColumn<DownloadItem>[] = [
             :meta="{ class: { tr: 'cursor-pointer' } }"
             :ui="{ td: 'align-top' }"
           >
+            <template #select-header="{ table }">
+              <UCheckbox
+                :model-value="table.getIsSomePageRowsSelected() ? 'indeterminate' : table.getIsAllPageRowsSelected()"
+                aria-label="Select all downloads on this page"
+                @update:model-value="(value: boolean | 'indeterminate') => table.toggleAllPageRowsSelected(value === true)"
+              />
+            </template>
+
+            <template #select-cell="{ row }">
+              <UCheckbox
+                :model-value="row.getIsSelected()"
+                :aria-label="`Select ${row.original.filename}`"
+                @update:model-value="(value: boolean | 'indeterminate') => row.toggleSelected(value === true)"
+              />
+            </template>
+
             <template #expand-cell="{ row }">
               <UButton
                 icon="i-ph-caret-right"
@@ -412,7 +546,13 @@ const columns: TableColumn<DownloadItem>[] = [
           <UCard v-for="d in paged" :key="d.id" variant="subtle" :ui="{ body: 'p-3' }">
             <div class="space-y-2.5">
               <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
+                <UCheckbox
+                  :model-value="rowSelection[String(d.id)] === true"
+                  :aria-label="`Select ${d.filename}`"
+                  class="mt-0.5"
+                  @update:model-value="toggleSelected(d, $event)"
+                />
+                <div class="min-w-0 flex-1">
                   <p class="font-medium break-words text-default" :title="d.filename">
                     {{ d.filename }}
                   </p>
