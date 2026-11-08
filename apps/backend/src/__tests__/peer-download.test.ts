@@ -151,6 +151,45 @@ describe('PeerConnector.downloadFile', () => {
     }
   })
 
+  test('asks for a receipt and posts one after the file arrives', async () => {
+    const receipts: unknown[] = []
+    const seen = { receiptHeader: null as string | null }
+    server.use(
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
+        seen.receiptHeader = request.headers.get('X-Jack-Receipt')
+        return new Response(streamOf([1, 2, 3, 4]), {
+          headers: { 'Content-Length': '4', 'X-Jack-Upload-Id': '42' },
+        })
+      }),
+      http.post(`${PEER_JACK_URL}/peer/uploads/:uploadId/receipt`, async ({ request, params }) => {
+        receipts.push({
+          uploadId: params.uploadId,
+          apiKey: request.headers.get('X-Api-Key'),
+          body: await request.json(),
+        })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-receipt-'))
+    try {
+      await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), { releaseSize: 4 })
+      // Fire and forget: the download resolves without waiting for it.
+      await waitFor(async () => receipts.length === 1)
+      expect(seen.receiptHeader).toBe('1')
+      expect(receipts[0]).toMatchObject({
+        uploadId: '42',
+        apiKey: 'peer-api-key',
+        body: { bytes: 4 },
+      })
+      expect((receipts[0] as { body: { durationMs: number } }).body.durationMs).toBeGreaterThanOrEqual(0)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('falls back to releaseSize for expected bytes when Content-Length is missing or invalid', async () => {
     for (const contentLength of [null, 'not-a-number']) {
       server.resetHandlers()

@@ -84,11 +84,16 @@ export const apiKeys = sqliteTable('api_keys', {
 // Files peers pull from this instance through `/peer/items/:id/file`. One row
 // per HTTP request: a resumed transfer sends a Range header and gets its own
 // row, starting at `rangeStart`.
+//
+// Files go out zero-copy, so jack never counts the bytes itself. It learns an
+// upload ended early from the disconnect (`aborted`), and that it finished from
+// the receipt the downloading jack posts back (`completed`, with its duration).
+// No receipt (an older peer, or a lost POST) leaves it `unconfirmed`.
 export const UPLOAD_STATUSES = [
   'uploading',
   'completed',
   'aborted',
-  'failed',
+  'unconfirmed',
 ] as const
 export type UploadStatus = typeof UPLOAD_STATUSES[number]
 
@@ -104,14 +109,17 @@ export const uploads = sqliteTable('uploads', {
   rangeStart: integer('range_start').notNull().default(0),
   // Bytes this request was asked to send (the response Content-Length).
   requestedBytes: integer('requested_bytes').notNull(),
+  // Bytes the peer says it received; 0 until its receipt arrives.
   sentBytes: integer('sent_bytes').notNull().default(0),
+  // Transfer time the peer reported; null without a receipt, so speed is unknown.
+  durationMs: integer('duration_ms'),
   status: text('status').$type<UploadStatus>().notNull(),
   error: text('error'),
   startedAt: text('started_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   finishedAt: text('finished_at'),
 }, t => [
-  check('uploads_status_check', sql`${t.status} in ('uploading', 'completed', 'aborted', 'failed')`),
+  check('uploads_status_check', sql`${t.status} in ('uploading', 'completed', 'aborted', 'unconfirmed')`),
   index('uploads_status_idx').on(t.status),
   index('uploads_started_at_idx').on(t.startedAt),
 ])

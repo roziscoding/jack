@@ -1,52 +1,35 @@
 import type { CreateUploadInput, UploadRecord, UploadsRepository } from './uploads.repository'
-import { logger } from '../../logger'
-import { LiveProgressTracker } from '../downloads/live-progress'
-import { countBytes } from './counting-stream'
 
-// The row is written this often while a file streams (and once at the end).
-const PERSIST_INTERVAL_MS = 10_000
-// The live tracker gets a sample this often, enough for a smooth speed reading.
-const LIVE_INTERVAL_MS = 1000
+// A receipt that hasn't come after this long won't: the row goes `unconfirmed`.
+const RECEIPT_WAIT_MS = 48 * 60 * 60 * 1000
 
 /**
- * Records files peers pull from `/peer/items/:id/file`. Each request gets an
- * `uploads` row; the bytes are counted as the peer reads them, persisted every
- * 10 s, and fed to an in-memory tracker about once a second for live speed.
+ * Records files peers pull from `/peer/items/:id/file`. The file itself is sent
+ * zero-copy, untouched; this only keeps the row. A disconnect marks it aborted,
+ * and the downloading jack's receipt (`/peer/uploads/:id/receipt`) completes it
+ * with the bytes and time the transfer took.
  */
 export class UploadsService {
-  readonly live: LiveProgressTracker
+  constructor(readonly repository: UploadsRepository) {}
 
-  constructor(
-    readonly repository: UploadsRepository,
-    private readonly now: () => number = Date.now,
-  ) {
-    this.live = new LiveProgressTracker(now)
+  /**
+   * Starts a row for this request and returns its id, for the `X-Jack-Upload-Id`
+   * response header. `expectsReceipt` is whether the peer said it will report back.
+   */
+  start(input: CreateUploadInput, expectsReceipt: boolean, signal?: AbortSignal): number {
+    const upload = this.repository.create(input, expectsReceipt ? 'uploading' : 'unconfirmed')
+    // Bun aborts the request signal only when the peer disconnects before the
+    // whole body went out; a finished response never fires it.
+    signal?.addEventListener('abort', () => this.repository.markAborted(upload.id, 'peer disconnected'), { once: true })
+    return upload.id
   }
 
-  /** Starts a row for this request and returns the body to send instead of `body`. */
-  track(input: CreateUploadInput, body: Blob, signal?: AbortSignal): ReadableStream<Uint8Array> {
-    const upload = this.repository.create(input)
-    let lastPersist = this.now()
-    let lastSample = lastPersist
-    this.live.record(upload.id, 0)
+  receipt(id: number, peerName: string, sentBytes: number, durationMs: number): boolean {
+    return this.repository.complete(id, peerName, sentBytes, durationMs)
+  }
 
-    return countBytes(body, {
-      onProgress: (sentBytes) => {
-        const t = this.now()
-        if (t - lastSample >= LIVE_INTERVAL_MS) {
-          lastSample = t
-          this.live.record(upload.id, sentBytes)
-        }
-        if (t - lastPersist >= PERSIST_INTERVAL_MS) {
-          lastPersist = t
-          this.write(upload.id, () => this.repository.updateProgress(upload.id, sentBytes))
-        }
-      },
-      onEnd: (outcome, sentBytes, error) => {
-        this.live.clear(upload.id)
-        this.write(upload.id, () => this.repository.finish(upload.id, outcome, sentBytes, error))
-      },
-    }, signal)
+  expireUnconfirmed(now = Date.now()): number {
+    return this.repository.expireUnconfirmed(new Date(now - RECEIPT_WAIT_MS).toISOString())
   }
 
   list(): UploadRecord[] {
@@ -54,23 +37,6 @@ export class UploadsService {
   }
 
   subscribe(subscriber: () => void): () => void {
-    const unsubscribers = [
-      this.repository.subscribe(subscriber),
-      this.live.subscribe(subscriber),
-    ]
-    return () => {
-      for (const unsubscribe of unsubscribers)
-        unsubscribe()
-    }
-  }
-
-  // Bookkeeping must never break the transfer it describes.
-  private write(id: number, fn: () => void): void {
-    try {
-      fn()
-    }
-    catch (err) {
-      logger.warn({ uploadId: id, err }, 'Failed to record upload progress')
-    }
+    return this.repository.subscribe(subscriber)
   }
 }

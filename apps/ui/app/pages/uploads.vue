@@ -17,14 +17,19 @@ const statusBadge: Record<UploadItem['status'], { color: BadgeProps['color'], la
   uploading: { color: 'primary', label: 'Uploading' },
   completed: { color: 'success', label: 'Completed' },
   aborted: { color: 'warning', label: 'Aborted' },
-  failed: { color: 'error', label: 'Failed' },
+  unconfirmed: { color: 'neutral', label: 'Unconfirmed' },
 }
 
-// Seconds left in this request, from the live speed. Null when it isn't running.
-function etaSeconds(upload: UploadItem): number | null {
-  if (!upload.speedBps)
-    return null
-  return Math.max(0, Math.round((upload.requestedBytes - upload.sentBytes) / upload.speedBps))
+// Files go out zero-copy, so speed is the average the downloading jack reports
+// once it has the file. There is no live speed while a file is being sent.
+function speedLabel(upload: UploadItem): string {
+  if (upload.speedBps != null && upload.durationMs != null)
+    return `${formatBytes(upload.speedBps)}/s average · ${formatDurationMs(upload.durationMs)}`
+  if (upload.status === 'uploading')
+    return 'Sending…'
+  if (upload.status === 'unconfirmed')
+    return 'Speed unknown'
+  return ''
 }
 
 // Filter chips double as the at-a-glance status breakdown.
@@ -36,7 +41,7 @@ const counts = computed(() => {
     uploading: all.filter(u => u.status === 'uploading').length,
     completed: all.filter(u => u.status === 'completed').length,
     aborted: all.filter(u => u.status === 'aborted').length,
-    failed: all.filter(u => u.status === 'failed').length,
+    unconfirmed: all.filter(u => u.status === 'unconfirmed').length,
   }
 })
 const chips: { key: StatusFilter, label: string, color: BadgeProps['color'] }[] = [
@@ -44,7 +49,7 @@ const chips: { key: StatusFilter, label: string, color: BadgeProps['color'] }[] 
   { key: 'uploading', label: 'Uploading', color: 'primary' },
   { key: 'completed', label: 'Completed', color: 'success' },
   { key: 'aborted', label: 'Aborted', color: 'warning' },
-  { key: 'failed', label: 'Failed', color: 'error' },
+  { key: 'unconfirmed', label: 'Unconfirmed', color: 'neutral' },
 ]
 
 const search = ref('')
@@ -232,7 +237,7 @@ const columns: TableColumn<UploadItem>[] = [
               <p v-if="row.original.rangeStart > 0" class="text-xs text-muted">
                 resumed at {{ formatBytes(row.original.rangeStart) }}
               </p>
-              <p v-if="row.original.error" class="text-xs" :class="row.original.status === 'failed' ? 'text-error' : 'text-warning'">
+              <p v-if="row.original.error" class="text-xs text-warning">
                 {{ row.original.error }}
               </p>
             </template>
@@ -247,15 +252,15 @@ const columns: TableColumn<UploadItem>[] = [
 
             <template #progress-cell="{ row }">
               <div class="w-44">
-                <ProgressBar :value="row.original.progress" />
-                <p v-if="row.original.speedBps != null" class="mt-1 text-xs tabular-nums text-muted">
-                  {{ formatTransferRate(row.original.speedBps, etaSeconds(row.original)) }}
+                <ProgressBar v-if="row.original.progress != null" :value="row.original.progress" />
+                <p v-if="speedLabel(row.original)" class="mt-1 text-xs tabular-nums text-muted">
+                  {{ speedLabel(row.original) }}
                 </p>
               </div>
             </template>
 
             <template #sentBytes-cell="{ row }">
-              <span class="tabular-nums text-muted">{{ formatBytes(row.original.sentBytes) }}</span>
+              <span class="tabular-nums text-muted">{{ row.original.status === 'completed' ? formatBytes(row.original.sentBytes) : '—' }}</span>
             </template>
 
             <template #totalBytes-cell="{ row }">
@@ -293,19 +298,19 @@ const columns: TableColumn<UploadItem>[] = [
                   <p class="font-medium break-words text-default" :title="u.filename">
                     {{ u.filename }}
                   </p>
-                  <p v-if="u.error" class="mt-0.5 text-xs" :class="u.status === 'failed' ? 'text-error' : 'text-warning'">
+                  <p v-if="u.error" class="mt-0.5 text-xs text-warning">
                     {{ u.error }}
                   </p>
                 </div>
                 <UBadge v-bind="statusBadge[u.status]" variant="subtle" class="shrink-0" />
               </div>
-              <ProgressBar :value="u.progress" />
-              <p v-if="u.speedBps != null" class="text-xs tabular-nums text-muted">
-                {{ formatTransferRate(u.speedBps, etaSeconds(u)) }}
+              <ProgressBar v-if="u.progress != null" :value="u.progress" />
+              <p v-if="speedLabel(u)" class="text-xs tabular-nums text-muted">
+                {{ speedLabel(u) }}
               </p>
               <div class="flex items-center justify-between gap-2 text-xs text-muted">
                 <span class="truncate">{{ u.peerName }}</span>
-                <span class="shrink-0 tabular-nums">{{ formatBytes(u.sentBytes) }} of {{ formatBytes(u.totalBytes) }} · {{ formatAgo(u.startedAt) }} ago</span>
+                <span class="shrink-0 tabular-nums">{{ formatBytes(u.requestedBytes) }} of {{ formatBytes(u.totalBytes) }} · {{ formatAgo(u.startedAt) }} ago</span>
               </div>
             </div>
           </UCard>

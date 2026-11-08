@@ -258,6 +258,40 @@ export class PeerConnector extends ServerConnector {
   }
 
   @requiresInitialization
+  /**
+   * Tell the serving jack this file arrived and how long it took. It sends files
+   * zero-copy, so it can see an early disconnect but not the end of a transfer.
+   * Fire and forget: a lost receipt only leaves that upload's speed unknown, and
+   * a peer too old to issue upload ids gets none.
+   */
+  private sendUploadReceipt(uploadId: string | null, bytes: number, durationMs: number): void {
+    if (!uploadId || !/^\d+$/.test(uploadId))
+      return
+    const url = new URL(`/peer/uploads/${uploadId}/receipt`, this.url)
+    fetch(url, {
+      method: 'POST',
+      headers: { ...this.headers, 'X-Api-Key': this.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bytes,
+        durationMs: Math.round(durationMs),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then((response) => {
+        if (!response.ok)
+          logger.debug({ peer: this.name, uploadId, status: response.status }, 'Peer did not accept the upload receipt')
+      })
+      .catch((err) => {
+        logger.debug({
+          peer: this.name,
+          uploadId,
+          error: err instanceof Error
+            ? err.message
+            : String(err),
+        }, 'Could not send the upload receipt')
+      })
+  }
+
   async downloadFile(id: string, destPath: string, options: PeerDownloadOptions = {}): Promise<void> {
     return withSpan('peer.download_file', {
       'peer.name': this.name,
@@ -269,7 +303,8 @@ export class PeerConnector extends ServerConnector {
       const torrentFilename = options.torrentFilename
       const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
       const partPath = options.partPath ?? `${destPath}.part`
-      const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey }
+      // X-Jack-Receipt: we'll report back when the file arrived (see sendUploadReceipt).
+      const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey, 'X-Jack-Receipt': '1' }
       setSpanAttributes(span, { 'http.request.idle_timeout_ms': idleTimeoutMs, 'url.path': url.pathname })
 
       // Idle (inactivity) timeout, armed ONLY around network waits (fetch + each
@@ -499,6 +534,9 @@ export class PeerConnector extends ServerConnector {
         throw err
       }
       let downloadedBytes = existingBytes
+      // What this request carries, for the receipt: a resume only counts its range.
+      const requestStartBytes = existingBytes
+      const requestStartedAt = performance.now()
       let lastLoggedAt = Date.now()
       let lastLoggedBytes = downloadedBytes
       let lastLiveAt = 0
@@ -591,6 +629,7 @@ export class PeerConnector extends ServerConnector {
         signal.throwIfAborted()
         await withFsContext('move_completed', 'moving the completed .part into place', [partPath, destPath], () => rename(partPath, destPath))
         setSpanAttribute(span, 'download.downloaded_bytes', downloadedBytes)
+        this.sendUploadReceipt(response.headers.get('X-Jack-Upload-Id'), downloadedBytes - requestStartBytes, performance.now() - requestStartedAt)
         try {
           await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
         }

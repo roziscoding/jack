@@ -57,22 +57,17 @@ export function enrichDownload(d: DownloadRecord, live?: LiveProgressTracker) {
   }
 }
 
-export function enrichUpload(u: UploadRecord, live?: LiveProgressTracker) {
-  // The row is written every 10 s; a running upload has a fresher count in memory.
-  const current = u.status === 'uploading'
-    ? live?.get(u.id)
+export function enrichUpload(u: UploadRecord) {
+  // Files go out zero-copy, so only a receipt tells us how far it got. Progress is
+  // through the whole file, so a resumed request starts where the range does.
+  const progress = u.status === 'completed' && u.totalBytes > 0
+    ? Math.min(1, (u.rangeStart + u.sentBytes) / u.totalBytes)
     : null
-  const sentBytes = Math.max(u.sentBytes, current?.downloadedBytes ?? 0)
-  // Progress through the whole file, so a resumed request starts where the range does.
-  const progress = u.totalBytes > 0
-    ? Math.min(1, (u.rangeStart + sentBytes) / u.totalBytes)
+  // Average over the whole transfer, from the receipt; unknown without one.
+  const speedBps = u.durationMs && u.durationMs > 0
+    ? (u.sentBytes * 1000) / u.durationMs
     : null
-  return {
-    ...u,
-    sentBytes,
-    progress,
-    speedBps: current?.speedBps ?? null,
-  }
+  return { ...u, progress, speedBps }
 }
 
 export class StatusController {
@@ -82,7 +77,7 @@ export class StatusController {
     private readonly uploads?: UploadsService,
   ) {}
 
-  private enrichUpload = (u: UploadRecord) => enrichUpload(u, this.uploads?.live)
+  private enrichUpload = (u: UploadRecord) => enrichUpload(u)
 
   private get live(): LiveProgressTracker | undefined {
     return this.downloads && liveProgressFor(this.downloads)

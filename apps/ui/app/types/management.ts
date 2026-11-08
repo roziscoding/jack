@@ -98,12 +98,17 @@ export interface UploadItem {
   totalBytes: number
   rangeStart: number
   requestedBytes: number
+  // From the downloading jack's receipt; 0 until it arrives.
   sentBytes: number
-  // Through the whole file, counting the range start.
+  // Transfer time from the receipt; null without one.
+  durationMs: number | null
+  // Through the whole file, counting the range start. Null until completed.
   progress: number | null
-  // Live, while uploading. Null otherwise.
+  // Average over the whole transfer, from the receipt. Null without one.
   speedBps: number | null
-  status: 'uploading' | 'completed' | 'aborted' | 'failed'
+  // Files go out zero-copy: `completed` needs the peer's receipt, and a peer that
+  // sends none (an older jack, or a lost receipt) leaves it `unconfirmed`.
+  status: 'uploading' | 'completed' | 'aborted' | 'unconfirmed'
   error: string | null
   startedAt: string
   updatedAt: string

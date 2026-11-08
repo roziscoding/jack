@@ -7,12 +7,13 @@ CREATE TABLE `uploads` (
 	`range_start` integer DEFAULT 0 NOT NULL,
 	`requested_bytes` integer NOT NULL,
 	`sent_bytes` integer DEFAULT 0 NOT NULL,
+	`duration_ms` integer,
 	`status` text NOT NULL,
 	`error` text,
 	`started_at` text NOT NULL,
 	`updated_at` text NOT NULL,
 	`finished_at` text,
-	CONSTRAINT "uploads_status_check" CHECK("uploads"."status" in ('uploading', 'completed', 'aborted', 'failed'))
+	CONSTRAINT "uploads_status_check" CHECK("uploads"."status" in ('uploading', 'completed', 'aborted', 'unconfirmed'))
 );
 --> statement-breakpoint
 CREATE INDEX `uploads_status_idx` ON `uploads` (`status`);--> statement-breakpoint

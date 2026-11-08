@@ -157,14 +157,9 @@ function serverRole(server: { source: boolean, destination: boolean }) {
                     to <span class="text-toned">{{ u.peerName }}</span>
                   </p>
                 </div>
-                <div class="mt-2.5 flex items-center gap-3">
-                  <ProgressBar :value="u.progress" />
-                  <span class="w-28 shrink-0 text-right text-xs tabular-nums text-muted">
-                    {{ formatBytes(u.rangeStart + u.sentBytes) }} / {{ formatBytes(u.totalBytes) }}
-                  </span>
-                </div>
-                <p v-if="u.speedBps != null" class="mt-1 text-xs tabular-nums text-muted">
-                  {{ formatTransferRate(u.speedBps, null) }}
+                <!-- Sent zero-copy: no live progress, only how much this request covers. -->
+                <p class="mt-1 text-xs tabular-nums text-muted">
+                  Sending {{ formatBytes(u.requestedBytes) }} of {{ formatBytes(u.totalBytes) }} · started {{ formatAgo(u.startedAt) }} ago
                 </p>
               </div>
             </div>

@@ -14,6 +14,11 @@ function safeFilename(name: string): string {
   return name.replace(UNSAFE_FILENAME_CHARS, '')
 }
 
+const UploadReceipt = z.object({
+  bytes: z.number().int().min(0),
+  durationMs: z.number().int().min(0),
+})
+
 export function getPeerRouter(controller: PeerController, uploads?: UploadsService) {
   const app = new Hono<{ Variables: AuthVariables }>()
 
@@ -134,10 +139,10 @@ export function getPeerRouter(controller: PeerController, uploads?: UploadsServi
       })
     }
 
-    // Count what the peer actually reads. A HEAD request sends no body, so it is
-    // not an upload. The master key sets no name.
-    const body = uploads && c.req.method !== 'HEAD'
-      ? uploads.track({
+    // Record the upload; the body still goes out zero-copy. A HEAD request sends
+    // no body, so it is not an upload. The master key sets no name.
+    const uploadId = uploads && c.req.method !== 'HEAD'
+      ? uploads.start({
           peerName: c.get('apiKeyName') ?? 'master',
           itemId,
           filename: result.filename,
@@ -148,11 +153,17 @@ export function getPeerRouter(controller: PeerController, uploads?: UploadsServi
             ? result.start
             : 0,
           requestedBytes: result.size,
-        }, result.body, c.req.raw.signal)
-      : result.body
+        }, c.req.header('X-Jack-Receipt') === '1', c.req.raw.signal)
+      : undefined
+    // Where the downloading jack posts its receipt (see /uploads/:id/receipt).
+    const uploadHeader: Record<string, string> = uploadId === undefined
+      ? {}
+      : {
+          'X-Jack-Upload-Id': String(uploadId),
+        }
 
     if (result.type === 'partial') {
-      return new Response(body, {
+      return new Response(result.body, {
         status: 206,
         headers: {
           'Content-Type': 'application/octet-stream',
@@ -160,18 +171,39 @@ export function getPeerRouter(controller: PeerController, uploads?: UploadsServi
           'Content-Range': `bytes ${result.start}-${result.end}/${result.totalSize}`,
           'Accept-Ranges': 'bytes',
           'Content-Disposition': `attachment; filename="${safeFilename(result.filename)}"`,
+          ...uploadHeader,
         },
       })
     }
 
-    return new Response(body, {
+    return new Response(result.body, {
       headers: {
         'Content-Type': 'application/octet-stream',
         'Content-Length': String(result.size),
         'Accept-Ranges': 'bytes',
         'Content-Disposition': `attachment; filename="${result.filename}"`,
+        ...uploadHeader,
       },
     })
+  })
+
+  app.post('/uploads/:uploadId/receipt', describeRoute({
+    tags: ['Peer'],
+    summary: 'Report a finished download',
+    description: 'Sent by the downloading jack after a file from `/peer/items/:itemId/file` arrived, with the `X-Jack-Upload-Id` that response carried. Records how many bytes the request delivered and how long it took. Always answers 204, so a stale or unknown id is not an error worth retrying.',
+    security: [
+      { 'X-Api-Key': [] },
+    ],
+    responses: {
+      204: { description: 'Receipt taken (or ignored)' },
+      400: { description: 'Malformed receipt' },
+    },
+  }), zValidator('json', UploadReceipt), (c) => {
+    const uploadId = Number(c.req.param('uploadId'))
+    const { bytes, durationMs } = c.req.valid('json')
+    if (uploads && Number.isSafeInteger(uploadId))
+      uploads.receipt(uploadId, c.get('apiKeyName') ?? 'master', bytes, durationMs)
+    return c.body(null, 204)
   })
 
   return app

@@ -16,41 +16,67 @@ const input = {
 }
 
 describe('UploadsRepository', () => {
-  test('creates an uploading row with nothing sent', () => {
-    const row = makeRepo().create(input)
+  test('creates a row with nothing sent yet', () => {
+    const row = makeRepo().create(input, 'uploading')
     expect(row).toMatchObject({
       ...input,
       sentBytes: 0,
+      durationMs: null,
       status: 'uploading',
       error: null,
       finishedAt: null,
     })
   })
 
-  test('records progress and the final outcome', () => {
+  test('a receipt from the same peer completes it with bytes and duration', () => {
     const repo = makeRepo()
-    const { id } = repo.create(input)
+    const { id } = repo.create(input, 'uploading')
 
-    repo.updateProgress(id, 20)
-    expect(repo.get(id)?.sentBytes).toBe(20)
-
-    repo.finish(id, 'aborted', 30, 'peer disconnected')
-    expect(repo.get(id)).toMatchObject({ status: 'aborted', sentBytes: 30, error: 'peer disconnected' })
+    expect(repo.complete(id, 'mallory', 60, 1000)).toBe(false)
+    expect(repo.complete(id, 'alice', 60, 2000)).toBe(true)
+    expect(repo.get(id)).toMatchObject({ status: 'completed', sentBytes: 60, durationMs: 2000 })
     expect(repo.get(id)?.finishedAt).not.toBeNull()
+    // Closed rows stay closed.
+    expect(repo.complete(id, 'alice', 1, 1)).toBe(false)
+  })
+
+  test('an older peer\'s row can still be completed or aborted', () => {
+    const repo = makeRepo()
+    const a = repo.create(input, 'unconfirmed')
+    const b = repo.create(input, 'unconfirmed')
+    repo.markAborted(a.id, 'peer disconnected')
+    expect(repo.complete(b.id, 'alice', 60, 10)).toBe(true)
+    expect(repo.get(a.id)?.status).toBe('aborted')
+  })
+
+  test('a disconnect after completion changes nothing', () => {
+    const repo = makeRepo()
+    const { id } = repo.create(input, 'uploading')
+    repo.complete(id, 'alice', 60, 10)
+    repo.markAborted(id, 'peer disconnected')
+    expect(repo.get(id)?.status).toBe('completed')
+  })
+
+  test('expires rows that waited too long for a receipt', () => {
+    const repo = makeRepo()
+    const { id } = repo.create(input, 'uploading')
+    expect(repo.expireUnconfirmed('2000-01-01T00:00:00Z')).toBe(0)
+    expect(repo.expireUnconfirmed('9999-01-01T00:00:00Z')).toBe(1)
+    expect(repo.get(id)?.status).toBe('unconfirmed')
   })
 
   test('lists newest first', () => {
     const repo = makeRepo()
-    const first = repo.create(input)
-    const second = repo.create(input)
+    const first = repo.create(input, 'uploading')
+    const second = repo.create(input, 'uploading')
     expect(repo.list().map(r => r.id)).toEqual([second.id, first.id])
   })
 
   test('marks rows left uploading by a previous run as aborted', () => {
     const repo = makeRepo()
-    const running = repo.create(input)
-    const done = repo.create(input)
-    repo.finish(done.id, 'completed', 60)
+    const running = repo.create(input, 'uploading')
+    const done = repo.create(input, 'uploading')
+    repo.complete(done.id, 'alice', 60, 10)
 
     expect(repo.reconcileInterrupted()).toBe(1)
     expect(repo.get(running.id)).toMatchObject({ status: 'aborted', error: 'interrupted by a jack restart' })
@@ -61,9 +87,8 @@ describe('UploadsRepository', () => {
     const repo = makeRepo()
     let calls = 0
     repo.subscribe(() => calls++)
-    const { id } = repo.create(input)
-    repo.updateProgress(id, 1)
-    repo.finish(id, 'completed', 60)
-    expect(calls).toBe(3)
+    const { id } = repo.create(input, 'uploading')
+    repo.complete(id, 'alice', 60, 10)
+    expect(calls).toBe(2)
   })
 })

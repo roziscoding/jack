@@ -42,10 +42,22 @@ The ***Uploads*** page lists them newest first, read-only, with:
 - **Peer**: the name of the API key the peer used, or `master` for the master
   key.
 - **File**: the file name, with its size on disk.
-- **Sent**: bytes the peer has read so far, with live speed while it runs.
-- **Status**: `uploading`, `completed`, `aborted` when the peer disconnected
-  or jack restarted mid-transfer, or `failed` when jack could not read the
-  file.
+- **Sent**: bytes the peer received, with the average speed and how long it
+  took.
+- **Status**:
+  - `uploading` while the file is being sent.
+  - `completed` once the peer confirmed it got the file.
+  - `aborted` when the peer disconnected or jack restarted mid-transfer.
+  - `unconfirmed` when the peer never confirmed. Its size and speed stay
+    unknown.
+
+jack sends files straight from disk without reading them itself, which keeps
+uploads cheap but means it can't see a transfer finish. The downloading jack
+reports back instead: once the file arrives, it sends a receipt with the bytes
+it got and the time it took. Peers on versions without receipts, or a receipt
+that gets lost, leave the upload `unconfirmed`, and an upload still waiting for
+its receipt after 48 hours becomes `unconfirmed` too. There is no live speed
+while a file is being sent.
 
 Each file request is its own row. A peer that resumes a transfer sends a
 `Range` request, so the resume shows as a new row whose progress starts where

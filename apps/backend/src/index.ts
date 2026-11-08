@@ -59,6 +59,8 @@ const uploadsService = new UploadsService(new UploadsRepository(database.db))
 const interruptedUploads = uploadsService.repository.reconcileInterrupted()
 if (interruptedUploads > 0)
   logger.warn({ uploads: interruptedUploads }, 'Marked uploads interrupted by the previous jack run as aborted')
+// A receipt that never came (a lost POST) shouldn't leave an upload running forever.
+setInterval(() => uploadsService.expireUnconfirmed(), 60 * 60 * 1000).unref()
 
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
