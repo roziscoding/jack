@@ -171,19 +171,21 @@ export class StatusController {
     }
   }
 
+  // Runs on every overview snapshot (about once a second while downloads move), so
+  // totals come from SQLite and only running uploads are loaded: the history
+  // grows forever.
   private getUploadsSummary() {
-    const records = this.uploads?.list() ?? []
-    const byStatus = Object.fromEntries(UPLOAD_STATUSES.map(s => [s, 0])) as Record<UploadStatus, number>
-    let bytesSent = 0
-    for (const record of records) {
-      byStatus[record.status]++
-      bytesSent += record.sentBytes
+    if (!this.uploads) {
+      return {
+        total: 0,
+        byStatus: Object.fromEntries(UPLOAD_STATUSES.map(s => [s, 0])) as Record<UploadStatus, number>,
+        bytesSent: 0,
+        active: [],
+      }
     }
     return {
-      total: records.length,
-      byStatus,
-      bytesSent,
-      active: records.filter(r => r.status === 'uploading').map(this.enrichUpload),
+      ...this.uploads.repository.summary(),
+      active: this.uploads.repository.listActive().map(this.enrichUpload),
     }
   }
 

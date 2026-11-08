@@ -1,7 +1,7 @@
 import type { AppDatabase } from '../../database/connection'
-import type { NewUploadRow, UploadRow } from '../../database/schema'
-import { and, desc, eq, inArray, isNull, lt } from 'drizzle-orm'
-import { uploads } from '../../database/schema'
+import type { NewUploadRow, UploadRow, UploadStatus } from '../../database/schema'
+import { and, count, desc, eq, inArray, isNull, lt, sum } from 'drizzle-orm'
+import { UPLOAD_STATUSES, uploads } from '../../database/schema'
 
 export type UploadRecord = UploadRow
 
@@ -64,6 +64,32 @@ export class UploadsRepository {
 
   get(id: number): UploadRecord | null {
     return this.db.select().from(uploads).where(eq(uploads.id, id)).get() ?? null
+  }
+
+  /** Totals for the dashboard, counted in SQLite so the history is never loaded. */
+  summary(): { byStatus: Record<UploadStatus, number>, total: number, bytesSent: number } {
+    const rows = this.db.select({
+      status: uploads.status,
+      count: count(),
+      bytes: sum(uploads.sentBytes),
+    })
+      .from(uploads)
+      .groupBy(uploads.status)
+      .all()
+    const byStatus = Object.fromEntries(UPLOAD_STATUSES.map(s => [s, 0])) as Record<UploadStatus, number>
+    let total = 0
+    let bytesSent = 0
+    for (const row of rows) {
+      byStatus[row.status] = row.count
+      total += row.count
+      bytesSent += Number(row.bytes ?? 0)
+    }
+    return { byStatus, total, bytesSent }
+  }
+
+  /** Uploads still being sent, newest first. */
+  listActive(): UploadRecord[] {
+    return this.db.select().from(uploads).where(eq(uploads.status, 'uploading')).orderBy(desc(uploads.startedAt), desc(uploads.id)).all()
   }
 
   /** Newest first; the id breaks ties between rows started in the same millisecond. */

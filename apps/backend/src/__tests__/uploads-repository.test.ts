@@ -68,6 +68,26 @@ describe('UploadsRepository', () => {
     expect(repo.get(id)?.status).toBe('unconfirmed')
   })
 
+  test('summarizes in SQL and lists only running uploads as active', () => {
+    const repo = makeRepo()
+    const running = repo.create(input, 'uploading')
+    const done = repo.create(input, 'uploading')
+    repo.complete(done.id, 7, 60, 10)
+    repo.create(input, 'unconfirmed')
+
+    expect(repo.summary()).toEqual({
+      byStatus: {
+        uploading: 1,
+        completed: 1,
+        aborted: 0,
+        unconfirmed: 1,
+      },
+      total: 3,
+      bytesSent: 60,
+    })
+    expect(repo.listActive().map(r => r.id)).toEqual([running.id])
+  })
+
   test('lists newest first', () => {
     const repo = makeRepo()
     const first = repo.create(input, 'uploading')

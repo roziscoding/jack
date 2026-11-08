@@ -43,6 +43,33 @@ function setup(rows: DownloadRecord[], options: { enabled?: boolean, retryFails?
   return { reaper, clock, calls }
 }
 
+test('stops mid-pass when removal is switched off', async () => {
+  const rows = [
+    failedRow({ id: 1, lastOperation: 'import' }),
+    failedRow({ id: 2, lastOperation: 'import' }),
+  ]
+  const switches = { on: true }
+  const calls: string[] = []
+  const reaper = new FailedDownloadReaper({
+    enabled: () => switches.on,
+    list: () => [...rows],
+    get: id => rows.find(row => row.id === id) ?? null,
+    retry: async () => {},
+    remove: async (id, onlyIf) => {
+      if (!onlyIf(rows.find(row => row.id === id)!))
+        return
+      calls.push(`remove:${id}`)
+      // The user turns removal off while this deletion runs.
+      switches.on = false
+    },
+    maxRetries: 3,
+    baseDelayMs: 100,
+    maxDelayMs: 250,
+  })
+  await reaper.tick()
+  expect(calls).toEqual(['remove:1'])
+})
+
 test('re-reads each row, so one the user cancelled mid-pass is left alone', async () => {
   const second = failedRow({ id: 2, lastOperation: 'import' })
   const rows = [

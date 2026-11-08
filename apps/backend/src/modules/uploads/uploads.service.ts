@@ -24,7 +24,16 @@ export class UploadsService {
   start(input: CreateUploadInput, expectsReceipt: boolean, signal?: AbortSignal): number | undefined {
     try {
       const upload = this.repository.create(input, expectsReceipt ? 'uploading' : 'unconfirmed')
-      const abort = () => this.repository.markAborted(upload.id, 'peer disconnected')
+      // Runs from an event listener, outside this try: a database error there must
+      // be logged, not thrown into the server.
+      const abort = () => {
+        try {
+          this.repository.markAborted(upload.id, 'peer disconnected')
+        }
+        catch (err) {
+          logger.warn({ uploadId: upload.id, err }, 'Could not mark an upload aborted')
+        }
+      }
       // The peer may have left while jack was looking up the file, and a listener
       // added now would never fire.
       if (signal?.aborted)
@@ -45,8 +54,15 @@ export class UploadsService {
     return this.repository.complete(id, peerKeyId, sentBytes, durationMs)
   }
 
+  /** Called from a timer, so it never throws: a failure is logged and retried next time. */
   expireUnconfirmed(now = Date.now()): number {
-    return this.repository.expireUnconfirmed(new Date(now - RECEIPT_WAIT_MS).toISOString())
+    try {
+      return this.repository.expireUnconfirmed(new Date(now - RECEIPT_WAIT_MS).toISOString())
+    }
+    catch (err) {
+      logger.warn({ err }, 'Could not expire uploads waiting for a receipt')
+      return 0
+    }
   }
 
   list(): UploadRecord[] {

@@ -97,8 +97,10 @@ export class FailedDownloadReaper {
     }
 
     for (const { id } of rows) {
-      // Re-read: earlier iterations await, and the user may have retried or
-      // cancelled this row meanwhile.
+      // Earlier iterations await, so the user may have switched removal off, or
+      // retried or cancelled this row, meanwhile: check both again.
+      if (!this.options.enabled())
+        return
       const row = this.options.get(id)
       if (!row || !isReapable(row))
         continue
@@ -143,7 +145,8 @@ export class FailedDownloadReaper {
 
   private async removeRow(row: DownloadRecord, retries: number): Promise<void> {
     try {
-      await this.options.remove(row.id, isReapable)
+      // Checked again inside the per-row delete lock, setting included.
+      await this.options.remove(row.id, current => this.options.enabled() && isReapable(current))
       this.state.delete(row.id)
       logger.info({
         id: row.id,
