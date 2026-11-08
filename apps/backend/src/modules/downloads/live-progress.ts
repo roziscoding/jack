@@ -5,6 +5,9 @@ const SPEED_WINDOW_MS = 10_000
 // Live updates fire at most this often, so the SSE stream (a full snapshot per
 // notify) stays at about one frame per second however many transfers run.
 const NOTIFY_INTERVAL_MS = 1000
+// No sample for this long means the transfer stalled or is waiting to retry: the
+// byte count stays, the speed goes.
+const STALE_MS = 5000
 
 export interface LiveProgress {
   downloadedBytes: number
@@ -22,10 +25,15 @@ export class LiveProgressTracker {
   private readonly samples = new Map<number, { t: number, bytes: number }[]>()
   private readonly subscribers = new Set<() => void>()
   private notifyTimer?: ReturnType<typeof setTimeout>
+  // Fires once samples stop coming, so open pages drop a speed that went stale.
+  private staleTimer?: ReturnType<typeof setTimeout>
 
   constructor(private readonly now: () => number = Date.now) {}
 
   record(id: number, bytes: number): void {
+    clearTimeout(this.staleTimer)
+    this.staleTimer = setTimeout(() => this.scheduleNotify(), STALE_MS + NOTIFY_INTERVAL_MS)
+    this.staleTimer.unref?.()
     const t = this.now()
     const kept = (this.samples.get(id) ?? []).filter(s => t - s.t <= SPEED_WINDOW_MS)
     // Fewer bytes than before means the transfer started over (restart or retry).
@@ -49,9 +57,10 @@ export class LiveProgressTracker {
     const first = window[0]!
     const last = window.at(-1)!
     const elapsedMs = last.t - first.t
+    const stale = this.now() - last.t > STALE_MS
     return {
       downloadedBytes: last.bytes,
-      speedBps: elapsedMs > 0
+      speedBps: elapsedMs > 0 && !stale
         ? ((last.bytes - first.bytes) * 1000) / elapsedMs
         : null,
     }

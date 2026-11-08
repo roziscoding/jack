@@ -139,11 +139,16 @@ const importWatcher = downloadsConfig
 const downloadsController = new DownloadsManagementController(downloadsRepository, downloadsService, importWatcher)
 const failedDownloadReaper = downloadsConfig
   ? new FailedDownloadReaper({
-      // Read per tick, like unlinkImportedFiles, so the UI toggle applies live.
-      enabled: () => configService?.getRawDownloads()?.removeFailedDownloads ?? downloadsConfig.removeFailedDownloads,
+      // Read per tick so the UI toggle applies live. With the management API, the
+      // file is the truth: the UI turns it off by dropping the key, which must read
+      // as off rather than falling back to the value jack started with.
+      enabled: () => configService
+        ? configService.getRawDownloads()?.removeFailedDownloads ?? false
+        : downloadsConfig.removeFailedDownloads,
       list: () => downloadsRepository.list(),
+      get: id => downloadsRepository.get(id),
       retry: id => downloadsController.retry(id),
-      remove: id => downloadsController.delete(id),
+      remove: (id, onlyIf) => downloadsService!.delete(id, onlyIf),
       maxRetries: downloadsConfig.failedDownloadRetries,
       baseDelayMs: downloadsConfig.failedRetryBaseDelayMs,
       maxDelayMs: downloadsConfig.retryMaxDelayMs,

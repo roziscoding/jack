@@ -18,6 +18,13 @@ test('speed is averaged over the window and resets when bytes go backwards', () 
   live.record(1, 100)
   expect(live.get(1)).toEqual({ downloadedBytes: 100, speedBps: null })
 
+  // A stall keeps the byte count but drops the speed.
+  clock.now = 3500
+  live.record(1, 1100)
+  expect(live.get(1)?.speedBps).toBe(2000)
+  clock.now = 9000
+  expect(live.get(1)).toEqual({ downloadedBytes: 1100, speedBps: null })
+
   live.clear(1)
   expect(live.get(1)).toBeNull()
 })

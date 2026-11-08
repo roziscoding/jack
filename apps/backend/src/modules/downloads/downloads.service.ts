@@ -331,7 +331,11 @@ export class DownloadsService {
     return repo.get(id) ?? record
   }
 
-  async delete(id: number): Promise<void> {
+  /**
+   * `onlyIf`, when given, is checked against the row inside the per-row lock: if
+   * it no longer holds (say, the user retried it meanwhile), nothing is deleted.
+   */
+  async delete(id: number, onlyIf?: (row: DownloadRecord) => boolean): Promise<void> {
     const repo = this.requireRepository()
     const record = repo.get(id)
     if (!record)
@@ -344,6 +348,8 @@ export class DownloadsService {
       const current = repo.get(id)
       if (!current)
         throw new NotFoundError(`Download ${id} not found`)
+      if (onlyIf && !onlyIf(current))
+        return
       if (current.status === 'downloading')
         await this.cancel(id)
 

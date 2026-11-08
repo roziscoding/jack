@@ -8,6 +8,7 @@ function makeRepo() {
 
 const input = {
   peerName: 'alice',
+  peerKeyId: 7,
   itemId: 'radarr1:movie:1',
   filename: 'Movie.mkv',
   totalBytes: 100,
@@ -32,12 +33,14 @@ describe('UploadsRepository', () => {
     const repo = makeRepo()
     const { id } = repo.create(input, 'uploading')
 
-    expect(repo.complete(id, 'mallory', 60, 1000)).toBe(false)
-    expect(repo.complete(id, 'alice', 60, 2000)).toBe(true)
+    // Another key, even one with the same name, can't close it; nor can the master key.
+    expect(repo.complete(id, 8, 60, 1000)).toBe(false)
+    expect(repo.complete(id, null, 60, 1000)).toBe(false)
+    expect(repo.complete(id, 7, 60, 2000)).toBe(true)
     expect(repo.get(id)).toMatchObject({ status: 'completed', sentBytes: 60, durationMs: 2000 })
     expect(repo.get(id)?.finishedAt).not.toBeNull()
     // Closed rows stay closed.
-    expect(repo.complete(id, 'alice', 1, 1)).toBe(false)
+    expect(repo.complete(id, 7, 1, 1)).toBe(false)
   })
 
   test('an older peer\'s row can still be completed or aborted', () => {
@@ -45,14 +48,14 @@ describe('UploadsRepository', () => {
     const a = repo.create(input, 'unconfirmed')
     const b = repo.create(input, 'unconfirmed')
     repo.markAborted(a.id, 'peer disconnected')
-    expect(repo.complete(b.id, 'alice', 60, 10)).toBe(true)
+    expect(repo.complete(b.id, 7, 60, 10)).toBe(true)
     expect(repo.get(a.id)?.status).toBe('aborted')
   })
 
   test('a disconnect after completion changes nothing', () => {
     const repo = makeRepo()
     const { id } = repo.create(input, 'uploading')
-    repo.complete(id, 'alice', 60, 10)
+    repo.complete(id, 7, 60, 10)
     repo.markAborted(id, 'peer disconnected')
     expect(repo.get(id)?.status).toBe('completed')
   })
@@ -76,7 +79,7 @@ describe('UploadsRepository', () => {
     const repo = makeRepo()
     const running = repo.create(input, 'uploading')
     const done = repo.create(input, 'uploading')
-    repo.complete(done.id, 'alice', 60, 10)
+    repo.complete(done.id, 7, 60, 10)
 
     expect(repo.reconcileInterrupted()).toBe(1)
     expect(repo.get(running.id)).toMatchObject({ status: 'aborted', error: 'interrupted by a jack restart' })
@@ -88,7 +91,7 @@ describe('UploadsRepository', () => {
     let calls = 0
     repo.subscribe(() => calls++)
     const { id } = repo.create(input, 'uploading')
-    repo.complete(id, 'alice', 60, 10)
+    repo.complete(id, 7, 60, 10)
     expect(calls).toBe(2)
   })
 })

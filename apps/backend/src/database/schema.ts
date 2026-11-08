@@ -100,7 +100,11 @@ export type UploadStatus = typeof UPLOAD_STATUSES[number]
 export const uploads = sqliteTable('uploads', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   // Name of the api key the peer authenticated with ('master' for the master key).
+  // Display only: names are optional, editable and not unique.
   peerName: text('peer_name').notNull(),
+  // The api key's row id, which owns the upload: only that key's receipt can
+  // close it. Null for the master key.
+  peerKeyId: integer('peer_key_id'),
   itemId: text('item_id').notNull(),
   filename: text('filename').notNull(),
   // Size of the whole file on disk.

@@ -68,7 +68,6 @@ async function runAction(download: DownloadItem, action: DownloadAction) {
 // Row selection for bulk actions, keyed by download id (see get-row-id) so it
 // survives live updates and paging.
 const rowSelection = ref<Record<string, boolean>>({})
-const selected = computed(() => (data.value?.downloads ?? []).filter(d => rowSelection.value[String(d.id)]))
 const bulkPending = ref<DownloadAction>()
 
 const BULK_ACTIONS: { action: DownloadAction, label: string, done: string, icon: string, color: 'neutral' | 'error' | 'primary' }[] = [
@@ -101,52 +100,8 @@ function pluralDownloads(count: number): string {
     : `${count} downloads`
 }
 
-// Each action only applies to the selected rows that support it.
-function eligibleFor(action: DownloadAction): DownloadItem[] {
-  return selected.value.filter(d => downloadActionsFor(d).includes(action))
-}
-
 function toggleSelected(download: DownloadItem, value: boolean | 'indeterminate') {
   rowSelection.value = { ...rowSelection.value, [String(download.id)]: value === true }
-}
-
-async function runBulkAction(action: DownloadAction) {
-  const targets = eligibleFor(action)
-  if (bulkPending.value || targets.length === 0)
-    return
-  const confirmation = action === 'cancel'
-    ? `Cancel ${pluralDownloads(targets.length)}? Partial files will be kept so the transfers can be retried.`
-    : action === 'delete'
-      ? `Delete ${pluralDownloads(targets.length)}? This removes their history and any partial or completed download artifacts.`
-      : null
-  // eslint-disable-next-line no-alert -- destructive actions require confirmation
-  if (confirmation && !window.confirm(confirmation))
-    return
-
-  bulkPending.value = action
-  const results = await Promise.allSettled(targets.map(d => sendAction(d, action)))
-  bulkPending.value = undefined
-
-  const failures = results.filter(r => r.status === 'rejected')
-  const done = targets.length - failures.length
-  // Keep the failed rows selected so they can be retried or inspected.
-  const next = { ...rowSelection.value }
-  for (const [index, result] of results.entries()) {
-    if (result.status === 'fulfilled')
-      delete next[String(targets[index]!.id)]
-  }
-  rowSelection.value = next
-
-  if (done > 0)
-    toast.add({ title: `${BULK_ACTIONS.find(b => b.action === action)!.done} ${pluralDownloads(done)}`, color: 'success' })
-  if (failures.length > 0) {
-    toast.add({
-      title: `Failed to ${action} ${pluralDownloads(failures.length)}`,
-      description: extractError(failures[0]!.reason),
-      color: 'error',
-    })
-  }
-  await refresh()
 }
 
 const statusBadge: Record<DownloadItem['status'], { color: BadgeProps['color'], label: string }> = {
@@ -241,6 +196,55 @@ const filtered = computed(() => {
     && (peerFilter.value.length === 0 || peerFilter.value.includes(d.peerName))
     && (codeFilter.value.length === 0 || (d.errorCode != null && codeFilter.value.includes(d.errorCode))))
 })
+
+// Bulk targets are only rows still in view: a live update can move a selected row
+// out of the current filter (a download finishing under "Downloading"), and a
+// bulk action must never reach a row the user can't see.
+const selected = computed(() => filtered.value.filter(d => rowSelection.value[String(d.id)]))
+
+// Each action only applies to the selected rows that support it.
+function eligibleFor(action: DownloadAction): DownloadItem[] {
+  return selected.value.filter(d => downloadActionsFor(d).includes(action))
+}
+
+async function runBulkAction(action: DownloadAction) {
+  const targets = eligibleFor(action)
+  if (bulkPending.value || targets.length === 0)
+    return
+  const confirmation = action === 'cancel'
+    ? `Cancel ${pluralDownloads(targets.length)}? Partial files will be kept so the transfers can be retried.`
+    : action === 'delete'
+      ? `Delete ${pluralDownloads(targets.length)}? This removes their history and any partial or completed download artifacts.`
+      : null
+  // eslint-disable-next-line no-alert -- destructive actions require confirmation
+  if (confirmation && !window.confirm(confirmation))
+    return
+
+  bulkPending.value = action
+  const results = await Promise.allSettled(targets.map(d => sendAction(d, action)))
+  bulkPending.value = undefined
+
+  const failures = results.filter(r => r.status === 'rejected')
+  const done = targets.length - failures.length
+  // Keep the failed rows selected so they can be retried or inspected.
+  const next = { ...rowSelection.value }
+  for (const [index, result] of results.entries()) {
+    if (result.status === 'fulfilled')
+      delete next[String(targets[index]!.id)]
+  }
+  rowSelection.value = next
+
+  if (done > 0)
+    toast.add({ title: `${BULK_ACTIONS.find(b => b.action === action)!.done} ${pluralDownloads(done)}`, color: 'success' })
+  if (failures.length > 0) {
+    toast.add({
+      title: `Failed to ${action} ${pluralDownloads(failures.length)}`,
+      description: extractError(failures[0]!.reason),
+      color: 'error',
+    })
+  }
+  await refresh()
+}
 
 // Client-side pagination: just slice the filtered list. No server round-trips.
 const PAGE_SIZE = 10

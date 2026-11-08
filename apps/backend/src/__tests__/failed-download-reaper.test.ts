@@ -21,15 +21,19 @@ function setup(rows: DownloadRecord[], options: { enabled?: boolean, retryFails?
   const calls: string[] = []
   const reaper = new FailedDownloadReaper({
     enabled: () => options.enabled ?? true,
-    list: () => rows,
+    list: () => [...rows],
+    get: id => rows.find(row => row.id === id) ?? null,
     retry: async (id) => {
       calls.push(`retry:${id}`)
       if (options.retryFails)
         throw new Error('nope')
     },
-    remove: async (id) => {
+    remove: async (id, onlyIf) => {
+      const index = rows.findIndex(row => row.id === id)
+      if (!onlyIf(rows[index]!))
+        return
       calls.push(`remove:${id}`)
-      rows.splice(rows.findIndex(row => row.id === id), 1)
+      rows.splice(index, 1)
     },
     maxRetries: 3,
     baseDelayMs: 100,
@@ -38,6 +42,25 @@ function setup(rows: DownloadRecord[], options: { enabled?: boolean, retryFails?
   })
   return { reaper, clock, calls }
 }
+
+test('re-reads each row, so one the user cancelled mid-pass is left alone', async () => {
+  const second = failedRow({ id: 2, lastOperation: 'import' })
+  const rows = [
+    failedRow({ id: 1, lastOperation: 'import' }),
+    second,
+  ]
+  const { reaper, calls } = setup(rows)
+  // The pass lists both rows, then the user cancels row 2 before the reaper gets to it.
+  const original = rows[0]!
+  Object.defineProperty(original, 'status', {
+    get() {
+      second.errorCode = 'CANCELLED'
+      return 'failed'
+    },
+  })
+  await reaper.tick()
+  expect(calls).toEqual(['remove:1'])
+})
 
 test('retries with backoff, then removes the download once retries are spent', async () => {
   const rows = [

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f6d7a728-eaa3-4692-9836-71fd937cbe60",
+  "id": "c9f970ae-d2a3-41bd-b206-35a480a193bf",
   "prevId": "7a0a25df-a2e9-4f9a-b477-42d28d9a01fc",
   "tables": {
     "api_keys": {
@@ -925,6 +925,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "peer_key_id": {
+          "name": "peer_key_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "item_id": {

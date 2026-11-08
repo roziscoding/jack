@@ -144,6 +144,7 @@ export function getPeerRouter(controller: PeerController, uploads?: UploadsServi
     const uploadId = uploads && c.req.method !== 'HEAD'
       ? uploads.start({
           peerName: c.get('apiKeyName') ?? 'master',
+          peerKeyId: c.get('apiKeyId') ?? null,
           itemId,
           filename: result.filename,
           totalBytes: result.type === 'partial'
@@ -202,7 +203,7 @@ export function getPeerRouter(controller: PeerController, uploads?: UploadsServi
     const uploadId = Number(c.req.param('uploadId'))
     const { bytes, durationMs } = c.req.valid('json')
     if (uploads && Number.isSafeInteger(uploadId))
-      uploads.receipt(uploadId, c.get('apiKeyName') ?? 'master', bytes, durationMs)
+      uploads.receipt(uploadId, c.get('apiKeyId') ?? null, bytes, durationMs)
     return c.body(null, 204)
   })
 

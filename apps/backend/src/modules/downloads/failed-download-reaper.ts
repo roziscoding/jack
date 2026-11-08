@@ -5,15 +5,25 @@ export interface FailedDownloadReaperOptions {
   /** Read every tick, so toggling `downloads.removeFailedDownloads` applies live. */
   enabled: () => boolean
   list: () => DownloadRecord[]
+  /** The row as it is now; each one is re-read right before acting on it. */
+  get: (id: number) => DownloadRecord | null
   /** Repeats the row's last failed operation (transfer or import). */
   retry: (id: number) => Promise<unknown>
-  /** Deletes the row and its unshared partial or completed files. */
-  remove: (id: number) => Promise<unknown>
+  /**
+   * Deletes the row and its unshared partial or completed files, but only if
+   * `isReapable` still holds once the per-row delete lock is taken.
+   */
+  remove: (id: number, onlyIf: (row: DownloadRecord) => boolean) => Promise<unknown>
   maxRetries: number
   baseDelayMs: number
   maxDelayMs: number
   /** Injectable for tests. */
   now?: () => number
+}
+
+/** A failed row the reaper may touch. A user cancel keeps its .part on purpose. */
+export function isReapable(row: DownloadRecord): boolean {
+  return row.status === 'failed' && row.errorCode !== 'CANCELLED'
 }
 
 /** Same rule the UI uses to offer ***Retry***: only these failures can be repeated. */
@@ -86,9 +96,11 @@ export class FailedDownloadReaper {
         this.state.delete(id)
     }
 
-    for (const row of rows) {
-      // A user cancel keeps its .part on purpose; leave it for them.
-      if (row.status !== 'failed' || row.errorCode === 'CANCELLED')
+    for (const { id } of rows) {
+      // Re-read: earlier iterations await, and the user may have retried or
+      // cancelled this row meanwhile.
+      const row = this.options.get(id)
+      if (!row || !isReapable(row))
         continue
 
       const entry = this.state.get(row.id) ?? { retries: 0 }
@@ -131,7 +143,7 @@ export class FailedDownloadReaper {
 
   private async removeRow(row: DownloadRecord, retries: number): Promise<void> {
     try {
-      await this.options.remove(row.id)
+      await this.options.remove(row.id, isReapable)
       this.state.delete(row.id)
       logger.info({
         id: row.id,

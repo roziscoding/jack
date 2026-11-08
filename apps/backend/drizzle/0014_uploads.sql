@@ -1,6 +1,7 @@
 CREATE TABLE `uploads` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`peer_name` text NOT NULL,
+	`peer_key_id` integer,
 	`item_id` text NOT NULL,
 	`filename` text NOT NULL,
 	`total_bytes` integer NOT NULL,

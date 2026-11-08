@@ -11,6 +11,7 @@ import { UploadsService } from '../modules/uploads/uploads.service'
 
 const input = {
   peerName: 'alice',
+  peerKeyId: 7,
   itemId: 'radarr1:movie:1',
   filename: 'Movie.mkv',
   totalBytes: 12,
@@ -23,21 +24,35 @@ describe('UploadsService', () => {
     const repository = new UploadsRepository(openMemoryDatabase())
     const service = new UploadsService(repository)
     const controller = new AbortController()
-    const dropped = service.start(input, true, controller.signal)
-    const finished = service.start(input, true, new AbortController().signal)
+    const dropped = service.start(input, true, controller.signal)!
+    const finished = service.start(input, true, new AbortController().signal)!
 
     controller.abort()
 
     expect(repository.get(dropped)).toMatchObject({ status: 'aborted', error: 'peer disconnected' })
     expect(repository.get(finished)?.status).toBe('uploading')
-    expect(service.receipt(finished, 'alice', 12, 4000)).toBe(true)
+    expect(service.receipt(finished, 7, 12, 4000)).toBe(true)
     expect(repository.get(finished)).toMatchObject({ status: 'completed', sentBytes: 12, durationMs: 4000 })
+  })
+
+  test('a peer that left before the row existed is aborted right away', () => {
+    const repository = new UploadsRepository(openMemoryDatabase())
+    const id = new UploadsService(repository).start(input, true, AbortSignal.abort())!
+    expect(repository.get(id)?.status).toBe('aborted')
   })
 
   test('a peer that sends no receipt starts unconfirmed', () => {
     const repository = new UploadsRepository(openMemoryDatabase())
-    const id = new UploadsService(repository).start(input, false)
+    const id = new UploadsService(repository).start(input, false)!
     expect(repository.get(id)?.status).toBe('unconfirmed')
+  })
+
+  test('a failed insert serves the file untracked instead of throwing', () => {
+    const repository = new UploadsRepository(openMemoryDatabase())
+    repository.create = () => {
+      throw new Error('database or disk is full')
+    }
+    expect(new UploadsService(repository).start(input, true)).toBeUndefined()
   })
 })
 

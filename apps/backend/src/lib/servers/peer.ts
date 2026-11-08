@@ -257,7 +257,6 @@ export class PeerConnector extends ServerConnector {
     return this.fetch(`/peer/items/${encodeURIComponent(id)}`, { method: 'GET', schema: Release })
   }
 
-  @requiresInitialization
   /**
    * Tell the serving jack this file arrived and how long it took. It sends files
    * zero-copy, so it can see an early disconnect but not the end of a transfer.
@@ -292,6 +291,7 @@ export class PeerConnector extends ServerConnector {
       })
   }
 
+  @requiresInitialization
   async downloadFile(id: string, destPath: string, options: PeerDownloadOptions = {}): Promise<void> {
     return withSpan('peer.download_file', {
       'peer.name': this.name,

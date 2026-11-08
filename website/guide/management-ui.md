@@ -84,8 +84,8 @@ one up.
 
 One ***Save*** covers the form and only lights up once something changed;
 ***Revert*** discards your edits. `unlinkImportedFiles` and
-`removeFailedDownloads` take effect the moment you save. **Every other key here is read at startup, so restart jack** to apply
-it.
+`removeFailedDownloads` take effect the moment you save. **Every other key here
+is read at startup, so restart jack** to apply it.
 
 ## Settings -> Quick linking
 

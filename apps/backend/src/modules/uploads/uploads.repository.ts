@@ -1,12 +1,13 @@
 import type { AppDatabase } from '../../database/connection'
 import type { NewUploadRow, UploadRow } from '../../database/schema'
-import { and, desc, eq, inArray, lt } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt } from 'drizzle-orm'
 import { uploads } from '../../database/schema'
 
 export type UploadRecord = UploadRow
 
 export interface CreateUploadInput {
   peerName: string
+  peerKeyId: number | null
   itemId: string
   filename: string
   totalBytes: number
@@ -89,11 +90,14 @@ export class UploadsRepository {
 
   /**
    * The downloading peer's receipt: it got `sentBytes` in `durationMs`. Only the
-   * peer the row belongs to can close it, and only while it is still open.
-   * Returns whether the row was updated.
+   * key the row belongs to (null for the master key) can close it, and only while
+   * it is still open. Returns whether the row was updated.
    */
-  complete(id: number, peerName: string, sentBytes: number, durationMs: number): boolean {
+  complete(id: number, peerKeyId: number | null, sentBytes: number, durationMs: number): boolean {
     const timestamp = nowIso()
+    const owner = peerKeyId === null
+      ? isNull(uploads.peerKeyId)
+      : eq(uploads.peerKeyId, peerKeyId)
     const changed = this.db.update(uploads)
       .set({
         status: 'completed',
@@ -103,7 +107,7 @@ export class UploadsRepository {
         updatedAt: timestamp,
         finishedAt: timestamp,
       })
-      .where(and(eq(uploads.id, id), eq(uploads.peerName, peerName), inArray(uploads.status, [...OPEN])))
+      .where(and(eq(uploads.id, id), owner, inArray(uploads.status, [...OPEN])))
       .returning({ id: uploads.id })
       .all()
     if (changed.length > 0)
