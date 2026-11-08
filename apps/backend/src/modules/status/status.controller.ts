@@ -124,7 +124,8 @@ export class StatusController {
 
   subscribeOverview(subscriber: () => void): () => void {
     return coalesce(subscriber, [
-      this.connectors.subscribe,
+      // Called through the object: ConnectorManager.subscribe reads `this`.
+      this.connectors.subscribe && (s => this.connectors.subscribe!(s)),
       this.downloads && (s => this.downloads!.subscribe(s)),
       this.live && (s => this.live!.subscribe(s)),
       this.uploads && (s => this.uploads!.subscribe(s)),

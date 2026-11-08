@@ -1,5 +1,28 @@
 import { expect, test } from 'bun:test'
-import { coalesce } from '../modules/status/status.controller'
+import { coalesce, StatusController } from '../modules/status/status.controller'
+
+test('the overview stream subscribes to connectors through their object', () => {
+  // Like ConnectorManager: subscribe() relies on `this`.
+  class Connectors {
+    servers = []
+    peers = []
+    private readonly subscribers = new Set<() => void>()
+    subscribe(subscriber: () => void) {
+      this.subscribers.add(subscriber)
+      return () => this.subscribers.delete(subscriber)
+    }
+
+    emit() {
+      for (const s of this.subscribers) s()
+    }
+  }
+  const connectors = new Connectors()
+  const fired: number[] = []
+  const unsubscribe = new StatusController(connectors).subscribeOverview(() => fired.push(1))
+  connectors.emit()
+  expect(fired).toHaveLength(1)
+  unsubscribe()
+})
 
 function source() {
   const subscribers = new Set<() => void>()
