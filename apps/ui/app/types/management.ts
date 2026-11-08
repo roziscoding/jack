@@ -86,6 +86,30 @@ export interface DownloadItem {
   expectedBytesMismatch: boolean
 }
 
+// A file a peer pulls from this instance. One per file request: a resumed
+// transfer is a new upload starting at `rangeStart`.
+export interface UploadItem {
+  id: number
+  // The API key the peer used; 'master' for the master key.
+  peerName: string
+  itemId: string
+  filename: string
+  // The whole file's size on disk.
+  totalBytes: number
+  rangeStart: number
+  requestedBytes: number
+  sentBytes: number
+  // Through the whole file, counting the range start.
+  progress: number | null
+  // Live, while uploading. Null otherwise.
+  speedBps: number | null
+  status: 'uploading' | 'completed' | 'aborted' | 'failed'
+  error: string | null
+  startedAt: string
+  updatedAt: string
+  finishedAt: string | null
+}
+
 export interface TmdbMetadata {
   tmdbId: number
   title: string
@@ -182,6 +206,12 @@ export interface Overview {
     active: DownloadItem[]
     importQueued: DownloadItem[]
     failed: DownloadItem[]
+  }
+  uploads: {
+    total: number
+    byStatus: Record<UploadItem['status'], number>
+    bytesSent: number
+    active: UploadItem[]
   }
 }
 

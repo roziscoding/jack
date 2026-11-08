@@ -24,6 +24,8 @@ import { ImportWatcher } from './modules/downloads/import-watcher'
 import { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { ManagedApiKeys } from './modules/managed-keys/managed-keys.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
+import { UploadsRepository } from './modules/uploads/uploads.repository'
+import { UploadsService } from './modules/uploads/uploads.service'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
   if (err instanceof FetchError) {
@@ -51,6 +53,12 @@ const apiKeysRepository = new ApiKeysRepository(database.db)
 const managedKeysRepository = new ManagedKeysRepository(database.db)
 const catalogCacheRepository = new CatalogCacheRepository(database.db)
 const tmdbMetadataRepository = new TmdbMetadataRepository(database.db)
+const uploadsService = new UploadsService(new UploadsRepository(database.db))
+
+// Peers connected to the previous run lost those transfers with it.
+const interruptedUploads = uploadsService.repository.reconcileInterrupted()
+if (interruptedUploads > 0)
+  logger.warn({ uploads: interruptedUploads }, 'Marked uploads interrupted by the previous jack run as aborted')
 
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
@@ -87,6 +95,7 @@ const app = getApp(envs, config, connectorManager, {
   apiKeysRepository,
   managedKeysRepository,
   ownCatalogRepository,
+  uploadsService,
 })
 const server = Bun.serve({
   fetch: app.fetch,
@@ -156,6 +165,7 @@ function startManagementServer() {
     downloadsRepository,
     downloadsService,
     importWatcher,
+    uploadsService,
     apiKeysRepository,
     catalogCacheRepository,
     tmdbMetadataRepository,

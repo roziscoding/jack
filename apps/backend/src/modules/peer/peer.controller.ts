@@ -40,6 +40,8 @@ export function parseRangeHeader(value: string | undefined | null): { start?: nu
 // backpressure (sendfile): if the consumer stalls or aborts mid-download, we stop
 // reading from disk instead of buffering the whole file into RAM. Pumping `.stream()`
 // ourselves does NOT backpressure and lets one stalled peer OOM the process.
+// Upload tracking (uploads/counting-stream.ts) wraps this body in a pull-only
+// stream that reads a chunk only when the socket asks for one, which keeps it.
 export type StreamFileResult
   = | { type: 'full', body: Blob, size: number, filename: string }
     | { type: 'partial', body: Blob, size: number, totalSize: number, start: number, end: number, filename: string }

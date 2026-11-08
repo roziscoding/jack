@@ -1,10 +1,12 @@
-import type { DownloadStatus } from '../../database/schema'
+import type { DownloadStatus, UploadStatus } from '../../database/schema'
 import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
 import type { LiveProgressTracker } from '../downloads/live-progress'
-import { DOWNLOAD_STATUSES } from '../../database/schema'
+import type { UploadRecord } from '../uploads/uploads.repository'
+import type { UploadsService } from '../uploads/uploads.service'
+import { DOWNLOAD_STATUSES, UPLOAD_STATUSES } from '../../database/schema'
 import { liveProgressFor } from '../downloads/live-progress'
 
 // The management surface can expose richer detail than the public API: every
@@ -55,11 +57,32 @@ export function enrichDownload(d: DownloadRecord, live?: LiveProgressTracker) {
   }
 }
 
+export function enrichUpload(u: UploadRecord, live?: LiveProgressTracker) {
+  // The row is written every 10 s; a running upload has a fresher count in memory.
+  const current = u.status === 'uploading'
+    ? live?.get(u.id)
+    : null
+  const sentBytes = Math.max(u.sentBytes, current?.downloadedBytes ?? 0)
+  // Progress through the whole file, so a resumed request starts where the range does.
+  const progress = u.totalBytes > 0
+    ? Math.min(1, (u.rangeStart + sentBytes) / u.totalBytes)
+    : null
+  return {
+    ...u,
+    sentBytes,
+    progress,
+    speedBps: current?.speedBps ?? null,
+  }
+}
+
 export class StatusController {
   constructor(
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[], subscribe?: (subscriber: () => void) => () => void },
     private readonly downloads?: DownloadsRepository,
+    private readonly uploads?: UploadsService,
   ) {}
+
+  private enrichUpload = (u: UploadRecord) => enrichUpload(u, this.uploads?.live)
 
   private get live(): LiveProgressTracker | undefined {
     return this.downloads && liveProgressFor(this.downloads)
@@ -72,11 +95,16 @@ export class StatusController {
       this.connectors.subscribe?.(subscriber),
       this.downloads?.subscribe(subscriber),
       this.live?.subscribe(subscriber),
+      this.uploads?.subscribe(subscriber),
     ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe))
     return () => {
       for (const unsubscribe of unsubscribers)
         unsubscribe()
     }
+  }
+
+  subscribeUploads(subscriber: () => void): () => void {
+    return this.uploads?.subscribe(subscriber) ?? (() => {})
   }
 
   subscribeDownloads(subscriber: () => void): () => void {
@@ -144,6 +172,30 @@ export class StatusController {
         importQueued: records.filter(r => r.status === 'import_queued').slice(0, ATTENTION_LIMIT).map(this.enrich),
         failed: records.filter(r => r.status === 'failed').slice(0, ATTENTION_LIMIT).map(this.enrich),
       },
+      uploads: this.getUploadsSummary(),
+    }
+  }
+
+  private getUploadsSummary() {
+    const records = this.uploads?.list() ?? []
+    const byStatus = Object.fromEntries(UPLOAD_STATUSES.map(s => [s, 0])) as Record<UploadStatus, number>
+    let bytesSent = 0
+    for (const record of records) {
+      byStatus[record.status]++
+      bytesSent += record.sentBytes
+    }
+    return {
+      total: records.length,
+      byStatus,
+      bytesSent,
+      active: records.filter(r => r.status === 'uploading').map(this.enrichUpload),
+    }
+  }
+
+  listUploads() {
+    const records = this.uploads?.list() ?? []
+    return {
+      uploads: records.map(this.enrichUpload),
     }
   }
 

@@ -81,6 +81,44 @@ export const apiKeys = sqliteTable('api_keys', {
   updatedAt: text('updated_at').notNull(),
 })
 
+// Files peers pull from this instance through `/peer/items/:id/file`. One row
+// per HTTP request: a resumed transfer sends a Range header and gets its own
+// row, starting at `rangeStart`.
+export const UPLOAD_STATUSES = [
+  'uploading',
+  'completed',
+  'aborted',
+  'failed',
+] as const
+export type UploadStatus = typeof UPLOAD_STATUSES[number]
+
+export const uploads = sqliteTable('uploads', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // Name of the api key the peer authenticated with ('master' for the master key).
+  peerName: text('peer_name').notNull(),
+  itemId: text('item_id').notNull(),
+  filename: text('filename').notNull(),
+  // Size of the whole file on disk.
+  totalBytes: integer('total_bytes').notNull(),
+  // First byte this request serves (0 without a Range header).
+  rangeStart: integer('range_start').notNull().default(0),
+  // Bytes this request was asked to send (the response Content-Length).
+  requestedBytes: integer('requested_bytes').notNull(),
+  sentBytes: integer('sent_bytes').notNull().default(0),
+  status: text('status').$type<UploadStatus>().notNull(),
+  error: text('error'),
+  startedAt: text('started_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  finishedAt: text('finished_at'),
+}, t => [
+  check('uploads_status_check', sql`${t.status} in ('uploading', 'completed', 'aborted', 'failed')`),
+  index('uploads_status_idx').on(t.status),
+  index('uploads_started_at_idx').on(t.startedAt),
+])
+
+export type UploadRow = typeof uploads.$inferSelect
+export type NewUploadRow = typeof uploads.$inferInsert
+
 export type ApiKeyRow = typeof apiKeys.$inferSelect
 export type NewApiKeyRow = typeof apiKeys.$inferInsert
 

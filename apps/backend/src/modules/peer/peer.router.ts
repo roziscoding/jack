@@ -1,3 +1,5 @@
+import type { AuthVariables } from '../../middleware/require-auth'
+import type { UploadsService } from '../uploads/uploads.service'
 import type { PeerController } from './peer.controller'
 import { Hono } from 'hono'
 import { describeRoute, resolver, validator as zValidator } from 'hono-openapi'
@@ -12,8 +14,8 @@ function safeFilename(name: string): string {
   return name.replace(UNSAFE_FILENAME_CHARS, '')
 }
 
-export function getPeerRouter(controller: PeerController) {
-  const app = new Hono()
+export function getPeerRouter(controller: PeerController, uploads?: UploadsService) {
+  const app = new Hono<{ Variables: AuthVariables }>()
 
   app.get(
     '/search',
@@ -132,8 +134,25 @@ export function getPeerRouter(controller: PeerController) {
       })
     }
 
+    // Count what the peer actually reads. A HEAD request sends no body, so it is
+    // not an upload. The master key sets no name.
+    const body = uploads && c.req.method !== 'HEAD'
+      ? uploads.track({
+          peerName: c.get('apiKeyName') ?? 'master',
+          itemId,
+          filename: result.filename,
+          totalBytes: result.type === 'partial'
+            ? result.totalSize
+            : result.size,
+          rangeStart: result.type === 'partial'
+            ? result.start
+            : 0,
+          requestedBytes: result.size,
+        }, result.body, c.req.raw.signal)
+      : result.body
+
     if (result.type === 'partial') {
-      return new Response(result.body, {
+      return new Response(body, {
         status: 206,
         headers: {
           'Content-Type': 'application/octet-stream',
@@ -145,7 +164,7 @@ export function getPeerRouter(controller: PeerController) {
       })
     }
 
-    return new Response(result.body, {
+    return new Response(body, {
       headers: {
         'Content-Type': 'application/octet-stream',
         'Content-Length': String(result.size),

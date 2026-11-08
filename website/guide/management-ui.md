@@ -18,6 +18,8 @@ operate jack day to day:
   grabs, updating live as they progress. A failed download shows its
   [error code](/guide/troubleshooting#download-error-codes), linked to its
   entry in the troubleshooting guide, and the list can be filtered by code.
+- ***Uploads***: the files peers pull from you, live and past. See
+  [Uploads](#uploads).
 - ***Peers*** and ***Servers***: add, edit, and remove your friends and your
   Radarr/Sonarr connectors.
 - ***Settings -> Downloads***: the whole
@@ -31,6 +33,24 @@ operate jack day to day:
 
 Don't want it? Delete the `jack-ui` service and the backend's
 `JACK_MANAGEMENT_KEY` line to run jack headless.
+
+## Uploads
+
+When a peer downloads a file from your library, jack records it as an upload.
+The ***Uploads*** page lists them newest first, read-only, with:
+
+- **Peer**: the name of the API key the peer used, or `master` for the master
+  key.
+- **File**: the file name, with its size on disk.
+- **Sent**: bytes the peer has read so far, with live speed while it runs.
+- **Status**: `uploading`, `completed`, `aborted` when the peer disconnected
+  or jack restarted mid-transfer, or `failed` when jack could not read the
+  file.
+
+Each file request is its own row. A peer that resumes a transfer sends a
+`Range` request, so the resume shows as a new row whose progress starts where
+the range does. The ***Overview*** page shows the uploads running now next to
+active downloads.
 
 ## Settings -> Downloads
 
@@ -104,7 +124,7 @@ for the full UI configuration reference.
 
 ## Live updates
 
-The UI doesn't poll. Overview, Downloads, and Settings each hold a
+The UI doesn't poll. Overview, Downloads, Uploads, and Settings each hold a
 [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
 stream open through the BFF, and jack pushes a fresh snapshot the moment
 something changes: a transfer's progress, a connector's state, or a peer or
@@ -115,8 +135,9 @@ The streams are plain `GET` endpoints on the management API:
 
 | Stream | What it pushes |
 | --- | --- |
-| `/overview/stream` | Connector overview + download state |
+| `/overview/stream` | Connector overview + download and upload state |
 | `/downloads/stream` | Every persisted download change |
+| `/uploads/stream` | Every upload change, about once a second while files stream |
 | `/config/stream` | Peer and server config changes |
 
 Each sends its current snapshot immediately on connect, then a full snapshot per

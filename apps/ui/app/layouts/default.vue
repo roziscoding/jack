@@ -5,7 +5,7 @@ const { state, logout } = useAuth()
 const version = useRuntimeConfig().public.appVersion
 
 // Peers and *arr servers are managed as sections under Settings, so the nav is
-// just the three live views plus configuration.
+// just the live views plus configuration.
 const items: NavigationMenuItem[] = [
   {
     label: 'Dashboard',
@@ -14,6 +14,7 @@ const items: NavigationMenuItem[] = [
     exact: true,
   },
   { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
+  { label: 'Uploads', icon: 'i-ph-upload-simple', to: '/uploads' },
   { label: 'Peer Catalog', icon: 'i-ph-film-reel', to: '/catalog' },
   { label: 'Logs', icon: 'i-ph-scroll', to: '/logs' },
   { label: 'Settings', icon: 'i-ph-gear-six', to: '/settings' },
