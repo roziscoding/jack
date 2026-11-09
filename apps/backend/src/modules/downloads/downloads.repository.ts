@@ -4,8 +4,8 @@ import type { FileSystemErrorDetails } from '../../lib/errors/FileSystemError'
 import type { Release } from '../../lib/release'
 import type { ManualImportTarget } from '../../lib/servers/arr/base'
 import type { DownloadErrorCode } from './download-error-codes'
-import { desc, eq, sql } from 'drizzle-orm'
-import { downloads } from '../../database/schema'
+import { count, desc, eq, sql, sum } from 'drizzle-orm'
+import { DOWNLOAD_STATUSES, downloads } from '../../database/schema'
 
 export interface DownloadRecord {
   id: number
@@ -160,6 +160,40 @@ export class DownloadsRepository {
     return row
       ? toRecord(row)
       : null
+  }
+
+  /**
+   * Overview totals, counted in SQLite so the history (and its release JSON) is
+   * never loaded. `bytesMoved` counts partial transfers too; `mismatched` is the
+   * in-flight or queued rows flagged with a size mismatch.
+   */
+  summary(): { byStatus: Record<DownloadStatus, number>, total: number, bytesMoved: number, mismatched: number } {
+    const rows = this.db.select({
+      status: downloads.status,
+      count: count(),
+      bytes: sum(downloads.downloadedBytes),
+      mismatched: sql<number>`sum(case when ${downloads.expectedBytesMismatch} then 1 else 0 end)`,
+    })
+      .from(downloads)
+      .groupBy(downloads.status)
+      .all()
+    const byStatus = Object.fromEntries(DOWNLOAD_STATUSES.map(s => [s, 0])) as Record<DownloadStatus, number>
+    let total = 0
+    let bytesMoved = 0
+    let mismatched = 0
+    for (const row of rows) {
+      byStatus[row.status] = row.count
+      total += row.count
+      bytesMoved += Number(row.bytes ?? 0)
+      if (row.status === 'downloading' || row.status === 'import_queued')
+        mismatched += Number(row.mismatched ?? 0)
+    }
+    return {
+      byStatus,
+      total,
+      bytesMoved,
+      mismatched,
+    }
   }
 
   list(): DownloadRecord[] {
@@ -349,9 +383,12 @@ export class DownloadsRepository {
     this.notifyChanged()
   }
 
-  /** Rows in a given status (uses the status index). */
-  listByStatus(status: DownloadStatus): DownloadRecord[] {
-    return this.db.select().from(downloads).where(eq(downloads.status, status)).all().map(toRecord)
+  /** Rows in a given status (uses the status index), most recently updated first, optionally capped. */
+  listByStatus(status: DownloadStatus, limit?: number): DownloadRecord[] {
+    const query = this.db.select().from(downloads).where(eq(downloads.status, status)).orderBy(desc(downloads.updatedAt), desc(downloads.id))
+    return (limit === undefined
+      ? query.all()
+      : query.limit(limit).all()).map(toRecord)
   }
 
   /** Stale `downloading` rows from a prior run, returned for active re-drive (no mutation). */
