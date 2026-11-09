@@ -68,6 +68,23 @@ function onMove(event: PointerEvent) {
   const ratio = (event.clientX - box.left - PAD) / Math.max(1, box.width - 2 * PAD)
   hover.value = Math.min(props.days.length - 1, Math.max(0, Math.round(ratio * (props.days.length - 1))))
 }
+
+// Keyboard users read the chart day by day: focus lands on the latest day, the
+// arrows step through, Home/End jump to either edge. The tooltip is the readout.
+function onKey(event: KeyboardEvent) {
+  const last = props.days.length - 1
+  const current = hover.value ?? last
+  const next = {
+    ArrowLeft: current - 1,
+    ArrowRight: current + 1,
+    Home: 0,
+    End: last,
+  }[event.key]
+  if (next === undefined)
+    return
+  event.preventDefault()
+  hover.value = Math.min(last, Math.max(0, next))
+}
 </script>
 
 <template>
@@ -86,9 +103,15 @@ function onMove(event: PointerEvent) {
       </div>
       <div
         ref="plot"
-        class="relative h-40 min-w-0 flex-1 border-b border-default"
+        class="relative h-40 min-w-0 flex-1 rounded-sm border-b border-default focus-visible:outline-2 focus-visible:outline-primary"
+        tabindex="0"
+        role="group"
+        :aria-label="`${series.map(s => s.name).join(', ')}, by day. Use the arrow keys to read each day.`"
         @pointermove="onMove"
         @pointerleave="hover = null"
+        @focus="hover ??= days.length - 1"
+        @blur="hover = null"
+        @keydown="onKey"
       >
         <svg :width="width" :height="HEIGHT" class="block overflow-visible" aria-hidden="true">
           <line
@@ -119,6 +142,7 @@ function onMove(event: PointerEvent) {
         <div
           v-if="hover !== null"
           class="pointer-events-none absolute top-0 z-10 rounded-md border border-default bg-elevated px-2.5 py-1.5 text-xs shadow-sm"
+          aria-live="polite"
           :class="x(hover) > width / 2 ? '-translate-x-full -ml-2' : 'ml-2'"
           :style="{ left: `${x(hover)}px` }"
         >

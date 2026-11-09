@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const props = defineProps<{
-  items: { label: string, value: number, hint?: string }[]
+  // `key` identifies the row when labels can repeat (two peers with one name).
+  items: { key?: string, label: string, value: number, hint?: string }[]
   format: (value: number) => string
   /** A CSS color, e.g. `var(--viz-1)`. */
   color: string
@@ -15,7 +16,7 @@ const max = computed(() => Math.max(0, ...props.items.map(i => i.value)))
     {{ empty }}
   </p>
   <ul v-else class="space-y-3">
-    <li v-for="item in items" :key="item.label">
+    <li v-for="item in items" :key="item.key ?? item.label">
       <div class="flex items-baseline justify-between gap-3 text-sm">
         <span class="min-w-0 truncate text-default" :title="item.label">{{ item.label }}</span>
         <span class="shrink-0 text-xs tabular-nums text-muted">

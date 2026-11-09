@@ -2,7 +2,7 @@
 import type { LineSeries } from '~/components/LineChart.vue'
 import type { DashboardStats, Overview } from '~/types/management'
 
-const { request } = useManagement()
+const { request, extractError } = useManagement()
 
 const { data: overview, pending, error } = await useAsyncData('overview', () =>
   request<Overview>('overview'))
@@ -12,7 +12,7 @@ const { connected } = useManagementStream<Overview>('overview/stream', (snapshot
 })
 
 // Chart data changes slowly (daily buckets), so it's fetched, not streamed.
-const { data: stats, refresh: refreshStats } = await useAsyncData('stats', () =>
+const { data: stats, error: statsError, pending: statsPending, refresh: refreshStats } = await useAsyncData('stats', () =>
   request<DashboardStats>('stats'))
 const statsTimer = ref<ReturnType<typeof setInterval>>()
 onMounted(() => {
@@ -169,6 +169,17 @@ const catalogSeries = computed<LineSeries[]>(() => {
           </div>
         </DashSection>
 
+        <!-- The charts load separately from the live overview; say so when they don't. -->
+        <UAlert
+          v-if="statsError && !stats"
+          color="error"
+          variant="soft"
+          icon="i-ph-warning"
+          title="Failed to load the charts."
+          :description="extractError(statsError)"
+          :actions="[{ label: 'Retry', color: 'error', variant: 'subtle', loading: statsPending, onClick: () => refreshStats() }]"
+        />
+
         <template v-if="stats">
           <!-- Daily volume and speed over the last 30 days. -->
           <DashSection title="Activity">
@@ -208,7 +219,7 @@ const catalogSeries = computed<LineSeries[]>(() => {
                   Pulled the most from you
                 </p>
                 <RankBars
-                  :items="stats.peers.tookFromMe.map(p => ({ label: p.name, value: p.bytes }))"
+                  :items="stats.peers.tookFromMe.map(p => ({ key: p.id, label: p.name, value: p.bytes }))"
                   :format="formatBytes"
                   color="var(--viz-2)"
                   empty="No peer has pulled from you yet."
@@ -219,7 +230,7 @@ const catalogSeries = computed<LineSeries[]>(() => {
                   You pulled the most from
                 </p>
                 <RankBars
-                  :items="stats.peers.gaveToMe.map(p => ({ label: p.name, value: p.bytes }))"
+                  :items="stats.peers.gaveToMe.map(p => ({ key: p.id, label: p.name, value: p.bytes }))"
                   :format="formatBytes"
                   color="var(--viz-1)"
                   empty="You haven't downloaded from a peer yet."

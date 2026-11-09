@@ -338,8 +338,9 @@ export interface DashboardStats {
   }[]
   importLatency: { day: string, avgSeconds: number | null, count: number }[]
   peers: {
-    gaveToMe: { name: string, bytes: number }[]
-    tookFromMe: { name: string, bytes: number }[]
+    // `id` is stable (peer id, API key id, or `master`); `name` is the latest label.
+    gaveToMe: { id: string, name: string, bytes: number }[]
+    tookFromMe: { id: string, name: string, bytes: number }[]
   }
   failures: { code: string, count: number }[]
   topTitles: { filename: string, bytes: number, requests: number, peers: number }[]

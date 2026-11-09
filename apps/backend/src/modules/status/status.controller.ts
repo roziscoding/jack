@@ -4,12 +4,13 @@ import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
 import type { LiveProgressTracker } from '../downloads/live-progress'
+import type { DashboardStats } from '../stats/stats'
 import type { StatsRepository } from '../stats/stats.repository'
 import type { UploadRecord } from '../uploads/uploads.repository'
 import type { UploadsService } from '../uploads/uploads.service'
 import { DOWNLOAD_STATUSES, UPLOAD_STATUSES } from '../../database/schema'
 import { liveProgressFor } from '../downloads/live-progress'
-import { buildStats } from '../stats/stats'
+import { lastDays } from '../stats/stats'
 
 // The management surface can expose richer detail than the public API: every
 // connector here carries its URL-derived `id` (the management UI keys edit/delete
@@ -217,14 +218,17 @@ export class StatusController {
   }
 
   /** Chart data for the dashboard: the last `days` UTC days plus lifetime rankings. */
-  getStats(days: number) {
-    const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10)
-    return buildStats(
-      this.downloads?.list() ?? [],
-      this.uploads?.list() ?? [],
-      this.stats?.catalogSizesSince(since) ?? [],
-      days,
-    )
+  getStats(days: number): DashboardStats {
+    // Aggregated in SQLite: the history is never loaded for a chart.
+    return this.stats?.dashboard(days) ?? {
+      days: lastDays(days),
+      transfers: [],
+      importLatency: [],
+      peers: { gaveToMe: [], tookFromMe: [] },
+      failures: [],
+      topTitles: [],
+      catalog: { sources: [], points: [] },
+    }
   }
 
   listUploads() {
