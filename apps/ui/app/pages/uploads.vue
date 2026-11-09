@@ -16,7 +16,6 @@ const { connected } = useManagementStream<{ uploads: UploadItem[] }>('uploads/st
 const statusBadge: Record<UploadItem['status'], { color: BadgeProps['color'], label: string }> = {
   uploading: { color: 'primary', label: 'Uploading' },
   completed: { color: 'success', label: 'Completed' },
-  aborted: { color: 'warning', label: 'Aborted' },
   unconfirmed: { color: 'neutral', label: 'Unconfirmed' },
 }
 
@@ -40,7 +39,6 @@ const counts = computed(() => {
     all: all.length,
     uploading: all.filter(u => u.status === 'uploading').length,
     completed: all.filter(u => u.status === 'completed').length,
-    aborted: all.filter(u => u.status === 'aborted').length,
     unconfirmed: all.filter(u => u.status === 'unconfirmed').length,
   }
 })
@@ -48,7 +46,6 @@ const chips: { key: StatusFilter, label: string, color: BadgeProps['color'] }[] 
   { key: 'all', label: 'All', color: 'neutral' },
   { key: 'uploading', label: 'Uploading', color: 'primary' },
   { key: 'completed', label: 'Completed', color: 'success' },
-  { key: 'aborted', label: 'Aborted', color: 'warning' },
   { key: 'unconfirmed', label: 'Unconfirmed', color: 'neutral' },
 ]
 
@@ -234,11 +231,8 @@ const columns: TableColumn<UploadItem>[] = [
               <p class="font-medium wrap-anywhere text-default" :title="row.original.filename">
                 {{ row.original.filename }}
               </p>
-              <p v-if="row.original.rangeStart > 0" class="text-xs text-muted">
+              <p v-if="row.original.rangeStart" class="text-xs text-muted">
                 resumed at {{ formatBytes(row.original.rangeStart) }}
-              </p>
-              <p v-if="row.original.error" class="text-xs text-warning">
-                {{ row.original.error }}
               </p>
             </template>
 
@@ -298,9 +292,6 @@ const columns: TableColumn<UploadItem>[] = [
                   <p class="font-medium break-words text-default" :title="u.filename">
                     {{ u.filename }}
                   </p>
-                  <p v-if="u.error" class="mt-0.5 text-xs text-warning">
-                    {{ u.error }}
-                  </p>
                 </div>
                 <UBadge v-bind="statusBadge[u.status]" variant="subtle" class="shrink-0" />
               </div>
@@ -310,7 +301,7 @@ const columns: TableColumn<UploadItem>[] = [
               </p>
               <div class="flex items-center justify-between gap-2 text-xs text-muted">
                 <span class="truncate">{{ u.peerName }}</span>
-                <span class="shrink-0 tabular-nums">{{ formatBytes(u.requestedBytes) }} of {{ formatBytes(u.totalBytes) }} · {{ formatAgo(u.startedAt) }} ago</span>
+                <span class="shrink-0 tabular-nums">{{ formatBytes(u.totalBytes) }} · {{ formatAgo(u.startedAt) }} ago</span>
               </div>
             </div>
           </UCard>

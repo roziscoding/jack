@@ -45,23 +45,23 @@ The ***Uploads*** page lists them newest first, read-only, with:
 - **Sent**: bytes the peer received, with the average speed and how long it
   took.
 - **Status**:
-  - `uploading` while the file is being sent.
+  - `uploading` while the transfer is open, including while the peer waits to
+    retry or resume it.
   - `completed` once the peer confirmed it got the file.
-  - `aborted` when the peer disconnected or jack restarted mid-transfer.
-  - `unconfirmed` when the peer never confirmed. Its size and speed stay
-    unknown.
+  - `unconfirmed` when no confirmation came within 48 hours. Its size and speed
+    stay unknown, and a confirmation that still arrives later completes it.
 
-jack sends files straight from disk without reading them itself, which keeps
-uploads cheap but means it can't see a transfer finish. The downloading jack
-reports back instead: once the file arrives, it sends a receipt with the bytes
-it got and the time it took. Peers on versions without receipts, or a receipt
-that gets lost, leave the upload `unconfirmed`, and an upload still waiting for
-its receipt after 48 hours becomes `unconfirmed` too. There is no live speed
-while a file is being sent.
+Each row is one transfer. The downloading jack starts it before asking for the
+file, then resumes and retries it as often as it needs, all on the same row. A
+dropped connection leaves it open. jack sends files straight from disk without
+reading them itself, which keeps uploads low-cost but means it can't see a
+transfer finish, so the downloading jack sends a receipt once the file arrives.
+The bytes sent count from the lowest byte the peer asked for, and the speed
+runs from the transfer's start to its receipt, retries included. There is no
+live speed while a file is being sent.
 
-Each file request is its own row. A peer that resumes a transfer sends a
-`Range` request, so the resume shows as a new row whose progress starts where
-the range does. The ***Overview*** page shows the uploads running now next to
+Peers running an older jack don't start transfers, so their downloads from you
+aren't listed. The ***Overview*** page shows the uploads running now next to
 active downloads.
 
 ## Settings -> Downloads
@@ -149,7 +149,7 @@ The streams are plain `GET` endpoints on the management API:
 | --- | --- |
 | `/overview/stream` | Connector overview + download and upload state |
 | `/downloads/stream` | Every persisted download change |
-| `/uploads/stream` | Every upload change, about once a second while files stream |
+| `/uploads/stream` | Every upload change |
 | `/config/stream` | Peer and server config changes |
 
 Each sends its current snapshot immediately on connect, then a full snapshot per

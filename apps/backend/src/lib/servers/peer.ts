@@ -13,7 +13,7 @@ import { PeerCatalogResponse } from '../peer-catalog'
 import { normalizeImdbId, Release } from '../release'
 import { setSpanAttribute, setSpanAttributes } from '../span-attributes'
 import { withSpan } from '../tracing'
-import { compareVersions, isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION, PEER_CATALOG_SUMMARY_VERSION } from '../version'
+import { compareVersions, isPeerVersionCompatible, MIN_PEER_PROTOCOL_VERSION, PEER_CATALOG_SUMMARY_VERSION, PEER_TRANSFERS_VERSION } from '../version'
 import { ServerConnector } from './base'
 
 const PeerSearchResponse = z.object({
@@ -22,14 +22,16 @@ const PeerSearchResponse = z.object({
 const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024 * 1024 // 100GB
 const DOWNLOAD_PROGRESS_INTERVAL_MS = 10_000
 const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
-const DOWNLOAD_LIVE_INTERVAL_MS = 1000
 const CONTENT_RANGE_PATTERN = /^bytes (\d+)-(\d+)\/(\d+)$/
+
+const PeerTransfer = z.object({
+  downloadId: z.string(),
+  url: z.string(),
+})
 
 export type PeerDownloadProgressEvent
   = | { type: 'headers', expectedBytes: number | null, expectedBytesSource: 'content_length' | 'content_range' | 'release_size' | null, expectedBytesMismatch: boolean }
     | { type: 'progress', downloadedBytes: number, expectedBytes: number | null }
-    // About once a second, for live progress only; `progress` is the durable one.
-    | { type: 'bytes', downloadedBytes: number }
     | { type: 'restart', reason: 'range_ignored' | 'content_range_mismatch' | 'range_not_satisfiable' | 'part_oversize', discardedBytes: number }
     | { type: 'completed', downloadedBytes: number, expectedBytes: number | null }
 
@@ -39,6 +41,9 @@ export interface PeerDownloadOptions {
   torrentFilename?: string
   partPath?: string
   releaseSize?: number
+  // Stable for every attempt at one download, so the peer keeps a single
+  // transfer for it however often it is retried or resumed.
+  transferId?: string
   onProgress?: (event: PeerDownloadProgressEvent) => void | Promise<void>
 }
 
@@ -258,32 +263,70 @@ export class PeerConnector extends ServerConnector {
   }
 
   /**
-   * Tell the serving jack this file arrived and how long it took. It sends files
-   * zero-copy, so it can see an early disconnect but not the end of a transfer.
-   * Fire and forget: a lost receipt only leaves that upload's speed unknown, and
-   * a peer too old to issue upload ids gets none.
+   * Where to stream item `id` from. A peer on protocol 0.3.0+ gets a transfer it
+   * records as an upload; `transferId` makes creating it idempotent, so every
+   * attempt at one download reuses the same transfer. Older peers, or a create
+   * that fails (say the peer's database is full), fall back to the untracked
+   * file route: bookkeeping never blocks a download.
    */
-  private sendUploadReceipt(uploadId: string | null, bytes: number, durationMs: number): void {
-    if (!uploadId || !/^\d+$/.test(uploadId))
+  private async openTransfer(id: string, transferId: string | undefined, signal: AbortSignal): Promise<{ url: URL, downloadId: string | null }> {
+    const legacy = {
+      url: new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url),
+      downloadId: null,
+    }
+    if (!transferId || !this._peerVersion || compareVersions(this._peerVersion, PEER_TRANSFERS_VERSION) < 0)
+      return legacy
+    try {
+      const transfer = await this.fetch(`/peer/items/${encodeURIComponent(id)}/downloads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientTransferId: transferId }),
+        schema: PeerTransfer,
+        signal: AbortSignal.any([
+          signal,
+          AbortSignal.timeout(30_000),
+        ]),
+      })
+      return {
+        url: new URL(transfer.url, this.url),
+        downloadId: transfer.downloadId,
+      }
+    }
+    catch (err) {
+      signal.throwIfAborted()
+      logger.debug({
+        peer: this.name,
+        id,
+        error: err instanceof Error
+          ? err.message
+          : String(err),
+      }, 'Could not start a transfer; downloading untracked')
+      return legacy
+    }
+  }
+
+  /**
+   * Tell the serving jack the whole file arrived. It sends files zero-copy, so it
+   * can't see a transfer end. Fire and forget: a lost receipt only leaves that
+   * upload unconfirmed.
+   */
+  private sendUploadReceipt(downloadId: string | null): void {
+    if (!downloadId)
       return
-    const url = new URL(`/peer/uploads/${uploadId}/receipt`, this.url)
+    const url = new URL(`/peer/downloads/${encodeURIComponent(downloadId)}/receipt`, this.url)
     fetch(url, {
       method: 'POST',
-      headers: { ...this.headers, 'X-Api-Key': this.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bytes,
-        durationMs: Math.round(durationMs),
-      }),
+      headers: { ...this.headers, 'X-Api-Key': this.apiKey },
       signal: AbortSignal.timeout(10_000),
     })
       .then((response) => {
         if (!response.ok)
-          logger.debug({ peer: this.name, uploadId, status: response.status }, 'Peer did not accept the upload receipt')
+          logger.debug({ peer: this.name, downloadId, status: response.status }, 'Peer did not accept the upload receipt')
       })
       .catch((err) => {
         logger.debug({
           peer: this.name,
-          uploadId,
+          downloadId,
           error: err instanceof Error
             ? err.message
             : String(err),
@@ -301,11 +344,15 @@ export class PeerConnector extends ServerConnector {
     }, async (span) => {
       const idleTimeoutMs = options.idleTimeoutMs ?? 60_000
       const torrentFilename = options.torrentFilename
-      const url = new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url)
+      // The untracked file route until the transfer is opened, right before the
+      // first request (a .part that is already complete needs none).
+      let transfer: { url: URL, downloadId: string | null } = {
+        url: new URL(`/peer/items/${encodeURIComponent(id)}/file`, this.url),
+        downloadId: null,
+      }
       const partPath = options.partPath ?? `${destPath}.part`
-      // X-Jack-Receipt: we'll report back when the file arrived (see sendUploadReceipt).
-      const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey, 'X-Jack-Receipt': '1' }
-      setSpanAttributes(span, { 'http.request.idle_timeout_ms': idleTimeoutMs, 'url.path': url.pathname })
+      const baseHeaders = { ...this.headers, 'X-Api-Key': this.apiKey }
+      setSpanAttribute(span, 'http.request.idle_timeout_ms', idleTimeoutMs)
 
       // Idle (inactivity) timeout, armed ONLY around network waits (fetch + each
       // read) and cleared before local file/progress work, so slow disk I/O never
@@ -340,7 +387,7 @@ export class PeerConnector extends ServerConnector {
         signal.throwIfAborted()
         armIdle()
         try {
-          return await fetch(url, {
+          return await fetch(transfer.url, {
             headers: withRange
               ? { ...baseHeaders, Range: `bytes=${existingBytes}-` }
               : baseHeaders,
@@ -419,6 +466,8 @@ export class PeerConnector extends ServerConnector {
         }
       }
 
+      transfer = await this.openTransfer(id, options.transferId, signal)
+      setSpanAttribute(span, 'url.path', transfer.url.pathname)
       let response = await doFetch(existingBytes > 0)
       setSpanAttribute(span, 'http.response.status_code', response.status)
 
@@ -534,12 +583,8 @@ export class PeerConnector extends ServerConnector {
         throw err
       }
       let downloadedBytes = existingBytes
-      // What this request carries, for the receipt: a resume only counts its range.
-      const requestStartBytes = existingBytes
-      const requestStartedAt = performance.now()
       let lastLoggedAt = Date.now()
       let lastLoggedBytes = downloadedBytes
-      let lastLiveAt = 0
       let handleClosed = false
 
       const closeHandle = async () => {
@@ -607,11 +652,6 @@ export class PeerConnector extends ServerConnector {
             lastLoggedAt = now
             lastLoggedBytes = downloadedBytes
           }
-          // Cheap in-memory tick for live progress and speed: no fsync, no DB write.
-          if (now - lastLiveAt >= DOWNLOAD_LIVE_INTERVAL_MS) {
-            await options.onProgress?.({ type: 'bytes', downloadedBytes })
-            lastLiveAt = now
-          }
         }
 
         await syncPart(`flushing the .part to disk after the last chunk (${downloadedBytes} bytes written)`)
@@ -629,7 +669,7 @@ export class PeerConnector extends ServerConnector {
         signal.throwIfAborted()
         await withFsContext('move_completed', 'moving the completed .part into place', [partPath, destPath], () => rename(partPath, destPath))
         setSpanAttribute(span, 'download.downloaded_bytes', downloadedBytes)
-        this.sendUploadReceipt(response.headers.get('X-Jack-Upload-Id'), downloadedBytes - requestStartBytes, performance.now() - requestStartedAt)
+        this.sendUploadReceipt(transfer.downloadId)
         try {
           await options.onProgress?.({ type: 'completed', downloadedBytes, expectedBytes })
         }

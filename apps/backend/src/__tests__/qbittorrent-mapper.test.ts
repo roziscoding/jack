@@ -24,6 +24,7 @@ function baseRecord(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
     expectedBytesSource: null,
     expectedBytesMismatch: false,
     downloadedBytes: 0,
+    speedBps: null,
     attempts: 0,
     status: 'downloading',
     startedAt: '2026-06-06T00:00:00.000Z',

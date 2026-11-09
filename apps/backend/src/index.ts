@@ -55,10 +55,6 @@ const catalogCacheRepository = new CatalogCacheRepository(database.db)
 const tmdbMetadataRepository = new TmdbMetadataRepository(database.db)
 const uploadsService = new UploadsService(new UploadsRepository(database.db))
 
-// Peers connected to the previous run lost those transfers with it.
-const interruptedUploads = uploadsService.repository.reconcileInterrupted()
-if (interruptedUploads > 0)
-  logger.warn({ uploads: interruptedUploads }, 'Marked uploads interrupted by the previous jack run as aborted')
 // A receipt that never came (a lost POST) shouldn't leave an upload running forever.
 setInterval(() => uploadsService.expireUnconfirmed(), 60 * 60 * 1000).unref()
 

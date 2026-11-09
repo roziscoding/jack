@@ -1,29 +1,35 @@
 import type { AppDatabase } from '../../database/connection'
-import type { NewUploadRow, UploadRow, UploadStatus } from '../../database/schema'
-import { and, count, desc, eq, inArray, isNull, lt, sum } from 'drizzle-orm'
+import type { UploadRow, UploadStatus } from '../../database/schema'
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, sql, sum } from 'drizzle-orm'
 import { UPLOAD_STATUSES, uploads } from '../../database/schema'
 
 export type UploadRecord = UploadRow
 
-export interface CreateUploadInput {
+// A transfer can still be resumed and completed; a late receipt revives an expired one.
+const OPEN = ['uploading', 'unconfirmed'] as const
+
+export interface CreateTransferInput {
   peerName: string
   peerKeyId: number | null
   itemId: string
   filename: string
   totalBytes: number
-  rangeStart: number
-  requestedBytes: number
+  clientTransferId: string
 }
-
-// Statuses an upload can still leave: a receipt or a disconnect may yet arrive.
-const OPEN = ['uploading', 'unconfirmed'] as const
 
 function nowIso() {
   return new Date().toISOString()
 }
 
+/** Rows a key owns: only its own api key (null for the master key) may use a transfer. */
+function ownedBy(peerKeyId: number | null) {
+  return peerKeyId === null
+    ? isNull(uploads.peerKeyId)
+    : eq(uploads.peerKeyId, peerKeyId)
+}
+
 /**
- * Files peers pull from this instance, one row per request. Rows are kept after
+ * Files peers pull from this instance, one row per transfer. Rows are kept after
  * they finish so the list doubles as a history.
  */
 export class UploadsRepository {
@@ -47,23 +53,41 @@ export class UploadsRepository {
     }
   }
 
-  /** `uploading` when the peer promised a receipt, `unconfirmed` when it can't send one. */
-  create(input: CreateUploadInput, status: 'uploading' | 'unconfirmed'): UploadRecord {
+  /**
+   * Creates the transfer, or returns the one this key already created with the
+   * same client transfer id. `created` is false for the latter.
+   */
+  create(input: CreateTransferInput): { upload: UploadRecord, created: boolean } {
+    const { clientTransferId, ...row } = input
+    const idempotencyKey = `${input.peerKeyId ?? 'master'}:${clientTransferId}`
     const timestamp = nowIso()
-    const values: NewUploadRow = {
-      ...input,
-      sentBytes: 0,
-      status,
-      startedAt: timestamp,
-      updatedAt: timestamp,
+    const inserted = this.db.insert(uploads)
+      .values({
+        ...row,
+        transferId: crypto.randomUUID(),
+        idempotencyKey,
+        status: 'uploading',
+        startedAt: timestamp,
+        updatedAt: timestamp,
+      })
+      .onConflictDoNothing({ target: uploads.idempotencyKey })
+      .returning()
+      .get()
+    if (inserted) {
+      this.notifyChanged()
+      return { upload: inserted, created: true }
     }
-    const row = this.db.insert(uploads).values(values).returning().get()
-    this.notifyChanged()
-    return row
+    const existing = this.db.select().from(uploads).where(eq(uploads.idempotencyKey, idempotencyKey)).get()!
+    return { upload: existing, created: false }
   }
 
   get(id: number): UploadRecord | null {
     return this.db.select().from(uploads).where(eq(uploads.id, id)).get() ?? null
+  }
+
+  /** The transfer behind a `downloadId`, if this key owns it. */
+  findOwned(transferId: string, peerKeyId: number | null): UploadRecord | null {
+    return this.db.select().from(uploads).where(and(eq(uploads.transferId, transferId), ownedBy(peerKeyId))).get() ?? null
   }
 
   /** Totals for the dashboard, counted in SQLite so the history is never loaded. */
@@ -87,7 +111,7 @@ export class UploadsRepository {
     return { byStatus, total, bytesSent }
   }
 
-  /** Uploads still being sent, newest first. */
+  /** Transfers still open, newest first. */
   listActive(): UploadRecord[] {
     return this.db.select().from(uploads).where(eq(uploads.status, 'uploading')).orderBy(desc(uploads.startedAt), desc(uploads.id)).all()
   }
@@ -97,45 +121,34 @@ export class UploadsRepository {
     return this.db.select().from(uploads).orderBy(desc(uploads.startedAt), desc(uploads.id)).all()
   }
 
-  /** The peer disconnected before the body was sent. No-op once the row has ended. */
-  markAborted(id: number, error: string): void {
-    const timestamp = nowIso()
-    const changed = this.db.update(uploads)
+  /** A request for the file starting at byte `start`; keeps the lowest one seen. */
+  served(id: number, start: number): void {
+    this.db.update(uploads)
       .set({
-        status: 'aborted',
-        error,
-        updatedAt: timestamp,
-        finishedAt: timestamp,
+        rangeStart: sql`min(coalesce(${uploads.rangeStart}, ${start}), ${start})`,
+        updatedAt: nowIso(),
       })
       .where(and(eq(uploads.id, id), inArray(uploads.status, [...OPEN])))
-      .returning({ id: uploads.id })
-      .all()
-    if (changed.length > 0)
-      this.notifyChanged()
+      .run()
+    this.notifyChanged()
   }
 
   /**
-   * The downloading peer's receipt: it got `sentBytes` in `durationMs`. Only the
-   * key the row belongs to (null for the master key) can close it, only while it
-   * is still open, and only with exactly the bytes the request asked for: a
-   * receipt means the whole response arrived, and anything else would let a peer
+   * The downloading peer's receipt: the whole file arrived. Only the owning key
+   * can close a transfer, only while it is open, and only once the file was
+   * requested. The bytes and time come from what jack served, so a peer can't
    * skew the totals. Returns whether the row was updated.
    */
-  complete(id: number, peerKeyId: number | null, sentBytes: number, durationMs: number): boolean {
-    const timestamp = nowIso()
-    const owner = peerKeyId === null
-      ? isNull(uploads.peerKeyId)
-      : eq(uploads.peerKeyId, peerKeyId)
+  complete(transferId: string, peerKeyId: number | null, now = Date.now()): boolean {
     const changed = this.db.update(uploads)
       .set({
         status: 'completed',
-        sentBytes,
-        durationMs,
-        error: null,
-        updatedAt: timestamp,
-        finishedAt: timestamp,
+        sentBytes: sql`${uploads.totalBytes} - ${uploads.rangeStart}`,
+        durationMs: sql`max(0, ${now} - cast(round(unixepoch(${uploads.startedAt}, 'subsec') * 1000) as integer))`,
+        updatedAt: new Date(now).toISOString(),
+        finishedAt: new Date(now).toISOString(),
       })
-      .where(and(eq(uploads.id, id), owner, inArray(uploads.status, [...OPEN]), eq(uploads.requestedBytes, sentBytes)))
+      .where(and(eq(uploads.transferId, transferId), ownedBy(peerKeyId), inArray(uploads.status, [...OPEN]), isNotNull(uploads.rangeStart)))
       .returning({ id: uploads.id })
       .all()
     if (changed.length > 0)
@@ -143,7 +156,7 @@ export class UploadsRepository {
     return changed.length > 0
   }
 
-  /** Rows still waiting for a receipt that started before `before`: it isn't coming. */
+  /** Transfers still open that started before `before`: their receipt isn't coming. */
   expireUnconfirmed(before: string): number {
     const rows = this.db.update(uploads)
       .set({
@@ -151,24 +164,6 @@ export class UploadsRepository {
         updatedAt: nowIso(),
       })
       .where(and(eq(uploads.status, 'uploading'), lt(uploads.startedAt, before)))
-      .returning({ id: uploads.id })
-      .all()
-    if (rows.length > 0)
-      this.notifyChanged()
-    return rows.length
-  }
-
-  /** Rows still `uploading` from a previous run lost their connection with it. */
-  reconcileInterrupted(): number {
-    const timestamp = nowIso()
-    const rows = this.db.update(uploads)
-      .set({
-        status: 'aborted',
-        error: 'interrupted by a jack restart',
-        updatedAt: timestamp,
-        finishedAt: timestamp,
-      })
-      .where(eq(uploads.status, 'uploading'))
       .returning({ id: uploads.id })
       .all()
     if (rows.length > 0)

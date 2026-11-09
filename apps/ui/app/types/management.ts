@@ -86,8 +86,8 @@ export interface DownloadItem {
   expectedBytesMismatch: boolean
 }
 
-// A file a peer pulls from this instance. One per file request: a resumed
-// transfer is a new upload starting at `rangeStart`.
+// A file a peer pulls from this instance. One per transfer, however often the
+// peer resumed or retried it.
 export interface UploadItem {
   id: number
   // The API key the peer used; 'master' for the master key.
@@ -96,20 +96,20 @@ export interface UploadItem {
   filename: string
   // The whole file's size on disk.
   totalBytes: number
-  rangeStart: number
-  requestedBytes: number
-  // From the downloading jack's receipt; 0 until it arrives.
+  // Lowest byte requested: past 0 when the peer already had part of the file.
+  // Null until the file is first requested.
+  rangeStart: number | null
+  // Bytes this transfer delivered; 0 until the receipt.
   sentBytes: number
-  // Transfer time from the receipt; null without one.
+  // Creation to receipt; null without one.
   durationMs: number | null
-  // Through the whole file, counting the range start. Null until completed.
+  // 1 once completed, null before.
   progress: number | null
-  // Average over the whole transfer, from the receipt. Null without one.
+  // Average over the whole transfer. Null without a receipt.
   speedBps: number | null
-  // Files go out zero-copy: `completed` needs the peer's receipt, and a peer that
-  // sends none (an older jack, or a lost receipt) leaves it `unconfirmed`.
-  status: 'uploading' | 'completed' | 'aborted' | 'unconfirmed'
-  error: string | null
+  // Files go out zero-copy: `completed` needs the peer's receipt, and no receipt
+  // within 48 hours leaves it `unconfirmed`.
+  status: 'uploading' | 'completed' | 'unconfirmed'
   startedAt: string
   updatedAt: string
   finishedAt: string | null

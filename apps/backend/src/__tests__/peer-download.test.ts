@@ -151,39 +151,77 @@ describe('PeerConnector.downloadFile', () => {
     }
   })
 
-  test('asks for a receipt and posts one after the file arrives', async () => {
-    const receipts: unknown[] = []
-    const seen = { receiptHeader: null as string | null }
+  test('opens a transfer on a 0.3.0 peer, streams it, and posts the receipt', async () => {
+    const seen: unknown[] = []
     server.use(
-      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, ({ request }) => {
-        seen.receiptHeader = request.headers.get('X-Jack-Receipt')
+      http.post(`${PEER_JACK_URL}/peer/items/:itemId/downloads`, async ({ request, params }) => {
+        seen.push({ create: params.itemId, body: await request.json() })
+        return HttpResponse.json({
+          downloadId: 'abc',
+          filename: 'Movie.mkv',
+          totalBytes: 4,
+          url: '/peer/downloads/abc/file',
+        }, { status: 201 })
+      }),
+      http.get(`${PEER_JACK_URL}/peer/downloads/:downloadId/file`, ({ params }) => {
+        seen.push({ stream: params.downloadId })
         return new Response(streamOf([1, 2, 3, 4]), {
-          headers: { 'Content-Length': '4', 'X-Jack-Upload-Id': '42' },
+          headers: { 'Content-Length': '4' },
         })
       }),
-      http.post(`${PEER_JACK_URL}/peer/uploads/:uploadId/receipt`, async ({ request, params }) => {
-        receipts.push({
-          uploadId: params.uploadId,
+      http.post(`${PEER_JACK_URL}/peer/downloads/:downloadId/receipt`, ({ request, params }) => {
+        seen.push({
+          receipt: params.downloadId,
           apiKey: request.headers.get('X-Api-Key'),
-          body: await request.json(),
         })
         return new HttpResponse(null, { status: 204 })
       }),
     )
 
     const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+    ;(peer as any)._peerVersion = '0.3.0'
     const dir = await mkdtemp(join(tmpdir(), 'jack-peer-receipt-'))
     try {
-      await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), { releaseSize: 4 })
+      await peer.downloadFile('remote1:movie:99', join(dir, 'Movie.mkv'), { releaseSize: 4, transferId: 'download-1-0' })
       // Fire and forget: the download resolves without waiting for it.
-      await waitFor(async () => receipts.length === 1)
-      expect(seen.receiptHeader).toBe('1')
-      expect(receipts[0]).toMatchObject({
-        uploadId: '42',
-        apiKey: 'peer-api-key',
-        body: { bytes: 4 },
-      })
-      expect((receipts[0] as { body: { durationMs: number } }).body.durationMs).toBeGreaterThanOrEqual(0)
+      await waitFor(async () => seen.length === 3)
+      expect(seen).toEqual([
+        {
+          create: 'remote1:movie:99',
+          body: { clientTransferId: 'download-1-0' },
+        },
+        { stream: 'abc' },
+        { receipt: 'abc', apiKey: 'peer-api-key' },
+      ])
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('uses the untracked item route for an older peer or a failed create', async () => {
+    const creates: unknown[] = []
+    server.use(
+      http.post(`${PEER_JACK_URL}/peer/items/:itemId/downloads`, () => {
+        creates.push(1)
+        return HttpResponse.json({ error: 'database or disk is full' }, { status: 500 })
+      }),
+      http.get(`${PEER_JACK_URL}/peer/items/:itemId/file`, () => new Response(streamOf([1, 2, 3, 4]), {
+        headers: { 'Content-Length': '4' },
+      })),
+    )
+
+    const dir = await mkdtemp(join(tmpdir(), 'jack-peer-legacy-'))
+    try {
+      for (const version of ['0.2.0', '0.3.0']) {
+        const peer = markInitialized(new PeerConnector({ url: PEER_JACK_URL, apiKey: 'peer-api-key', name: 'Friend Jack' }))
+        ;(peer as any)._peerVersion = version
+        const destPath = join(dir, `Movie-${version}.mkv`)
+        await peer.downloadFile('remote1:movie:99', destPath, { releaseSize: 4, transferId: 'download-1-0' })
+        expect(new Uint8Array(await Bun.file(destPath).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+      }
+      // Only the 0.3.0 peer was asked for a transfer.
+      expect(creates).toHaveLength(1)
     }
     finally {
       await rm(dir, { recursive: true, force: true })

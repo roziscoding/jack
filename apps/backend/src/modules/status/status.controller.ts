@@ -3,11 +3,9 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
-import type { LiveProgressTracker } from '../downloads/live-progress'
 import type { UploadRecord } from '../uploads/uploads.repository'
 import type { UploadsService } from '../uploads/uploads.service'
 import { DOWNLOAD_STATUSES, UPLOAD_STATUSES } from '../../database/schema'
-import { liveProgressFor } from '../downloads/live-progress'
 
 // The management surface can expose richer detail than the public API: every
 // connector here carries its URL-derived `id` (the management UI keys edit/delete
@@ -29,27 +27,23 @@ function baseConnector(c: ServerConnector) {
   }
 }
 
-export function enrichDownload(d: DownloadRecord, live?: LiveProgressTracker) {
+export function enrichDownload(d: DownloadRecord) {
   // Prefer the negotiated expected size; fall back to the release-advertised size.
   const totalBytes = d.expectedBytes ?? (d.releaseSize > 0
     ? d.releaseSize
     : null)
-  // A running transfer reports bytes about once a second in memory; the row is only
-  // written every 10 s / 64 MiB, so prefer the live count while it's downloading.
-  const current = d.status === 'downloading'
-    ? live?.get(d.id)
-    : null
-  const downloadedBytes = Math.max(d.downloadedBytes, current?.downloadedBytes ?? 0)
   const progress = totalBytes && totalBytes > 0
-    ? Math.min(1, downloadedBytes / totalBytes)
+    ? Math.min(1, d.downloadedBytes / totalBytes)
     : null
-  const speedBps = current?.speedBps ?? null
+  // Measured between progress writes (every 10 s / 64 MiB); only while running.
+  const speedBps = d.status === 'downloading'
+    ? d.speedBps
+    : null
   const etaSeconds = speedBps && speedBps > 0 && totalBytes
-    ? Math.max(0, Math.round((totalBytes - downloadedBytes) / speedBps))
+    ? Math.max(0, Math.round((totalBytes - d.downloadedBytes) / speedBps))
     : null
   return {
     ...d,
-    downloadedBytes,
     totalBytes,
     progress,
     speedBps,
@@ -58,10 +52,9 @@ export function enrichDownload(d: DownloadRecord, live?: LiveProgressTracker) {
 }
 
 export function enrichUpload(u: UploadRecord) {
-  // Files go out zero-copy, so only a receipt tells us how far it got. Progress is
-  // through the whole file, so a resumed request starts where the range does.
-  const progress = u.status === 'completed' && u.totalBytes > 0
-    ? Math.min(1, (u.rangeStart + u.sentBytes) / u.totalBytes)
+  // Files go out zero-copy, so only a receipt says the file arrived.
+  const progress = u.status === 'completed'
+    ? 1
     : null
   // Average over the whole transfer, from the receipt; unknown without one.
   const speedBps = u.durationMs && u.durationMs > 0
@@ -116,18 +109,13 @@ export class StatusController {
 
   private enrichUpload = (u: UploadRecord) => enrichUpload(u)
 
-  private get live(): LiveProgressTracker | undefined {
-    return this.downloads && liveProgressFor(this.downloads)
-  }
-
-  private enrich = (d: DownloadRecord) => enrichDownload(d, this.live)
+  private enrich = (d: DownloadRecord) => enrichDownload(d)
 
   subscribeOverview(subscriber: () => void): () => void {
     return coalesce(subscriber, [
       // Called through the object: ConnectorManager.subscribe reads `this`.
       this.connectors.subscribe && (s => this.connectors.subscribe!(s)),
       this.downloads && (s => this.downloads!.subscribe(s)),
-      this.live && (s => this.live!.subscribe(s)),
       this.uploads && (s => this.uploads!.subscribe(s)),
     ])
   }
@@ -141,7 +129,6 @@ export class StatusController {
   subscribeDownloads(subscriber: () => void): () => void {
     return coalesce(subscriber, [
       this.downloads && (s => this.downloads!.subscribe(s)),
-      this.live && (s => this.live!.subscribe(s)),
     ])
   }
 

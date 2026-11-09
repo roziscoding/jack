@@ -65,7 +65,7 @@ export function getStatusRouter(controller: StatusController) {
   app.get('/uploads', describeRoute({
     tags: ['Uploads'],
     summary: 'List uploads',
-    description: 'Files peers pulled or are pulling from this instance, newest first. One record per file request, so a resumed transfer adds a record that starts at its `rangeStart`.',
+    description: 'Files peers pulled or are pulling from this instance, newest first. One record per transfer, however often the peer resumed or retried it.',
     security: [
       { 'X-Management-Key': [] },
     ],
