@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1a854ff0-e165-4eef-91e0-eb3b7a620ed8",
-  "prevId": "f6d7a728-eaa3-4692-9836-71fd937cbe60",
+  "id": "937d843c-ab35-4298-a440-95ea4c840303",
+  "prevId": "c9f970ae-d2a3-41bd-b206-35a480a193bf",
   "tables": {
     "api_keys": {
       "name": "api_keys",
@@ -985,6 +985,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "peer_key_id": {
+          "name": "peer_key_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "item_id": {
