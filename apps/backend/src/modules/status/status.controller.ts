@@ -4,13 +4,13 @@ import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
 import type { LiveProgressTracker } from '../downloads/live-progress'
-import type { DashboardStats } from '../stats/stats'
+import type { DashboardStats, StatsRange } from '../stats/stats'
 import type { StatsRepository } from '../stats/stats.repository'
 import type { UploadRecord } from '../uploads/uploads.repository'
 import type { UploadsService } from '../uploads/uploads.service'
 import { DOWNLOAD_STATUSES, UPLOAD_STATUSES } from '../../database/schema'
 import { liveProgressFor } from '../downloads/live-progress'
-import { lastDays } from '../stats/stats'
+import { rangeBuckets, STATS_RANGES } from '../stats/stats'
 
 // The management surface can expose richer detail than the public API: every
 // connector here carries its URL-derived `id` (the management UI keys edit/delete
@@ -217,11 +217,19 @@ export class StatusController {
     }
   }
 
-  /** Chart data for the dashboard: the last `days` UTC days plus lifetime rankings. */
-  getStats(days: number): DashboardStats {
+  /** Chart data for the dashboard: the history window `range` plus lifetime rankings. */
+  getStats(range: StatsRange): DashboardStats {
     // Aggregated in SQLite: the history is never loaded for a chart.
-    return this.stats?.dashboard(days) ?? {
-      days: lastDays(days),
+    return this.stats?.dashboard(range) ?? {
+      range,
+      bucketMs: STATS_RANGES[range].bucketMs,
+      buckets: rangeBuckets(range),
+      importSummary: {
+        minSeconds: null,
+        avgSeconds: null,
+        maxSeconds: null,
+        count: 0,
+      },
       transfers: [],
       importLatency: [],
       peers: { gaveToMe: [], tookFromMe: [] },

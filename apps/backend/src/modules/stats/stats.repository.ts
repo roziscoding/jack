@@ -1,12 +1,12 @@
 import type { AppDatabase } from '../../database/connection'
-import type { DashboardStats, RankedPeer } from './stats'
+import type { DashboardStats, RankedPeer, StatsRange } from './stats'
 import { count, eq, gte, sql, sum } from 'drizzle-orm'
 import { catalogSizeHistory, ownCatalogTitles, peerCatalogTitles } from '../../database/schema'
-import { lastDays } from './stats'
+import { rangeBuckets, STATS_RANGES } from './stats'
 
 export const OWN_CATALOG_SOURCE_ID = 'self'
 
-const TOP_TITLES = 10
+const TOP_TITLES = 5
 // SQLite's julianday() counts days; this turns a difference into milliseconds.
 const MS_PER_DAY = 86_400_000
 
@@ -80,35 +80,52 @@ export class StatsRepository {
     return this.db.select().from(catalogSizeHistory).where(gte(catalogSizeHistory.day, day)).orderBy(catalogSizeHistory.day).all()
   }
 
-  /** Everything GET /stats returns, for the last `dayCount` UTC days. */
-  dashboard(dayCount: number, now = Date.now()): DashboardStats {
-    const days = lastDays(dayCount, now)
-    const since = days[0]!
+  /** Everything GET /stats returns, for the window `range` ends at `now`. */
+  dashboard(range: StatsRange, now = Date.now()): DashboardStats {
+    const { bucketMs } = STATS_RANGES[range]
+    const buckets = rangeBuckets(range, now)
+    const since = buckets[0]!
+    const sinceMs = Date.parse(since)
+    // Index of the bucket a timestamp column falls in, in whole milliseconds so a
+    // timestamp on a boundary can't round into the previous bucket. Integer
+    // division floors here: the where clauses only pass timestamps >= since.
+    const msOf = (column: string) => `cast(round(unixepoch(${column}, 'subsec') * 1000) as integer)`
+    const bucketOf = (column: string) => sql.raw(`(${msOf(column)} - ${sinceMs}) / ${bucketMs}`)
+    // Import time in seconds, from whole milliseconds so averages don't drift.
+    const importSeconds = sql.raw(`(${msOf('imported_at')} - ${msOf('completed_at')}) / 1000.0`)
 
-    // Daily download volume and speed, bucketed by when the transfer finished.
-    const downloadDays = this.db.all<{ day: string, bytes: number, ms: number }>(sql`
-      select substr(completed_at, 1, 10) as day,
+    // Download volume and speed, bucketed by when the transfer finished.
+    const downloadBuckets = this.db.all<{ bucket: number, bytes: number, ms: number }>(sql`
+      select ${bucketOf('completed_at')} as bucket,
              sum(downloaded_bytes) as bytes,
              sum(round((julianday(completed_at) - julianday(started_at)) * ${MS_PER_DAY})) as ms
       from downloads
       where completed_at >= ${since}
-      group by day`)
+      group by bucket`)
     // Upload volume and speed come from receipts; only confirmed uploads have bytes.
-    const uploadDays = this.db.all<{ day: string, bytes: number, timed: number, ms: number }>(sql`
-      select substr(finished_at, 1, 10) as day,
+    const uploadBuckets = this.db.all<{ bucket: number, bytes: number, timed: number, ms: number }>(sql`
+      select ${bucketOf('finished_at')} as bucket,
              sum(sent_bytes) as bytes,
              sum(case when status = 'completed' and duration_ms > 0 then sent_bytes else 0 end) as timed,
              sum(case when status = 'completed' and duration_ms > 0 then duration_ms else 0 end) as ms
       from uploads
       where finished_at >= ${since}
-      group by day`)
-    const latencyDays = this.db.all<{ day: string, seconds: number, n: number }>(sql`
-      select substr(imported_at, 1, 10) as day,
-             avg((julianday(imported_at) - julianday(completed_at)) * 86400) as seconds,
+      group by bucket`)
+    const latencyBuckets = this.db.all<{ bucket: number, seconds: number, n: number }>(sql`
+      select ${bucketOf('imported_at')} as bucket,
+             avg(${importSeconds}) as seconds,
              count(*) as n
       from downloads
       where imported_at >= ${since} and completed_at is not null
-      group by day`)
+      group by bucket`)
+    // Over the single imports, not the bucket averages.
+    const [latencySummary] = this.db.all<{ min: number | null, avg: number | null, max: number | null, n: number }>(sql`
+      select min(s) as min, avg(s) as avg, max(s) as max, count(*) as n
+      from (
+        select ${importSeconds} as s
+        from downloads
+        where imported_at >= ${since} and completed_at is not null
+      )`)
 
     // Rankings group by stable ids; SQLite takes the bare `name` column from the
     // row holding max(...), so each peer shows its latest name.
@@ -141,13 +158,15 @@ export class StatsRepository {
       order by bytes desc
       limit ${TOP_TITLES}`)
 
-    const down = new Map(downloadDays.map(d => [d.day, d]))
-    const up = new Map(uploadDays.map(d => [d.day, d]))
-    const latency = new Map(latencyDays.map(d => [d.day, d]))
+    const down = new Map(downloadBuckets.map(d => [d.bucket, d]))
+    const up = new Map(uploadBuckets.map(d => [d.bucket, d]))
+    const latency = new Map(latencyBuckets.map(d => [d.bucket, d]))
 
+    // Catalog size is daily: take every day the window touches, so a short range
+    // still gets the reading for the day it falls in.
     const sources = new Map<string, string>()
     const points = []
-    for (const p of this.catalogSizesSince(since)) {
+    for (const p of this.catalogSizesSince(new Date(sinceMs).toISOString().slice(0, 10))) {
       // Rows come oldest first, so the newest name wins.
       sources.set(p.sourceId, p.sourceName)
       points.push({
@@ -171,12 +190,14 @@ export class StatsRepository {
       }))
 
     return {
-      days,
-      transfers: days.map((day) => {
-        const d = down.get(day)
-        const u = up.get(day)
+      range,
+      bucketMs,
+      buckets,
+      transfers: buckets.map((at, i) => {
+        const d = down.get(i)
+        const u = up.get(i)
         return {
-          day,
+          at,
           downloadedBytes: Number(d?.bytes ?? 0),
           uploadedBytes: Number(u?.bytes ?? 0),
           downloadBps: d
@@ -187,16 +208,28 @@ export class StatsRepository {
             : null,
         }
       }),
-      importLatency: days.map((day) => {
-        const l = latency.get(day)
+      importLatency: buckets.map((at, i) => {
+        const l = latency.get(i)
         return {
-          day,
+          at,
           avgSeconds: l
             ? Math.round(Number(l.seconds))
             : null,
           count: Number(l?.n ?? 0),
         }
       }),
+      importSummary: {
+        minSeconds: latencySummary?.min == null
+          ? null
+          : Math.round(latencySummary.min),
+        avgSeconds: latencySummary?.avg == null
+          ? null
+          : Math.round(latencySummary.avg),
+        maxSeconds: latencySummary?.max == null
+          ? null
+          : Math.round(latencySummary.max),
+        count: Number(latencySummary?.n ?? 0),
+      },
       peers: {
         gaveToMe: ranked(gaveToMe),
         tookFromMe: ranked(tookFromMe),

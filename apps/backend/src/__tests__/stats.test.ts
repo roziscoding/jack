@@ -90,18 +90,27 @@ test('aggregates daily series and rankings in SQL', () => {
     }),
   ]).run()
 
-  const stats = repo.dashboard(3, NOW)
+  const stats = repo.dashboard('30d', NOW)
 
-  expect(stats.days).toEqual(['2026-11-06', '2026-11-07', '2026-11-08'])
-  expect(stats.transfers[2]).toEqual({
-    day: '2026-11-08',
+  expect(stats.bucketMs).toBe(86_400_000)
+  expect(stats.buckets).toHaveLength(30)
+  expect(stats.buckets[0]).toBe('2026-10-10T00:00:00.000Z')
+  expect(stats.buckets[29]).toBe('2026-11-08T00:00:00.000Z')
+  expect(stats.transfers[29]).toEqual({
+    at: '2026-11-08T00:00:00.000Z',
     downloadedBytes: 1000,
     uploadedBytes: 0,
     downloadBps: 100,
     uploadBps: null,
   })
-  expect(stats.transfers[1]).toMatchObject({ uploadedBytes: 450, uploadBps: 90 })
-  expect(stats.importLatency[2]).toEqual({ day: '2026-11-08', avgSeconds: 60, count: 1 })
+  expect(stats.transfers[28]).toMatchObject({ uploadedBytes: 450, uploadBps: 90 })
+  expect(stats.importLatency[29]).toEqual({ at: '2026-11-08T00:00:00.000Z', avgSeconds: 60, count: 1 })
+  expect(stats.importSummary).toEqual({
+    minSeconds: 60,
+    avgSeconds: 60,
+    maxSeconds: 60,
+    count: 1,
+  })
   expect(stats.peers.gaveToMe).toEqual([
     { id: 'peer-r', name: 'Ranieri (new)', bytes: 1010 },
     { id: 'peer-z', name: 'Roz', bytes: 500 },
@@ -118,6 +127,46 @@ test('aggregates daily series and rankings in SQL', () => {
     bytes: 400,
     requests: 2,
     peers: 1,
+  })
+  database.close()
+})
+
+test('buckets a short range by its bucket width, a boundary timestamp in the later bucket', () => {
+  const { database, db, repo } = setup()
+  db.insert(downloads).values([
+    // Exactly on the 11:58 boundary.
+    download({
+      downloadedBytes: 10,
+      startedAt: '2026-11-08T11:57:00.000Z',
+      completedAt: '2026-11-08T11:58:00.000Z',
+      importedAt: '2026-11-08T11:58:30.000Z',
+    }),
+    download({
+      downloadedBytes: 20,
+      startedAt: '2026-11-08T11:57:00.000Z',
+      completedAt: '2026-11-08T11:59:59.999Z',
+      importedAt: '2026-11-08T12:01:00.999Z',
+    }),
+    download({ downloadedBytes: 40, startedAt: '2026-11-08T11:56:00.000Z', completedAt: '2026-11-08T11:57:59.999Z' }),
+    // Before the hour: not in any bucket.
+    download({ downloadedBytes: 80, completedAt: '2026-11-08T10:00:00.000Z' }),
+  ]).run()
+
+  const stats = repo.dashboard('1h', NOW)
+
+  expect(stats.bucketMs).toBe(120_000)
+  expect(stats.buckets).toHaveLength(30)
+  expect(stats.buckets[0]).toBe('2026-11-08T11:02:00.000Z')
+  expect(stats.buckets[29]).toBe('2026-11-08T12:00:00.000Z')
+  expect(stats.transfers[28]).toMatchObject({ at: '2026-11-08T11:58:00.000Z', downloadedBytes: 30 })
+  expect(stats.transfers[27]).toMatchObject({ downloadedBytes: 40 })
+  expect(stats.transfers.reduce((sum, t) => sum + t.downloadedBytes, 0)).toBe(70)
+  // Single imports of 30 s and 61 s.
+  expect(stats.importSummary).toEqual({
+    minSeconds: 30,
+    avgSeconds: 46,
+    maxSeconds: 61,
+    count: 2,
   })
   database.close()
 })
