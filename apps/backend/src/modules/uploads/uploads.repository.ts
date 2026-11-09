@@ -1,6 +1,6 @@
 import type { AppDatabase } from '../../database/connection'
 import type { NewUploadRow, UploadRow, UploadStatus } from '../../database/schema'
-import { and, count, desc, eq, gte, inArray, isNull, lt, sum } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull, lt, sum } from 'drizzle-orm'
 import { UPLOAD_STATUSES, uploads } from '../../database/schema'
 
 export type UploadRecord = UploadRow
@@ -117,8 +117,9 @@ export class UploadsRepository {
   /**
    * The downloading peer's receipt: it got `sentBytes` in `durationMs`. Only the
    * key the row belongs to (null for the master key) can close it, only while it
-   * is still open, and only with no more bytes than the request asked for, so a
-   * peer can't inflate the totals. Returns whether the row was updated.
+   * is still open, and only with exactly the bytes the request asked for: a
+   * receipt means the whole response arrived, and anything else would let a peer
+   * skew the totals. Returns whether the row was updated.
    */
   complete(id: number, peerKeyId: number | null, sentBytes: number, durationMs: number): boolean {
     const timestamp = nowIso()
@@ -134,7 +135,7 @@ export class UploadsRepository {
         updatedAt: timestamp,
         finishedAt: timestamp,
       })
-      .where(and(eq(uploads.id, id), owner, inArray(uploads.status, [...OPEN]), gte(uploads.requestedBytes, sentBytes)))
+      .where(and(eq(uploads.id, id), owner, inArray(uploads.status, [...OPEN]), eq(uploads.requestedBytes, sentBytes)))
       .returning({ id: uploads.id })
       .all()
     if (changed.length > 0)
