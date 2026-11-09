@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { LineSeries } from '~/components/LineChart.vue'
-import type { DashboardStats, Overview } from '~/types/management'
+import type { DashboardStats, Overview, StatsRange } from '~/types/management'
+import { STATS_RANGES } from '~/types/management'
 
 const { request, extractError } = useManagement()
 
@@ -11,14 +12,41 @@ const { connected } = useManagementStream<Overview>('overview/stream', (snapshot
   overview.value = snapshot
 })
 
-// Chart data changes slowly (daily buckets), so it's fetched, not streamed.
-const { data: stats, error: statsError, pending: statsPending, refresh: refreshStats } = await useAsyncData('stats', () =>
-  request<DashboardStats>('stats'))
-const statsTimer = ref<ReturnType<typeof setInterval>>()
-onMounted(() => {
-  statsTimer.value = setInterval(refreshStats, 60_000)
+// The history window for the charts, kept in the URL so a view can be linked.
+const RANGE_TEXT: Record<StatsRange, { tab: string, window: string, bucket: string }> = {
+  '5m': { tab: '5 min', window: 'last 5 minutes', bucket: '10 seconds' },
+  '30m': { tab: '30 min', window: 'last 30 minutes', bucket: 'minute' },
+  '1h': { tab: '60 min', window: 'last hour', bucket: '2 minutes' },
+  '24h': { tab: '24 h', window: 'last 24 hours', bucket: 'hour' },
+  '7d': { tab: '7 days', window: 'last 7 days', bucket: '6 hours' },
+  '30d': { tab: '30 days', window: 'last 30 days', bucket: 'day' },
+}
+const rangeTabs = STATS_RANGES.map(value => ({ label: RANGE_TEXT[value].tab, value }))
+const route = useRoute()
+const router = useRouter()
+const range = computed<StatsRange>({
+  get: () => STATS_RANGES.find(r => r === route.query.range) ?? '30d',
+  set: value => router.replace({
+    query: { ...route.query, range: value },
+  }),
 })
-onBeforeUnmount(() => clearInterval(statsTimer.value))
+const rangeText = computed(() => RANGE_TEXT[range.value])
+
+// Chart data is fetched, not streamed; it refetches once per bucket, between 10 s and a minute.
+const { data: stats, error: statsError, pending: statsPending, refresh: refreshStats } = await useAsyncData('stats', () =>
+  request<DashboardStats>('stats', {
+    query: { range: range.value },
+  }), {
+  watch: [range],
+})
+watchEffect((onCleanup) => {
+  if (import.meta.server)
+    return
+  const every = Math.min(60_000, Math.max(10_000, stats.value?.bucketMs ?? 60_000))
+  const timer = setInterval(refreshStats, every)
+  onCleanup(() => clearInterval(timer))
+})
+const labels = computed(() => stats.value?.buckets.map(at => formatBucket(at, stats.value!.bucketMs)) ?? [])
 
 // Peer colors from the shared settings store (single source, consistent across views).
 const { settings } = useSettings()
@@ -33,6 +61,9 @@ function serverRole(server: { source: boolean, destination: boolean }) {
     roles.push('destination')
   return roles.join(' · ') || 'idle'
 }
+
+// A card whose chart grows to the height of the tallest card in its row.
+const FILL_CARD = { root: 'flex flex-col', body: 'flex flex-1 flex-col' }
 
 const formatRate = (bps: number) => `${formatBytes(bps)}/s`
 const formatSeconds = (seconds: number) => formatDurationMs(seconds * 1000)
@@ -60,6 +91,11 @@ const hasActivity = computed(() => volumeSeries.value.some(s => s.values.some(v 
 const latencySeries = computed<LineSeries[]>(() => [
   { name: 'Import time', color: 'var(--viz-1)', values: stats.value?.importLatency.map(l => l.avgSeconds) ?? [] },
 ])
+const importTiles = computed(() => [
+  { label: 'Fastest', seconds: stats.value?.importSummary.minSeconds ?? null },
+  { label: 'Average', seconds: stats.value?.importSummary.avgSeconds ?? null },
+  { label: 'Slowest', seconds: stats.value?.importSummary.maxSeconds ?? null },
+])
 const hasLatency = computed(() => stats.value?.importLatency.some(l => l.count > 0) ?? false)
 
 // One line per catalog. Colors follow the source (this instance first, then peers
@@ -77,11 +113,16 @@ const catalogSeries = computed<LineSeries[]>(() => {
         ? 1
         : a.id.localeCompare(b.id))
   return sources.slice(0, CATALOG_SLOTS).map((source, i) => {
-    const byDay = new Map(s.catalog.points.filter(p => p.sourceId === source.id).map(p => [p.day, p.titles]))
+    // Points come oldest first, one per day. A bucket takes the latest reading
+    // on or before its UTC day, so sub-day buckets share their day's reading.
+    const points = s.catalog.points.filter(p => p.sourceId === source.id)
     return {
       name: source.name,
       color: `var(--viz-${i + 1})`,
-      values: s.days.map(day => byDay.get(day) ?? null),
+      values: s.buckets.map((at) => {
+        const day = at.slice(0, 10)
+        return points.findLast(p => p.day <= day)?.titles ?? null
+      }),
     }
   })
 })
@@ -92,6 +133,7 @@ const catalogSeries = computed<LineSeries[]>(() => {
     <template #header>
       <UDashboardNavbar title="Dashboard">
         <template #right>
+          <UTabs v-model="range" :items="rangeTabs" :content="false" size="xs" aria-label="History range" />
           <UBadge :color="connected ? 'success' : 'warning'" variant="subtle" icon="i-ph-broadcast">
             {{ connected ? 'Live' : 'Reconnecting…' }}
           </UBadge>
@@ -181,19 +223,19 @@ const catalogSeries = computed<LineSeries[]>(() => {
         />
 
         <template v-if="stats">
-          <!-- Daily volume and speed over the last 30 days. -->
+          <!-- Volume and speed over the chosen window. -->
           <DashSection title="Activity">
             <div class="grid gap-4 xl:grid-cols-2">
               <UCard variant="subtle">
                 <p class="text-sm font-medium text-highlighted">
-                  Data moved per day
+                  Data moved
                 </p>
                 <p class="mb-4 text-xs text-muted">
-                  Bytes of finished transfers, last 30 days
+                  Bytes of finished transfers per {{ rangeText.bucket }}, {{ rangeText.window }}
                 </p>
-                <ColumnChart v-if="hasActivity" :days="stats.days" :series="volumeSeries" :format="formatBytes" />
+                <MirrorChart v-if="hasActivity" bars :labels="labels" :above="volumeSeries[1]!" :below="volumeSeries[0]!" :format="formatBytes" />
                 <p v-else class="py-4 text-sm text-muted">
-                  Nothing moved in the last 30 days.
+                  Nothing moved in the {{ rangeText.window }}.
                 </p>
               </UCard>
               <UCard variant="subtle">
@@ -201,11 +243,11 @@ const catalogSeries = computed<LineSeries[]>(() => {
                   Average speed
                 </p>
                 <p class="mb-4 text-xs text-muted">
-                  Bytes over transfer time for each day's finished transfers, including retry waits
+                  Bytes over transfer time of the transfers finished in each {{ rangeText.bucket }}, including retry waits
                 </p>
-                <LineChart v-if="hasActivity" :days="stats.days" :series="speedSeries" :format="formatRate" />
+                <MirrorChart v-if="hasActivity" :labels="labels" :above="speedSeries[1]!" :below="speedSeries[0]!" :format="formatRate" />
                 <p v-else class="py-4 text-sm text-muted">
-                  No finished transfers in the last 30 days.
+                  No finished transfers in the {{ rangeText.window }}.
                 </p>
               </UCard>
             </div>
@@ -242,14 +284,14 @@ const catalogSeries = computed<LineSeries[]>(() => {
           <!-- What's on offer, and what's popular. -->
           <DashSection title="Library">
             <div class="grid gap-4 xl:grid-cols-2">
-              <UCard variant="subtle">
+              <UCard variant="subtle" :ui="FILL_CARD">
                 <p class="text-sm font-medium text-highlighted">
                   Catalog size
                 </p>
                 <p class="mb-4 text-xs text-muted">
-                  Titles in your catalog and each peer's, recorded at every catalog sync
+                  Titles in your catalog and each peer's, recorded once a day at the latest catalog sync
                 </p>
-                <LineChart v-if="catalogSeries.length" :days="stats.days" :series="catalogSeries" :format="formatCount" />
+                <LineChart v-if="catalogSeries.length" class="flex-1" :labels="labels" :series="catalogSeries" :format="formatCount" />
                 <p v-else class="py-4 text-sm text-muted">
                   No catalog sync recorded yet.
                 </p>
@@ -271,16 +313,29 @@ const catalogSeries = computed<LineSeries[]>(() => {
           <!-- How smoothly downloads reach the library. -->
           <DashSection title="Imports and failures">
             <div class="grid gap-4 xl:grid-cols-2">
-              <UCard variant="subtle">
+              <UCard variant="subtle" :ui="FILL_CARD">
                 <p class="text-sm font-medium text-highlighted">
                   Import time
                 </p>
                 <p class="mb-4 text-xs text-muted">
-                  Average time from download finished to *arr import, by import day
+                  Average time from download finished to *arr import, per {{ rangeText.bucket }} of import
                 </p>
-                <LineChart v-if="hasLatency" :days="stats.days" :series="latencySeries" :format="formatSeconds" />
+                <template v-if="hasLatency">
+                  <!-- Single imports in the window, fastest to slowest. -->
+                  <div class="mb-4 grid grid-cols-3 gap-3">
+                    <div v-for="tile in importTiles" :key="tile.label" class="rounded-md border border-default px-3 py-2">
+                      <p class="text-xs text-muted">
+                        {{ tile.label }}
+                      </p>
+                      <p class="text-lg font-semibold tabular-nums text-highlighted">
+                        {{ tile.seconds == null ? '—' : formatSeconds(tile.seconds) }}
+                      </p>
+                    </div>
+                  </div>
+                  <LineChart class="flex-1" :labels="labels" :series="latencySeries" :format="formatSeconds" />
+                </template>
                 <p v-else class="py-4 text-sm text-muted">
-                  No imports recorded in the last 30 days.
+                  No imports recorded in the {{ rangeText.window }}.
                 </p>
               </UCard>
               <UCard variant="subtle">
@@ -290,10 +345,9 @@ const catalogSeries = computed<LineSeries[]>(() => {
                   </p>
                   <UButton to="/downloads" label="Review" trailing-icon="i-ph-arrow-right" variant="link" size="sm" class="px-0" />
                 </div>
-                <RankBars
+                <StackColumn
                   :items="stats.failures.map(f => ({ label: f.code, value: f.count }))"
                   :format="formatCount"
-                  color="var(--viz-8)"
                   empty="No failed downloads."
                 />
               </UCard>

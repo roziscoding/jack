@@ -3,26 +3,30 @@ export interface LineSeries {
   name: string
   /** A CSS color, e.g. `var(--viz-1)`. */
   color: string
-  /** One per day; null leaves a gap in the line. */
+  /** One per label; null leaves a gap in the line. */
   values: (number | null)[]
 }
 
 const props = defineProps<{
-  days: string[]
+  /** One per point, oldest first, already formatted for display. */
+  labels: string[]
   series: LineSeries[]
   format: (value: number) => string
 }>()
 
-const HEIGHT = 160
 const PAD = 6
 
-// Drawn at the real pixel width so lines and dots keep their shape.
+// Drawn at the real pixel size so lines and dots keep their shape. The plot
+// fills the height its container gives it (at least 160px), so it can match a
+// taller chart next to it.
 const plot = ref<HTMLElement>()
 const width = ref(600)
+const HEIGHT = ref(160)
 let observer: ResizeObserver | undefined
 onMounted(() => {
   observer = new ResizeObserver(([entry]) => {
     width.value = Math.max(1, entry!.contentRect.width)
+    HEIGHT.value = Math.max(160, entry!.contentRect.height)
   })
   observer.observe(plot.value!)
 })
@@ -31,15 +35,15 @@ onBeforeUnmount(() => observer?.disconnect())
 const max = computed(() => Math.max(0, ...props.series.flatMap(s => s.values.filter((v): v is number => v != null))))
 
 function x(i: number): number {
-  return props.days.length > 1
-    ? PAD + (i / (props.days.length - 1)) * (width.value - 2 * PAD)
+  return props.labels.length > 1
+    ? PAD + (i / (props.labels.length - 1)) * (width.value - 2 * PAD)
     : width.value / 2
 }
 
 function y(v: number): number {
   return max.value > 0
-    ? HEIGHT - PAD - (v / max.value) * (HEIGHT - 2 * PAD)
-    : HEIGHT - PAD
+    ? HEIGHT.value - PAD - (v / max.value) * (HEIGHT.value - 2 * PAD)
+    : HEIGHT.value - PAD
 }
 
 // A null value breaks the line; each run of values is its own subpath.
@@ -66,13 +70,13 @@ const hover = ref<number | null>(null)
 function onMove(event: PointerEvent) {
   const box = plot.value!.getBoundingClientRect()
   const ratio = (event.clientX - box.left - PAD) / Math.max(1, box.width - 2 * PAD)
-  hover.value = Math.min(props.days.length - 1, Math.max(0, Math.round(ratio * (props.days.length - 1))))
+  hover.value = Math.min(props.labels.length - 1, Math.max(0, Math.round(ratio * (props.labels.length - 1))))
 }
 
-// Keyboard users read the chart day by day: focus lands on the latest day, the
+// Keyboard users read the chart point by point: focus lands on the latest one, the
 // arrows step through, Home/End jump to either edge. The tooltip is the readout.
 function onKey(event: KeyboardEvent) {
-  const last = props.days.length - 1
+  const last = props.labels.length - 1
   const current = hover.value ?? last
   const positions: Record<string, number> = {
     ArrowLeft: current - 1,
@@ -89,7 +93,7 @@ function onKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div>
+  <div class="flex flex-col">
     <div v-if="series.length > 1" class="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
       <span v-for="s in series" :key="s.name" class="flex items-center gap-1.5">
         <span class="h-0.5 w-3 rounded-full" :style="{ background: s.color }" />
@@ -97,24 +101,24 @@ function onKey(event: KeyboardEvent) {
       </span>
     </div>
 
-    <div class="flex gap-2">
-      <div class="flex h-40 w-16 shrink-0 flex-col justify-between text-right text-[10px] tabular-nums text-dimmed" aria-hidden="true">
+    <div class="flex min-h-40 flex-1 gap-2">
+      <div class="flex w-16 shrink-0 flex-col justify-between text-right text-[10px] tabular-nums text-dimmed" aria-hidden="true">
         <span>{{ format(max) }}</span>
         <span>0</span>
       </div>
       <div
         ref="plot"
-        class="relative h-40 min-w-0 flex-1 rounded-sm border-b border-default focus-visible:outline-2 focus-visible:outline-primary"
+        class="relative min-w-0 flex-1 rounded-sm border-b border-default focus-visible:outline-2 focus-visible:outline-primary"
         tabindex="0"
         role="group"
-        :aria-label="`${series.map(s => s.name).join(', ')}, by day. Use the arrow keys to read each day.`"
+        :aria-label="`${series.map(s => s.name).join(', ')}. Use the arrow keys to read each point.`"
         @pointermove="onMove"
         @pointerleave="hover = null"
-        @focus="hover ??= days.length - 1"
+        @focus="hover ??= labels.length - 1"
         @blur="hover = null"
         @keydown="onKey"
       >
-        <svg :width="width" :height="HEIGHT" class="block overflow-visible" aria-hidden="true">
+        <svg :width="width" :height="HEIGHT" class="absolute inset-0 overflow-visible" aria-hidden="true">
           <line
             v-if="hover !== null"
             :x1="x(hover)"
@@ -148,7 +152,7 @@ function onKey(event: KeyboardEvent) {
           :style="{ left: `${x(hover)}px` }"
         >
           <p class="font-medium text-highlighted">
-            {{ formatDay(days[hover]!) }}
+            {{ labels[hover] }}
           </p>
           <p v-for="s in series" :key="s.name" class="flex items-center gap-1.5 text-muted">
             <span class="h-0.5 w-2.5 rounded-full" :style="{ background: s.color }" />
@@ -159,22 +163,22 @@ function onKey(event: KeyboardEvent) {
       </div>
     </div>
     <div class="ml-18 mt-1 flex justify-between text-[10px] text-dimmed" aria-hidden="true">
-      <span>{{ formatDay(days[0]!) }}</span>
-      <span>{{ formatDay(days.at(-1)!) }}</span>
+      <span>{{ labels[0] }}</span>
+      <span>{{ labels.at(-1) }}</span>
     </div>
 
     <table class="sr-only">
       <thead>
         <tr>
-          <th>Day</th>
+          <th>Time</th>
           <th v-for="s in series" :key="s.name">
             {{ s.name }}
           </th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(day, i) in days" :key="day">
-          <td>{{ formatDay(day) }}</td>
+        <tr v-for="(label, i) in labels" :key="i">
+          <td>{{ label }}</td>
           <td v-for="s in series" :key="s.name">
             {{ s.values[i] == null ? 'no data' : format(s.values[i]!) }}
           </td>
