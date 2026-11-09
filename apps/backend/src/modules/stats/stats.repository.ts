@@ -162,11 +162,12 @@ export class StatsRepository {
     const up = new Map(uploadBuckets.map(d => [d.bucket, d]))
     const latency = new Map(latencyBuckets.map(d => [d.bucket, d]))
 
-    // Catalog size is daily: take every day the window touches, so a short range
-    // still gets the reading for the day it falls in.
+    // Catalog size is daily: take every day the window touches plus the day
+    // before, so a window that starts before today's sync still carries
+    // yesterday's reading forward.
     const sources = new Map<string, string>()
     const points = []
-    for (const p of this.catalogSizesSince(new Date(sinceMs).toISOString().slice(0, 10))) {
+    for (const p of this.catalogSizesSince(new Date(sinceMs - MS_PER_DAY).toISOString().slice(0, 10))) {
       // Rows come oldest first, so the newest name wins.
       sources.set(p.sourceId, p.sourceName)
       points.push({

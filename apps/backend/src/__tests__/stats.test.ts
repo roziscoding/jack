@@ -171,6 +171,18 @@ test('buckets a short range by its bucket width, a boundary timestamp in the lat
   database.close()
 })
 
+test('a short range carries the previous day\'s catalog reading', () => {
+  const { database, repo } = setup()
+  repo.recordCatalogSizes(new Map(), '2026-11-06')
+  repo.recordCatalogSizes(new Map(), '2026-11-07')
+
+  const stats = repo.dashboard('1h', NOW)
+
+  expect(stats.catalog.points.map(p => p.day)).toEqual(['2026-11-07'])
+  expect(stats.catalog.sources).toEqual([{ id: 'self', name: 'This instance' }])
+  database.close()
+})
+
 test('records one catalog size row per source per day, zero for an empty catalog', () => {
   const { database, db, repo } = setup()
   const title = {
