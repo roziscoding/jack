@@ -431,9 +431,9 @@ const catalogSeries = computed<LineSeries[]>(() => {
                       to <span class="text-toned">{{ u.peerName }}</span>
                     </p>
                   </div>
-                  <!-- Sent zero-copy: no live progress, only how much this request covers. -->
+                  <!-- Sent zero-copy: no live progress, only the file size. -->
                   <p class="mt-1 text-xs tabular-nums text-muted">
-                    Sending {{ formatBytes(u.requestedBytes) }} of {{ formatBytes(u.totalBytes) }} · started {{ formatAgo(u.startedAt) }} ago
+                    Sending {{ formatBytes(u.totalBytes) }} · started {{ formatAgo(u.startedAt) }} ago
                   </p>
                 </div>
               </div>

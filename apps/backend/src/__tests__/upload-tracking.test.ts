@@ -1,3 +1,4 @@
+import type { AuthVariables } from '../middleware/require-auth'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,57 +7,11 @@ import { Hono } from 'hono'
 import { openMemoryDatabase } from '../database/connection'
 import { PeerController } from '../modules/peer/peer.controller'
 import { getPeerRouter } from '../modules/peer/peer.router'
+import { enrichDownload } from '../modules/status/status.controller'
 import { UploadsRepository } from '../modules/uploads/uploads.repository'
 import { UploadsService } from '../modules/uploads/uploads.service'
 
-const input = {
-  peerName: 'alice',
-  peerKeyId: 7,
-  itemId: 'radarr1:movie:1',
-  filename: 'Movie.mkv',
-  totalBytes: 12,
-  rangeStart: 0,
-  requestedBytes: 12,
-}
-
-describe('UploadsService', () => {
-  test('a disconnect aborts the row; a finished response leaves it for the receipt', () => {
-    const repository = new UploadsRepository(openMemoryDatabase())
-    const service = new UploadsService(repository)
-    const controller = new AbortController()
-    const dropped = service.start(input, true, controller.signal)!
-    const finished = service.start(input, true, new AbortController().signal)!
-
-    controller.abort()
-
-    expect(repository.get(dropped)).toMatchObject({ status: 'aborted', error: 'peer disconnected' })
-    expect(repository.get(finished)?.status).toBe('uploading')
-    expect(service.receipt(finished, 7, 12, 4000)).toBe(true)
-    expect(repository.get(finished)).toMatchObject({ status: 'completed', sentBytes: 12, durationMs: 4000 })
-  })
-
-  test('a peer that left before the row existed is aborted right away', () => {
-    const repository = new UploadsRepository(openMemoryDatabase())
-    const id = new UploadsService(repository).start(input, true, AbortSignal.abort())!
-    expect(repository.get(id)?.status).toBe('aborted')
-  })
-
-  test('a peer that sends no receipt starts unconfirmed', () => {
-    const repository = new UploadsRepository(openMemoryDatabase())
-    const id = new UploadsService(repository).start(input, false)!
-    expect(repository.get(id)?.status).toBe('unconfirmed')
-  })
-
-  test('a failed insert serves the file untracked instead of throwing', () => {
-    const repository = new UploadsRepository(openMemoryDatabase())
-    repository.create = () => {
-      throw new Error('database or disk is full')
-    }
-    expect(new UploadsService(repository).start(input, true)).toBeUndefined()
-  })
-})
-
-describe('peer file route and receipt', () => {
+describe('peer transfers', () => {
   let tempDir: string
   let filePath: string
 
@@ -79,59 +34,120 @@ describe('peer file route and receipt', () => {
       getFilePath: async () => filePath,
     }
     const repository = new UploadsRepository(openMemoryDatabase())
-    const app = new Hono()
+    const app = new Hono<{ Variables: AuthVariables }>()
+    // Stands in for require-auth: the `X-Key` header picks the api key row.
+    app.use(async (c, next) => {
+      const key = c.req.header('X-Key')
+      if (key)
+        c.set('apiKeyId', Number(key))
+      await next()
+    })
     app.route('/peer', getPeerRouter(new PeerController(() => [source as any]), new UploadsService(repository)))
-    return { app, repository }
+    const create = (clientTransferId: string, key = '7') => app.request('/peer/items/remote1:movie:1/downloads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Key': key },
+      body: JSON.stringify({ clientTransferId }),
+    })
+    return { app, repository, create }
   }
 
-  test('serves a range request, then the receipt completes its row', async () => {
-    const { app, repository } = setup()
-    const res = await app.request('/peer/items/remote1:movie:1/file', {
-      headers: { 'Range': 'bytes=6-', 'X-Jack-Receipt': '1' },
+  test('one transfer through a dropped request, a resume and the receipt', async () => {
+    const { app, repository, create } = setup()
+    const res = await create('download-1')
+    expect(res.status).toBe(201)
+    const transfer = await res.json() as { downloadId: string, url: string, totalBytes: number }
+    expect(transfer).toMatchObject({ filename: 'Movie.mkv', totalBytes: 10, url: `/peer/downloads/${transfer.downloadId}/file` })
+
+    // A lost 201: creating it again returns the same transfer.
+    const again = await create('download-1')
+    expect(again.status).toBe(200)
+    expect((await again.json() as { downloadId: string }).downloadId).toBe(transfer.downloadId)
+
+    // The first request drops after a few bytes; the transfer stays open.
+    const first = await app.request(transfer.url, {
+      headers: { 'X-Key': '7' },
     })
+    await first.body?.cancel()
+    const resumed = await app.request(transfer.url, {
+      headers: { 'Range': 'bytes=6-', 'X-Key': '7' },
+    })
+    expect(resumed.status).toBe(206)
     expect([
-      ...new Uint8Array(await res.arrayBuffer()),
+      ...new Uint8Array(await resumed.arrayBuffer()),
     ]).toEqual([6, 7, 8, 9])
-    const uploadId = res.headers.get('X-Jack-Upload-Id')
     expect(repository.list()).toEqual([
-      expect.objectContaining({
-        peerName: 'master',
-        totalBytes: 10,
-        rangeStart: 6,
-        requestedBytes: 4,
-        status: 'uploading',
-      }),
+      expect.objectContaining({ status: 'uploading', rangeStart: 0, totalBytes: 10 }),
     ])
 
-    const receipt = await app.request(`/peer/uploads/${uploadId}/receipt`, {
+    const receipt = await app.request(`/peer/downloads/${transfer.downloadId}/receipt`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bytes: 4, durationMs: 2 }),
+      headers: { 'X-Key': '7' },
     })
     expect(receipt.status).toBe(204)
-    expect(repository.list()[0]).toMatchObject({ status: 'completed', sentBytes: 4, durationMs: 2 })
+    expect(repository.list()).toEqual([
+      expect.objectContaining({ status: 'completed', sentBytes: 10 }),
+    ])
   })
 
-  test('an unknown receipt id is ignored, a malformed body rejected', async () => {
-    const { app } = setup()
-    const unknown = await app.request('/peer/uploads/999/receipt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bytes: 4, durationMs: 2 }),
+  test('another key can neither stream nor complete a transfer', async () => {
+    const { app, repository, create } = setup()
+    const { downloadId, url } = await (await create('download-1')).json() as { downloadId: string, url: string }
+    expect((await app.request(url, {
+      headers: { 'X-Key': '8' },
+    })).status).toBe(404)
+    await app.request(url, {
+      headers: { 'X-Key': '7' },
     })
-    expect(unknown.status).toBe(204)
-    const malformed = await app.request('/peer/uploads/1/receipt', {
+    expect((await app.request(`/peer/downloads/${downloadId}/receipt`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bytes: -1 }),
-    })
-    expect(malformed.status).toBe(400)
+      headers: { 'X-Key': '8' },
+    })).status).toBe(204)
+    expect(repository.list()[0]?.status).toBe('uploading')
   })
 
-  test('does not record a HEAD request', async () => {
-    const { app, repository } = setup()
-    const res = await app.request('/peer/items/remote1:movie:1/file', { method: 'HEAD' })
-    expect(res.headers.get('X-Jack-Upload-Id')).toBeNull()
+  test('a client transfer id reused for another item is a conflict', async () => {
+    const { app, create } = setup()
+    await create('download-1')
+    const res = await app.request('/peer/items/remote1:movie:2/downloads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Key': '7' },
+      body: JSON.stringify({ clientTransferId: 'download-1' }),
+    })
+    expect(res.status).toBe(409)
+  })
+
+  test('the item file route serves without recording, and a HEAD serves nothing', async () => {
+    const { app, repository, create } = setup()
+    const legacy = await app.request('/peer/items/remote1:movie:1/file', {
+      headers: { Range: 'bytes=6-' },
+    })
+    expect([
+      ...new Uint8Array(await legacy.arrayBuffer()),
+    ]).toEqual([6, 7, 8, 9])
     expect(repository.list()).toEqual([])
+
+    const { url } = await (await create('download-1')).json() as { url: string }
+    await app.request(url, {
+      method: 'HEAD',
+      headers: { 'X-Key': '7' },
+    })
+    expect(repository.list()[0]?.rangeStart).toBeNull()
   })
+
+  test('a malformed create is rejected', async () => {
+    const { create } = setup()
+    expect((await create('')).status).toBe(400)
+  })
+})
+
+test('download speed and ETA come from the row, only while it runs', () => {
+  const row = {
+    status: 'downloading',
+    expectedBytes: 10_000,
+    releaseSize: 10_000,
+    downloadedBytes: 2000,
+    speedBps: 2000,
+  } as Parameters<typeof enrichDownload>[0]
+  expect(enrichDownload(row)).toMatchObject({ progress: 0.2, speedBps: 2000, etaSeconds: 4 })
+  expect(enrichDownload({ ...row, status: 'import_queued' })).toMatchObject({ speedBps: null, etaSeconds: null })
 })

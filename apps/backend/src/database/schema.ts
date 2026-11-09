@@ -32,6 +32,9 @@ export const downloads = sqliteTable('downloads', {
   expectedBytesSource: text('expected_bytes_source').$type<ExpectedBytesSource | null>(),
   expectedBytesMismatch: integer('expected_bytes_mismatch', { mode: 'boolean' }).notNull().default(false),
   downloadedBytes: integer('downloaded_bytes').notNull().default(0),
+  // Bytes per second between the last two progress writes; null until there are
+  // two in the current attempt.
+  speedBps: integer('speed_bps'),
   attempts: integer('attempts').notNull().default(0),
   status: text('status').$type<DownloadStatus>().notNull(),
   startedAt: text('started_at').notNull(),
@@ -83,24 +86,28 @@ export const apiKeys = sqliteTable('api_keys', {
   updatedAt: text('updated_at').notNull(),
 })
 
-// Files peers pull from this instance through `/peer/items/:id/file`. One row
-// per HTTP request: a resumed transfer sends a Range header and gets its own
-// row, starting at `rangeStart`.
+// Files peers pull from this instance. One row per transfer, which a peer
+// creates with `POST /peer/items/:itemId/downloads` and then streams, resumes
+// and retries as often as it needs through `/peer/downloads/:downloadId/file`.
 //
-// Files go out zero-copy, so jack never counts the bytes itself. It learns an
-// upload ended early from the disconnect (`aborted`), and that it finished from
-// the receipt the downloading jack posts back (`completed`, with its duration).
-// No receipt (an older peer, or a lost POST) leaves it `unconfirmed`.
+// Files go out zero-copy, so jack never counts the bytes itself. A dropped
+// request leaves the transfer open to resume; the receipt the downloading jack
+// posts once the file arrived completes it. No receipt within 48 hours leaves
+// it `unconfirmed`.
 export const UPLOAD_STATUSES = [
   'uploading',
   'completed',
-  'aborted',
   'unconfirmed',
 ] as const
 export type UploadStatus = typeof UPLOAD_STATUSES[number]
 
 export const uploads = sqliteTable('uploads', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  // The opaque `downloadId` peers address the transfer by.
+  transferId: text('transfer_id').notNull().unique(),
+  // `<peerKeyId or master>:<client transfer id>`: creating the same transfer again
+  // (a retry after a lost response) returns this row instead of a new one.
+  idempotencyKey: text('idempotency_key').notNull().unique(),
   // Name of the api key the peer authenticated with ('master' for the master key).
   // Display only: names are optional, editable and not unique.
   peerName: text('peer_name').notNull(),
@@ -111,21 +118,19 @@ export const uploads = sqliteTable('uploads', {
   filename: text('filename').notNull(),
   // Size of the whole file on disk.
   totalBytes: integer('total_bytes').notNull(),
-  // First byte this request serves (0 without a Range header).
-  rangeStart: integer('range_start').notNull().default(0),
-  // Bytes this request was asked to send (the response Content-Length).
-  requestedBytes: integer('requested_bytes').notNull(),
-  // Bytes the peer says it received; 0 until its receipt arrives.
+  // Lowest byte any request for this transfer started at (a resume of a .part
+  // the peer already had starts past 0). Null until the file is first requested.
+  rangeStart: integer('range_start'),
+  // Bytes this transfer delivered, `totalBytes - rangeStart`; 0 until the receipt.
   sentBytes: integer('sent_bytes').notNull().default(0),
-  // Transfer time the peer reported; null without a receipt, so speed is unknown.
+  // Creation to receipt, retries and resumes included; null without a receipt.
   durationMs: integer('duration_ms'),
   status: text('status').$type<UploadStatus>().notNull(),
-  error: text('error'),
   startedAt: text('started_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   finishedAt: text('finished_at'),
 }, t => [
-  check('uploads_status_check', sql`${t.status} in ('uploading', 'completed', 'aborted', 'unconfirmed')`),
+  check('uploads_status_check', sql`${t.status} in ('uploading', 'completed', 'unconfirmed')`),
   index('uploads_status_idx').on(t.status),
   index('uploads_started_at_idx').on(t.startedAt),
 ])

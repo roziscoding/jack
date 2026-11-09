@@ -12,109 +12,119 @@ const input = {
   itemId: 'radarr1:movie:1',
   filename: 'Movie.mkv',
   totalBytes: 100,
-  rangeStart: 40,
-  requestedBytes: 60,
+  clientTransferId: 'download-1',
 }
 
 describe('UploadsRepository', () => {
-  test('creates a row with nothing sent yet', () => {
-    const row = makeRepo().create(input, 'uploading')
-    expect(row).toMatchObject({
-      ...input,
+  test('creates an open transfer with nothing served yet', () => {
+    const { upload, created } = makeRepo().create(input)
+    expect(created).toBe(true)
+    expect(upload).toMatchObject({
+      peerName: 'alice',
+      peerKeyId: 7,
+      totalBytes: 100,
+      rangeStart: null,
       sentBytes: 0,
       durationMs: null,
       status: 'uploading',
-      error: null,
       finishedAt: null,
     })
+    expect(upload.transferId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
-  test('a receipt from the same peer completes it with bytes and duration', () => {
+  test('creating the same transfer again returns it; ids are scoped per key', () => {
     const repo = makeRepo()
-    const { id } = repo.create(input, 'uploading')
+    const first = repo.create(input).upload
+    expect(repo.create(input)).toEqual({ upload: first, created: false })
+    expect(repo.create({ ...input, peerKeyId: 8 }).created).toBe(true)
+    expect(repo.create({ ...input, peerKeyId: null }).created).toBe(true)
+    expect(repo.create({ ...input, peerKeyId: null }).created).toBe(false)
+    expect(repo.list()).toHaveLength(3)
+  })
 
+  test('only the owning key finds a transfer', () => {
+    const repo = makeRepo()
+    const { transferId } = repo.create(input).upload
+    expect(repo.findOwned(transferId, 7)?.transferId).toBe(transferId)
+    expect(repo.findOwned(transferId, 8)).toBeNull()
+    expect(repo.findOwned(transferId, null)).toBeNull()
+  })
+
+  test('the receipt completes it with the bytes served since the lowest range, from creation', () => {
+    const repo = makeRepo()
+    const { id, transferId, startedAt } = repo.create(input).upload
+    const now = Date.parse(startedAt) + 5000
+
+    // Never requested: nothing was sent, so there is nothing to complete.
+    expect(repo.complete(transferId, 7, now)).toBe(false)
+    repo.served(id, 60)
+    repo.served(id, 40)
+    repo.served(id, 70)
     // Another key, even one with the same name, can't close it; nor can the master key.
-    expect(repo.complete(id, 8, 60, 1000)).toBe(false)
-    expect(repo.complete(id, null, 60, 1000)).toBe(false)
-    // Anything but the requested 60 bytes is rejected.
-    expect(repo.complete(id, 7, 61, 1000)).toBe(false)
-    expect(repo.complete(id, 7, 59, 1000)).toBe(false)
-    expect(repo.complete(id, 7, 60, 2000)).toBe(true)
-    expect(repo.get(id)).toMatchObject({ status: 'completed', sentBytes: 60, durationMs: 2000 })
-    expect(repo.get(id)?.finishedAt).not.toBeNull()
-    // Closed rows stay closed.
-    expect(repo.complete(id, 7, 1, 1)).toBe(false)
+    expect(repo.complete(transferId, 8, now)).toBe(false)
+    expect(repo.complete(transferId, null, now)).toBe(false)
+    expect(repo.complete(transferId, 7, now)).toBe(true)
+    expect(repo.get(id)).toMatchObject({
+      status: 'completed',
+      rangeStart: 40,
+      sentBytes: 60,
+      durationMs: 5000,
+    })
+    // Closed rows stay closed, and serving them again changes nothing.
+    expect(repo.complete(transferId, 7, now)).toBe(false)
+    repo.served(id, 0)
+    expect(repo.get(id)?.rangeStart).toBe(40)
   })
 
-  test('an older peer\'s row can still be completed or aborted', () => {
+  test('expires transfers that waited too long; a late receipt still completes one', () => {
     const repo = makeRepo()
-    const a = repo.create(input, 'unconfirmed')
-    const b = repo.create(input, 'unconfirmed')
-    repo.markAborted(a.id, 'peer disconnected')
-    expect(repo.complete(b.id, 7, 60, 10)).toBe(true)
-    expect(repo.get(a.id)?.status).toBe('aborted')
-  })
-
-  test('a disconnect after completion changes nothing', () => {
-    const repo = makeRepo()
-    const { id } = repo.create(input, 'uploading')
-    repo.complete(id, 7, 60, 10)
-    repo.markAborted(id, 'peer disconnected')
-    expect(repo.get(id)?.status).toBe('completed')
-  })
-
-  test('expires rows that waited too long for a receipt', () => {
-    const repo = makeRepo()
-    const { id } = repo.create(input, 'uploading')
+    const { id, transferId } = repo.create(input).upload
+    repo.served(id, 0)
     expect(repo.expireUnconfirmed('2000-01-01T00:00:00Z')).toBe(0)
     expect(repo.expireUnconfirmed('9999-01-01T00:00:00Z')).toBe(1)
     expect(repo.get(id)?.status).toBe('unconfirmed')
+    expect(repo.complete(transferId, 7)).toBe(true)
+    expect(repo.get(id)).toMatchObject({ status: 'completed', sentBytes: 100 })
   })
 
-  test('summarizes in SQL and lists only running uploads as active', () => {
+  test('summarizes in SQL and lists only open transfers as active', () => {
     const repo = makeRepo()
-    const running = repo.create(input, 'uploading')
-    const done = repo.create(input, 'uploading')
-    repo.complete(done.id, 7, 60, 10)
-    repo.create(input, 'unconfirmed')
+    repo.create({ ...input, clientTransferId: 'a' })
+    const done = repo.create({ ...input, clientTransferId: 'b' }).upload
+    repo.served(done.id, 40)
+    repo.complete(done.transferId, 7)
+    repo.create({ ...input, clientTransferId: 'c' })
+    // Expires a and c; d is the only one still open.
+    repo.expireUnconfirmed('9999-01-01T00:00:00Z')
+    const open = repo.create({ ...input, clientTransferId: 'd' }).upload
 
     expect(repo.summary()).toEqual({
       byStatus: {
         uploading: 1,
         completed: 1,
-        aborted: 0,
-        unconfirmed: 1,
+        unconfirmed: 2,
       },
-      total: 3,
+      total: 4,
       bytesSent: 60,
     })
-    expect(repo.listActive().map(r => r.id)).toEqual([running.id])
+    expect(repo.listActive().map(r => r.id)).toEqual([open.id])
   })
 
   test('lists newest first', () => {
     const repo = makeRepo()
-    const first = repo.create(input, 'uploading')
-    const second = repo.create(input, 'uploading')
+    const first = repo.create({ ...input, clientTransferId: 'a' }).upload
+    const second = repo.create({ ...input, clientTransferId: 'b' }).upload
     expect(repo.list().map(r => r.id)).toEqual([second.id, first.id])
-  })
-
-  test('marks rows left uploading by a previous run as aborted', () => {
-    const repo = makeRepo()
-    const running = repo.create(input, 'uploading')
-    const done = repo.create(input, 'uploading')
-    repo.complete(done.id, 7, 60, 10)
-
-    expect(repo.reconcileInterrupted()).toBe(1)
-    expect(repo.get(running.id)).toMatchObject({ status: 'aborted', error: 'interrupted by a jack restart' })
-    expect(repo.get(done.id)?.status).toBe('completed')
   })
 
   test('notifies subscribers on every change', () => {
     const repo = makeRepo()
     let calls = 0
     repo.subscribe(() => calls++)
-    const { id } = repo.create(input, 'uploading')
-    repo.complete(id, 7, 60, 10)
-    expect(calls).toBe(2)
+    const { id, transferId } = repo.create(input).upload
+    repo.create(input)
+    repo.served(id, 0)
+    repo.complete(transferId, 7)
+    expect(calls).toBe(3)
   })
 })

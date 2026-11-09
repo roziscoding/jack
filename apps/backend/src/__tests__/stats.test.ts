@@ -46,7 +46,8 @@ function upload(overrides: Partial<NewUploadRow>): NewUploadRow {
     itemId: '1',
     filename: 'Movie.mkv',
     totalBytes: 1000,
-    requestedBytes: 400,
+    transferId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     status: 'completed',
     startedAt: '2026-11-07T09:00:00Z',
     updatedAt: '2026-11-07T09:00:00Z',
@@ -79,7 +80,7 @@ test('aggregates daily series and rankings in SQL', () => {
     // Confirmed by a receipt: 400 bytes in 4 s.
     upload({ sentBytes: 400, durationMs: 4000, finishedAt: '2026-11-07T09:00:04Z' }),
     // No receipt, so nothing is known to have arrived.
-    upload({ status: 'aborted', finishedAt: '2026-11-07T09:30:00Z' }),
+    upload({ status: 'unconfirmed' }),
     // Another key with the same name stays a separate peer.
     upload({
       peerKeyId: 8,
@@ -179,7 +180,9 @@ test('a short range carries the previous day\'s catalog reading', () => {
   const stats = repo.dashboard('1h', NOW)
 
   expect(stats.catalog.points.map(p => p.day)).toEqual(['2026-11-07'])
-  expect(stats.catalog.sources).toEqual([{ id: 'self', name: 'This instance' }])
+  expect(stats.catalog.sources).toEqual([
+    { id: 'self', name: 'This instance' },
+  ])
   database.close()
 })
 

@@ -22,6 +22,8 @@ export interface DownloadRecord {
   expectedBytesSource: ExpectedBytesSource | null
   expectedBytesMismatch: boolean
   downloadedBytes: number
+  // Bytes per second between the last two progress writes of this attempt.
+  speedBps: number | null
   attempts: number
   status: DownloadStatus
   startedAt: string
@@ -79,6 +81,7 @@ function toRecord(row: DownloadRow): DownloadRecord {
     expectedBytesSource: row.expectedBytesSource ?? null,
     expectedBytesMismatch: row.expectedBytesMismatch,
     downloadedBytes: row.downloadedBytes,
+    speedBps: row.speedBps,
     attempts: row.attempts,
     status: row.status,
     startedAt: row.startedAt,
@@ -215,10 +218,11 @@ export class DownloadsRepository {
     this.notifyChanged()
   }
 
-  updateProgress(id: number, downloadedBytes: number): void {
+  updateProgress(id: number, downloadedBytes: number, speedBps: number | null = null): void {
     this.db.update(downloads)
       .set({
         downloadedBytes,
+        speedBps,
         updatedAt: nowIso(),
       })
       .where(eq(downloads.id, id))
@@ -318,6 +322,8 @@ export class DownloadsRepository {
     const row = this.db.update(downloads)
       .set({
         attempts: sql`${downloads.attempts} + 1`,
+        // A new attempt has no samples yet.
+        speedBps: null,
         updatedAt: nowIso(),
       })
       .where(eq(downloads.id, id))
@@ -347,6 +353,7 @@ export class DownloadsRepository {
     this.db.update(downloads)
       .set({
         downloadedBytes: 0,
+        speedBps: null,
         error: 'resume validation failed; restarted from byte 0',
         updatedAt: nowIso(),
       })

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c9f970ae-d2a3-41bd-b206-35a480a193bf",
+  "id": "f1dbe784-1ac2-4f13-84a0-08e7a930ded3",
   "prevId": "7a0a25df-a2e9-4f9a-b477-42d28d9a01fc",
   "tables": {
     "api_keys": {
@@ -173,6 +173,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "speed_bps": {
+          "name": "speed_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "attempts": {
           "name": "attempts",
@@ -920,6 +927,20 @@
           "notNull": true,
           "autoincrement": true
         },
+        "transfer_id": {
+          "name": "transfer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "peer_name": {
           "name": "peer_name",
           "type": "text",
@@ -959,15 +980,7 @@
           "name": "range_start",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "requested_bytes": {
-          "name": "requested_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "sent_bytes": {
@@ -990,13 +1003,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "started_at": {
@@ -1022,6 +1028,20 @@
         }
       },
       "indexes": {
+        "uploads_transfer_id_unique": {
+          "name": "uploads_transfer_id_unique",
+          "columns": [
+            "transfer_id"
+          ],
+          "isUnique": true
+        },
+        "uploads_idempotency_key_unique": {
+          "name": "uploads_idempotency_key_unique",
+          "columns": [
+            "idempotency_key"
+          ],
+          "isUnique": true
+        },
         "uploads_status_idx": {
           "name": "uploads_status_idx",
           "columns": [
@@ -1043,7 +1063,7 @@
       "checkConstraints": {
         "uploads_status_check": {
           "name": "uploads_status_check",
-          "value": "\"uploads\".\"status\" in ('uploading', 'completed', 'aborted', 'unconfirmed')"
+          "value": "\"uploads\".\"status\" in ('uploading', 'completed', 'unconfirmed')"
         }
       }
     }

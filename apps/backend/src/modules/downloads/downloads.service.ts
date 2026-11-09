@@ -14,7 +14,6 @@ import { logger } from '../../logger'
 import { unlinkDownloadArtifact } from './artifact-cleanup'
 import { transferErrorCode, transferErrorLogFields } from './download-error-codes'
 import { coordinatorFor } from './download-operation-coordinator'
-import { liveProgressFor } from './live-progress'
 import { downloadRetryAfterMs, isTransientDownloadError } from './retry-policy'
 
 type DownloadsServiceConfig = NonNullable<AppConfig['downloads']>
@@ -145,6 +144,7 @@ export class DownloadsService {
         expectedBytesSource: null,
         expectedBytesMismatch: false,
         downloadedBytes: 0,
+        speedBps: null,
         attempts: 0,
         status: 'downloading',
         startedAt: '',
@@ -382,14 +382,13 @@ export class DownloadsService {
     }
     finally {
       this.active.delete(record.destPath)
-      if (this.downloadsRepository)
-        liveProgressFor(this.downloadsRepository).clear(record.id)
     }
   }
 
   private async downloadWithRetry(record: DownloadRecord, signal: AbortSignal): Promise<void> {
     const repo = this.downloadsRepository
-    const live = repo && liveProgressFor(repo)
+    // The previous progress sample in this attempt, to work out the speed from.
+    let last: { at: number, bytes: number } | undefined
     const peer = this.peers.find(p => p.id === record.peerId)
     if (!peer) {
       repo?.markFailed(record.id, 'PEER_NOT_FOUND', `Peer ${record.peerId} not found`)
@@ -402,33 +401,36 @@ export class DownloadsService {
         repo?.setExpectedBytes(record.id, event.expectedBytes, event.expectedBytesSource, event.expectedBytesMismatch)
         return
       }
-      if (event.type === 'bytes') {
-        live?.record(record.id, event.downloadedBytes)
-        return
-      }
       if (event.type === 'progress') {
-        repo?.updateProgress(record.id, event.downloadedBytes)
-        live?.record(record.id, event.downloadedBytes)
+        const at = Date.now()
+        const speedBps = last && at > last.at
+          ? Math.round(((event.downloadedBytes - last.bytes) * 1000) / (at - last.at))
+          : null
+        last = { at, bytes: event.downloadedBytes }
+        repo?.updateProgress(record.id, event.downloadedBytes, speedBps)
         return
       }
       if (event.type === 'restart') {
+        last = undefined
         repo?.markResumeReset(record.id)
-        live?.clear(record.id)
         return
       }
       // event.type === 'completed': the transfer finished. Record the final byte
       // count; the status flips to import_queued once downloadFile resolves below.
-      repo?.updateProgress(record.id, event.downloadedBytes)
+      repo?.updateProgress(record.id, event.downloadedBytes, null)
     }
 
     try {
       await retry(async () => {
         signal.throwIfAborted()
+        last = undefined
         repo?.incrementAttempts(record.id)
         await peer.downloadFile(record.itemId, record.destPath, {
           torrentFilename: record.torrentFilename,
           partPath: record.partPath,
           releaseSize: record.releaseSize,
+          // Stable for this download across retries and restarts.
+          transferId: `download-${record.id}-${Date.parse(record.startedAt)}`,
           idleTimeoutMs: this.config.idleTimeoutMs,
           onProgress,
           signal,
