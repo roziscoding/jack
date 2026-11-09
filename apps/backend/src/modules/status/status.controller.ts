@@ -153,21 +153,16 @@ export class StatusController {
   getOverview() {
     const peers = this.connectors.peers
     const servers = this.connectors.servers
-    const records = this.downloads?.list() ?? []
-
-    const byStatus = Object.fromEntries(DOWNLOAD_STATUSES.map(s => [s, 0])) as Record<DownloadStatus, number>
-    // `bytesMoved` is the lifetime total of bytes actually pulled over the wire
-    // (partial transfers count what they got), powering the dashboard's vanity stat.
-    let bytesMoved = 0
-    // True count of in-flight/queued transfers flagged with a size mismatch, so the
-    // dashboard reports an accurate total even though the detail arrays are capped.
-    let mismatched = 0
-    for (const record of records) {
-      byStatus[record.status]++
-      bytesMoved += record.downloadedBytes
-      if (record.expectedBytesMismatch && (record.status === 'downloading' || record.status === 'import_queued'))
-        mismatched++
+    // This runs on every overview snapshot (about once a second while downloads
+    // move), so totals come from SQLite and only the rows shown are loaded. The
+    // detail lists are capped; `mismatched` still counts every flagged row.
+    const totals = this.downloads?.summary() ?? {
+      byStatus: Object.fromEntries(DOWNLOAD_STATUSES.map(s => [s, 0])) as Record<DownloadStatus, number>,
+      total: 0,
+      bytesMoved: 0,
+      mismatched: 0,
     }
+    const inStatus = (status: DownloadStatus, limit?: number) => (this.downloads?.listByStatus(status, limit) ?? []).map(this.enrich)
 
     return {
       peers: {
@@ -190,14 +185,11 @@ export class StatusController {
         })),
       },
       downloads: {
-        total: records.length,
-        byStatus,
-        bytesMoved,
-        mismatched,
-        // `records` is sorted by updatedAt desc, so each slice is the most recent.
-        active: records.filter(r => r.status === 'downloading').map(this.enrich),
-        importQueued: records.filter(r => r.status === 'import_queued').slice(0, ATTENTION_LIMIT).map(this.enrich),
-        failed: records.filter(r => r.status === 'failed').slice(0, ATTENTION_LIMIT).map(this.enrich),
+        ...totals,
+        // Most recently updated first.
+        active: inStatus('downloading'),
+        importQueued: inStatus('import_queued', ATTENTION_LIMIT),
+        failed: inStatus('failed', ATTENTION_LIMIT),
       },
       uploads: this.getUploadsSummary(),
     }

@@ -36,6 +36,8 @@ describe('UploadsRepository', () => {
     // Another key, even one with the same name, can't close it; nor can the master key.
     expect(repo.complete(id, 8, 60, 1000)).toBe(false)
     expect(repo.complete(id, null, 60, 1000)).toBe(false)
+    // More bytes than the request asked for (60) is rejected.
+    expect(repo.complete(id, 7, 61, 1000)).toBe(false)
     expect(repo.complete(id, 7, 60, 2000)).toBe(true)
     expect(repo.get(id)).toMatchObject({ status: 'completed', sentBytes: 60, durationMs: 2000 })
     expect(repo.get(id)?.finishedAt).not.toBeNull()
