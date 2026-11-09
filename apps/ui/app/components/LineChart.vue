@@ -74,12 +74,13 @@ function onMove(event: PointerEvent) {
 function onKey(event: KeyboardEvent) {
   const last = props.days.length - 1
   const current = hover.value ?? last
-  const next = {
+  const positions: Record<string, number> = {
     ArrowLeft: current - 1,
     ArrowRight: current + 1,
     Home: 0,
     End: last,
-  }[event.key]
+  }
+  const next = positions[event.key]
   if (next === undefined)
     return
   event.preventDefault()
