@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6ac50a21-0ed9-4db2-98b2-75fa44e19161",
-  "prevId": "f1dbe784-1ac2-4f13-84a0-08e7a930ded3",
+  "id": "14e99ced-c742-4437-9940-60a0a5a6863a",
+  "prevId": "c9f970ae-d2a3-41bd-b206-35a480a193bf",
   "tables": {
     "api_keys": {
       "name": "api_keys",
@@ -68,59 +68,6 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "catalog_size_history": {
-      "name": "catalog_size_history",
-      "columns": {
-        "day": {
-          "name": "day",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_name": {
-          "name": "source_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "titles": {
-          "name": "titles",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "catalog_size_history_day_source_id_pk": {
-          "columns": [
-            "day",
-            "source_id"
-          ],
-          "name": "catalog_size_history_day_source_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -265,13 +212,6 @@
         },
         "completed_at": {
           "name": "completed_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "imported_at": {
-          "name": "imported_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

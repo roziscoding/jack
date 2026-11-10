@@ -103,15 +103,22 @@
     {
       "idx": 14,
       "version": "6",
-      "when": 1794267794073,
+      "when": 1794180331966,
       "tag": "0014_uploads",
       "breakpoints": true
     },
     {
       "idx": 15,
       "version": "6",
-      "when": 1794268415667,
-      "tag": "0015_dashboard_history",
+      "when": 1794270647120,
+      "tag": "0015_upload_transfers",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1794182530810,
+      "tag": "0016_dashboard_history",
       "breakpoints": true
     }
   ]
