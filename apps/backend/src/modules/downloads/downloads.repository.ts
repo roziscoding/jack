@@ -228,6 +228,11 @@ export class DownloadsRepository {
     this.notifyChanged()
   }
 
+  clearSpeed(id: number): void {
+    this.db.update(downloads).set({ speedBps: null }).where(eq(downloads.id, id)).run()
+    this.notifyChanged()
+  }
+
   // Download finished and the file is in completedPath, handed to *arr to import.
   // `completedAt` records when the transfer finished (what the qB API reports as
   // completion_on); the row stays here until *arr's import is detected.

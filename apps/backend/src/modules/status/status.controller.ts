@@ -27,7 +27,11 @@ function baseConnector(c: ServerConnector) {
   }
 }
 
-export function enrichDownload(d: DownloadRecord) {
+// Progress is written at least every 10 s while bytes arrive; a row quiet for
+// longer than this is stalled, so its last speed no longer holds.
+const SPEED_STALE_MS = 30_000
+
+export function enrichDownload(d: DownloadRecord, now = Date.now()) {
   // Prefer the negotiated expected size; fall back to the release-advertised size.
   const totalBytes = d.expectedBytes ?? (d.releaseSize > 0
     ? d.releaseSize
@@ -35,8 +39,9 @@ export function enrichDownload(d: DownloadRecord) {
   const progress = totalBytes && totalBytes > 0
     ? Math.min(1, d.downloadedBytes / totalBytes)
     : null
-  // Measured between progress writes (every 10 s / 64 MiB); only while running.
-  const speedBps = d.status === 'downloading'
+  // Measured between progress writes (every 10 s / 64 MiB); only while bytes
+  // still arrive. A failed attempt clears it before its retry wait.
+  const speedBps = d.status === 'downloading' && now - Date.parse(d.updatedAt) <= SPEED_STALE_MS
     ? d.speedBps
     : null
   const etaSeconds = speedBps && speedBps > 0 && totalBytes
