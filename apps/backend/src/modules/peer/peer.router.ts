@@ -222,7 +222,12 @@ export function getPeerRouter(controller: PeerController, uploads?: UploadsServi
       try {
         uploads!.repository.served(upload.id, result.type === 'partial'
           ? result.start
-          : 0)
+          : 0, {
+          filename: result.filename,
+          totalBytes: result.type === 'partial'
+            ? result.totalSize
+            : result.size,
+        })
       }
       catch (err) {
         logger.warn({ uploadId: upload.id, err }, 'Could not record a transfer request')

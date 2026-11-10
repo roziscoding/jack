@@ -121,11 +121,17 @@ export class UploadsRepository {
     return this.db.select().from(uploads).orderBy(desc(uploads.startedAt), desc(uploads.id)).all()
   }
 
-  /** A request for the file starting at byte `start`; keeps the lowest one seen. */
-  served(id: number, start: number): void {
+  /**
+   * A request for the file as it is now on disk, starting at byte `start`. Keeps
+   * the lowest start seen; a file *arr replaced since (another size) starts over
+   * from this request, since the peer has to download the new file anyway.
+   */
+  served(id: number, start: number, file: { filename: string, totalBytes: number }): void {
     this.db.update(uploads)
       .set({
-        rangeStart: sql`min(coalesce(${uploads.rangeStart}, ${start}), ${start})`,
+        rangeStart: sql`case when ${uploads.totalBytes} = ${file.totalBytes} then min(coalesce(${uploads.rangeStart}, ${start}), ${start}) else ${start} end`,
+        totalBytes: file.totalBytes,
+        filename: file.filename,
         updatedAt: nowIso(),
       })
       .where(and(eq(uploads.id, id), inArray(uploads.status, [...OPEN])))

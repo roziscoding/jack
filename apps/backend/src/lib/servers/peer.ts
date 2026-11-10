@@ -25,8 +25,7 @@ const DOWNLOAD_PROGRESS_BYTES = 64 * 1024 * 1024
 const CONTENT_RANGE_PATTERN = /^bytes (\d+)-(\d+)\/(\d+)$/
 
 const PeerTransfer = z.object({
-  downloadId: z.string(),
-  url: z.string(),
+  downloadId: z.string().min(1),
 })
 
 export type PeerDownloadProgressEvent
@@ -287,8 +286,10 @@ export class PeerConnector extends ServerConnector {
           AbortSignal.timeout(30_000),
         ]),
       })
+      // Built here rather than taken from the response, so a peer can't point the
+      // request (and the api key it carries) at another host.
       return {
-        url: new URL(transfer.url, this.url),
+        url: new URL(`/peer/downloads/${encodeURIComponent(transfer.downloadId)}/file`, this.url),
         downloadId: transfer.downloadId,
       }
     }

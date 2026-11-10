@@ -448,6 +448,8 @@ export class DownloadsService {
             delayMs,
             ...transferErrorLogFields(error),
           }, 'Retrying peer download after transient failure')
+          // Nothing arrives while it waits to retry.
+          repo?.clearSpeed(record.id)
         },
         signal,
       })

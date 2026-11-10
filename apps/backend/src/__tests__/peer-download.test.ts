@@ -160,7 +160,8 @@ describe('PeerConnector.downloadFile', () => {
           downloadId: 'abc',
           filename: 'Movie.mkv',
           totalBytes: 4,
-          url: '/peer/downloads/abc/file',
+          // Ignored: the file URL is built from the downloadId on the peer's own host.
+          url: 'http://internal.test/admin',
         }, { status: 201 })
       }),
       http.get(`${PEER_JACK_URL}/peer/downloads/:downloadId/file`, ({ params }) => {

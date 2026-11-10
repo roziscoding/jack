@@ -14,6 +14,8 @@ const input = {
   totalBytes: 100,
   clientTransferId: 'download-1',
 }
+// The file as served, unchanged since the transfer started.
+const file = { filename: 'Movie.mkv', totalBytes: 100 }
 
 describe('UploadsRepository', () => {
   test('creates an open transfer with nothing served yet', () => {
@@ -57,9 +59,9 @@ describe('UploadsRepository', () => {
 
     // Never requested: nothing was sent, so there is nothing to complete.
     expect(repo.complete(transferId, 7, now)).toBe(false)
-    repo.served(id, 60)
-    repo.served(id, 40)
-    repo.served(id, 70)
+    repo.served(id, 60, file)
+    repo.served(id, 40, file)
+    repo.served(id, 70, file)
     // Another key, even one with the same name, can't close it; nor can the master key.
     expect(repo.complete(transferId, 8, now)).toBe(false)
     expect(repo.complete(transferId, null, now)).toBe(false)
@@ -72,14 +74,30 @@ describe('UploadsRepository', () => {
     })
     // Closed rows stay closed, and serving them again changes nothing.
     expect(repo.complete(transferId, 7, now)).toBe(false)
-    repo.served(id, 0)
+    repo.served(id, 0, file)
     expect(repo.get(id)?.rangeStart).toBe(40)
+  })
+
+  test('a file replaced mid-transfer counts from the request that served the new one', () => {
+    const repo = makeRepo()
+    const { id, transferId } = repo.create(input).upload
+    repo.served(id, 40, file)
+    // *arr swapped in a 250-byte file; the peer's resume fails and it starts over.
+    repo.served(id, 0, { filename: 'Movie.2160p.mkv', totalBytes: 250 })
+    repo.served(id, 100, { filename: 'Movie.2160p.mkv', totalBytes: 250 })
+    expect(repo.complete(transferId, 7)).toBe(true)
+    expect(repo.get(id)).toMatchObject({
+      filename: 'Movie.2160p.mkv',
+      totalBytes: 250,
+      rangeStart: 0,
+      sentBytes: 250,
+    })
   })
 
   test('expires transfers that waited too long; a late receipt still completes one', () => {
     const repo = makeRepo()
     const { id, transferId } = repo.create(input).upload
-    repo.served(id, 0)
+    repo.served(id, 0, file)
     expect(repo.expireUnconfirmed('2000-01-01T00:00:00Z')).toBe(0)
     expect(repo.expireUnconfirmed('9999-01-01T00:00:00Z')).toBe(1)
     expect(repo.get(id)?.status).toBe('unconfirmed')
@@ -91,7 +109,7 @@ describe('UploadsRepository', () => {
     const repo = makeRepo()
     repo.create({ ...input, clientTransferId: 'a' })
     const done = repo.create({ ...input, clientTransferId: 'b' }).upload
-    repo.served(done.id, 40)
+    repo.served(done.id, 40, file)
     repo.complete(done.transferId, 7)
     repo.create({ ...input, clientTransferId: 'c' })
     // Expires a and c; d is the only one still open.
@@ -123,7 +141,7 @@ describe('UploadsRepository', () => {
     repo.subscribe(() => calls++)
     const { id, transferId } = repo.create(input).upload
     repo.create(input)
-    repo.served(id, 0)
+    repo.served(id, 0, file)
     repo.complete(transferId, 7)
     expect(calls).toBe(3)
   })

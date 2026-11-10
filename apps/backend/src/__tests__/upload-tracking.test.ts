@@ -140,14 +140,18 @@ describe('peer transfers', () => {
   })
 })
 
-test('download speed and ETA come from the row, only while it runs', () => {
+test('download speed and ETA come from the row, only while bytes still arrive', () => {
+  const now = Date.parse('2026-11-08T12:00:00Z')
   const row = {
     status: 'downloading',
     expectedBytes: 10_000,
     releaseSize: 10_000,
     downloadedBytes: 2000,
     speedBps: 2000,
+    updatedAt: '2026-11-08T11:59:50Z',
   } as Parameters<typeof enrichDownload>[0]
-  expect(enrichDownload(row)).toMatchObject({ progress: 0.2, speedBps: 2000, etaSeconds: 4 })
-  expect(enrichDownload({ ...row, status: 'import_queued' })).toMatchObject({ speedBps: null, etaSeconds: null })
+  expect(enrichDownload(row, now)).toMatchObject({ progress: 0.2, speedBps: 2000, etaSeconds: 4 })
+  expect(enrichDownload({ ...row, status: 'import_queued' }, now)).toMatchObject({ speedBps: null, etaSeconds: null })
+  // Nothing written for a minute: stalled, so no speed.
+  expect(enrichDownload({ ...row, updatedAt: '2026-11-08T11:59:00Z' }, now)).toMatchObject({ speedBps: null, etaSeconds: null })
 })
