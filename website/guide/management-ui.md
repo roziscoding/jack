@@ -18,6 +18,8 @@ operate jack day to day:
   grabs, updating live as they progress. A failed download shows its
   [error code](/guide/troubleshooting#download-error-codes), linked to its
   entry in the troubleshooting guide, and the list can be filtered by code.
+- ***Uploads***: the files peers pull from you, live and past. See
+  [Uploads](#uploads).
 - ***Peers*** and ***Servers***: add, edit, and remove your friends and your
   Radarr/Sonarr connectors.
 - ***Settings -> Downloads***: the whole
@@ -31,6 +33,36 @@ operate jack day to day:
 
 Don't want it? Delete the `jack-ui` service and the backend's
 `JACK_MANAGEMENT_KEY` line to run jack headless.
+
+## Uploads
+
+When a peer downloads a file from your library, jack records it as an upload.
+The ***Uploads*** page lists them newest first, read-only, with:
+
+- **Peer**: the name of the API key the peer used, or `master` for the master
+  key.
+- **File**: the file name, with its size on disk.
+- **Sent**: bytes the peer received, with the average speed and how long it
+  took.
+- **Status**:
+  - `uploading` while the transfer is open, including while the peer waits to
+    retry or resume it.
+  - `completed` once the peer confirmed it got the file.
+  - `unconfirmed` when no confirmation came within 48 hours. Its size and speed
+    stay unknown, and a confirmation that still arrives later completes it.
+
+Each row is one transfer. The downloading jack starts it before asking for the
+file, then resumes and retries it as often as it needs, all on the same row. A
+dropped connection leaves it open. jack sends files straight from disk without
+reading them itself, which keeps uploads low-cost but means it can't see a
+transfer finish, so the downloading jack sends a receipt once the file arrives.
+The bytes sent count from the lowest byte the peer asked for, and the speed
+runs from the transfer's start to its receipt, retries included. There is no
+live speed while a file is being sent.
+
+Peers running an older jack don't start transfers, so their downloads from you
+aren't listed. The ***Overview*** page shows the uploads running now next to
+active downloads.
 
 ## Settings -> Downloads
 
@@ -51,9 +83,9 @@ cleared. If your config has no `downloads` block at all, the page offers to set
 one up.
 
 One ***Save*** covers the form and only lights up once something changed;
-***Revert*** discards your edits. `unlinkImportedFiles` takes effect the moment
-you save. **Every other key here is read at startup, so restart jack** to apply
-it.
+***Revert*** discards your edits. `unlinkImportedFiles` and
+`removeFailedDownloads` take effect the moment you save. **Every other key here
+is read at startup, so restart jack** to apply it.
 
 ## Settings -> Quick linking
 
@@ -104,7 +136,7 @@ for the full UI configuration reference.
 
 ## Live updates
 
-The UI doesn't poll. Overview, Downloads, and Settings each hold a
+The UI doesn't poll. Overview, Downloads, Uploads, and Settings each hold a
 [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
 stream open through the BFF, and jack pushes a fresh snapshot the moment
 something changes: a transfer's progress, a connector's state, or a peer or
@@ -115,8 +147,9 @@ The streams are plain `GET` endpoints on the management API:
 
 | Stream | What it pushes |
 | --- | --- |
-| `/overview/stream` | Connector overview + download state |
+| `/overview/stream` | Connector overview + download and upload state |
 | `/downloads/stream` | Every persisted download change |
+| `/uploads/stream` | Every upload change |
 | `/config/stream` | Peer and server config changes |
 
 Each sends its current snapshot immediately on connect, then a full snapshot per

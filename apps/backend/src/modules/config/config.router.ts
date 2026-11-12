@@ -96,8 +96,9 @@ export function getConfigRouter(controller: ConfigController) {
     })
 
     // Partial patch: the body is merged onto the stored downloads block. Every knob
-    // but `unlinkImportedFiles` is captured at boot, so those land on next restart.
-    app.patch('/downloads', configDoc('Update the downloads block', 'Merges the given fields into the stored downloads config. `unlinkImportedFiles` applies immediately; the other values take effect on next boot.'), zValidator('json', RawDownloadsConfig), async (c) => {
+    // but `unlinkImportedFiles` and `removeFailedDownloads` is captured at boot, so
+    // those take effect on next restart.
+    app.patch('/downloads', configDoc('Update the downloads block', 'Merges the given fields into the stored downloads config. `unlinkImportedFiles` and `removeFailedDownloads` apply immediately; the other values take effect on next boot.'), zValidator('json', RawDownloadsConfig), async (c) => {
       return c.json(await controller.updateDownloads(c.req.valid('json')))
     })
 

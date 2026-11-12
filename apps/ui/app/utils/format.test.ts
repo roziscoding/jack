@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { formatDurationMs } from './format'
+import { formatDurationMs, formatVersion } from './format'
+
+test('formatVersion prefixes only release versions', () => {
+  expect(formatVersion('0.5.0')).toBe('v0.5.0')
+  expect(formatVersion('main')).toBe('main')
+  expect(formatVersion('pr-12')).toBe('pr-12')
+})
 
 // Settings shows raw milliseconds (that's what the config file holds) next to this
 // reading of them, so the numbers stay editable without being unreadable.
