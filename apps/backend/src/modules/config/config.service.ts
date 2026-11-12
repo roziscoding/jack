@@ -376,8 +376,9 @@ export class ConfigService {
    * this is what the UI's empty field means. `undefined` (absent) leaves the stored
    * value alone.
    *
-   * Only `unlinkImportedFiles` takes effect immediately (the import watcher reads it
-   * per import); the rest are captured at boot and land on the next restart.
+   * Only `unlinkImportedFiles` and `removeFailedDownloads` take effect immediately
+   * (the import watcher and the failed-download reaper read them as they run); the
+   * rest are captured at boot and apply on the next restart.
    */
   async updateDownloads(input: unknown): Promise<void> {
     const patch = RawDownloadsConfig.parse(input)

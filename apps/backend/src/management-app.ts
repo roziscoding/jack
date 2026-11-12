@@ -7,6 +7,8 @@ import type { ConfigService } from './modules/config/config.service'
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
 import type { ImportWatcher } from './modules/downloads/import-watcher'
+import type { StatsRepository } from './modules/stats/stats.repository'
+import type { UploadsService } from './modules/uploads/uploads.service'
 import { Hono } from 'hono'
 import { describeRoute, openAPIRouteHandler, resolver } from 'hono-openapi'
 import { secureHeaders } from 'hono/secure-headers'
@@ -40,6 +42,8 @@ export function getManagementApp(params: {
   downloadsRepository?: DownloadsRepository
   downloadsService?: DownloadsService
   importWatcher?: ImportWatcher
+  uploadsService?: UploadsService
+  statsRepository?: StatsRepository
   apiKeysRepository?: ApiKeysRepository
   catalogCacheRepository?: CatalogCacheRepository
   tmdbMetadataRepository?: TmdbMetadataRepository
@@ -84,7 +88,7 @@ export function getManagementApp(params: {
   const configController = new ConfigController(params.connectors, params.configService)
   app.route('/config', getConfigRouter(configController))
 
-  const statusController = new StatusController(params.connectors, params.downloadsRepository)
+  const statusController = new StatusController(params.connectors, params.downloadsRepository, params.uploadsService, params.statsRepository)
   app.route('/', getStatusRouter(statusController))
 
   app.route('/downloads', getDownloadsManagementRouter(new DownloadsManagementController(

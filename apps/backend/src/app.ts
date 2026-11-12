@@ -6,6 +6,7 @@ import type { OwnCatalogRepository } from './modules/catalog/own-catalog.reposit
 import type { DownloadsRepository } from './modules/downloads/downloads.repository'
 import type { DownloadsService } from './modules/downloads/downloads.service'
 import type { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
+import type { UploadsService } from './modules/uploads/uploads.service'
 import { httpInstrumentationMiddleware } from '@hono/otel'
 import { Hono } from 'hono'
 import { describeRoute, openAPIRouteHandler, resolver } from 'hono-openapi'
@@ -35,6 +36,9 @@ interface AppServices {
   downloadsService?: DownloadsService
   // Serves `/peer/catalog`; without it the catalog comes back empty.
   ownCatalogRepository?: OwnCatalogRepository
+  // Records files peers pull from `/peer/items/:id/file`; without it they are
+  // served untracked.
+  uploadsService?: UploadsService
 }
 
 // This is the external surface, gated per audience rather than by one global key:
@@ -134,7 +138,7 @@ export function getApp(envs: Envs, config: AppConfig, connManager: { servers: Co
   // Peer API — other Jacks talk to us to search and download. Serves empty results
   // when there's no local source to read from.
   app.use('/peer/*', peerAuth)
-  app.route('/peer', getPeerRouter(peerController))
+  app.route('/peer', getPeerRouter(peerController, services.uploadsService))
 
   // Torznab API — the operator's Radarr/Sonarr search through us and grab via the
   // download router. Returns empty results when there are no peers to fan out to.

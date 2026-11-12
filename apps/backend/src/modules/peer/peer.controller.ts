@@ -39,7 +39,10 @@ export function parseRangeHeader(value: string | undefined | null): { start?: nu
 // Handing the BunFile straight to `new Response` lets Bun.serve stream it with native
 // backpressure (sendfile): if the consumer stalls or aborts mid-download, we stop
 // reading from disk instead of buffering the whole file into RAM. Pumping `.stream()`
-// ourselves does NOT backpressure and lets one stalled peer OOM the process.
+// ourselves does NOT backpressure and lets one stalled peer OOM the process. It is
+// also why upload tracking never touches the body: jack knows where each request
+// starts, and the downloading jack's receipt says when it all arrived (see
+// UploadsService).
 export type StreamFileResult
   = | { type: 'full', body: Blob, size: number, filename: string }
     | { type: 'partial', body: Blob, size: number, totalSize: number, start: number, end: number, filename: string }

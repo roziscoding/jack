@@ -369,11 +369,20 @@ async function confirmRevoke() {
               <div class="min-w-0">
                 <div class="flex items-baseline gap-2">
                   <span class="text-base font-semibold tracking-tight text-highlighted">jack</span>
-                  <span class="font-mono text-xs text-dimmed">v{{ version }}</span>
+                  <span class="font-mono text-xs text-dimmed">{{ formatVersion(version) }}</span>
                 </div>
                 <p class="text-xs text-muted">
                   Self-hosted *arr peer bridge
                 </p>
+                <ULink
+                  to="https://github.com/roziscoding/jack"
+                  target="_blank"
+                  rel="noopener"
+                  class="mt-1 inline-flex items-center gap-1 text-xs"
+                >
+                  <UIcon name="i-ph-github-logo" class="size-3.5" />
+                  roziscoding/jack
+                </ULink>
               </div>
             </div>
 

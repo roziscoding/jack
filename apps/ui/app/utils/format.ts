@@ -1,3 +1,47 @@
+/** "12.3 MB/s · 4 min left" for a running transfer; empty when there's no live speed yet. */
+export function formatTransferRate(speedBps: number | null, etaSeconds: number | null): string {
+  if (speedBps == null)
+    return ''
+  const rate = `${formatBytes(speedBps)}/s`
+  return etaSeconds == null
+    ? rate
+    : `${rate} · ${formatDurationMs(etaSeconds * 1000)} left`
+}
+
+/** A UTC `YYYY-MM-DD` day as "Nov 8". */
+export function formatDay(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+/**
+ * A chart bucket start, as precise as its width needs: "Nov 8" for daily
+ * buckets, "Nov 8, 18:00" for 6 h ones, "14:32" or "14:32:10" within a day.
+ * Daily buckets are UTC days; shorter ones show local time.
+ */
+export function formatBucket(at: string, bucketMs: number): string {
+  const date = new Date(at)
+  if (bucketMs >= 86_400_000)
+    return formatDay(at.slice(0, 10))
+  if (bucketMs > 3_600_000) {
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+  if (bucketMs >= 60_000)
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+/** `1.2.3` -> `v1.2.3`; a branch or PR build (`main`, `pr-12`, `dev`) is shown as is. */
+export function formatVersion(version: string): string {
+  return /^\d/.test(version)
+    ? `v${version}`
+    : version
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null || Number.isNaN(bytes))
     return '—'

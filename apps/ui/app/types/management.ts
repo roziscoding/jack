@@ -59,6 +59,9 @@ export interface DownloadItem {
   downloadedBytes: number
   totalBytes: number | null
   progress: number | null
+  // Live, while downloading: averaged over the last few seconds. Null otherwise.
+  speedBps: number | null
+  etaSeconds: number | null
   releaseSize: number
   attempts: number
   error: string | null
@@ -81,6 +84,35 @@ export interface DownloadItem {
   updatedAt: string
   completedAt: string | null
   expectedBytesMismatch: boolean
+}
+
+// A file a peer pulls from this instance. One per transfer, however often the
+// peer resumed or retried it.
+export interface UploadItem {
+  id: number
+  // The API key the peer used; 'master' for the master key.
+  peerName: string
+  itemId: string
+  filename: string
+  // The whole file's size on disk.
+  totalBytes: number
+  // Lowest byte requested: past 0 when the peer already had part of the file.
+  // Null until the file is first requested.
+  rangeStart: number | null
+  // Bytes this transfer delivered; 0 until the receipt.
+  sentBytes: number
+  // Creation to receipt; null without one.
+  durationMs: number | null
+  // 1 once completed, null before.
+  progress: number | null
+  // Average over the whole transfer. Null without a receipt.
+  speedBps: number | null
+  // Files go out zero-copy: `completed` needs the peer's receipt, and no receipt
+  // within 48 hours leaves it `unconfirmed`.
+  status: 'uploading' | 'completed' | 'unconfirmed'
+  startedAt: string
+  updatedAt: string
+  finishedAt: string | null
 }
 
 export interface TmdbMetadata {
@@ -180,6 +212,12 @@ export interface Overview {
     importQueued: DownloadItem[]
     failed: DownloadItem[]
   }
+  uploads: {
+    total: number
+    byStatus: Record<UploadItem['status'], number>
+    bytesSent: number
+    active: UploadItem[]
+  }
 }
 
 // Secret refs mirror the backend's RawConfigSecret union.
@@ -232,6 +270,9 @@ export interface DownloadsConfig {
   manualImportBackoffBaseMs?: number
   manualImportBackoffMaxMs?: number
   unlinkImportedFiles?: boolean
+  removeFailedDownloads?: boolean
+  failedDownloadRetries?: number
+  failedRetryBaseDelayMs?: number
 }
 
 // PATCH body for config.downloads. Absent leaves the stored value alone; `null` drops
@@ -283,4 +324,36 @@ export interface LogRecord {
   message?: string
   trace_id?: string
   [key: string]: unknown
+}
+
+export const STATS_RANGES = ['5m', '30m', '1h', '24h', '7d', '30d'] as const
+export type StatsRange = typeof STATS_RANGES[number]
+
+// GET /stats: the dashboard charts. Every series has one entry per bucket;
+// `buckets` holds their starts (ISO 8601, oldest first).
+export interface DashboardStats {
+  range: StatsRange
+  bucketMs: number
+  buckets: string[]
+  transfers: {
+    at: string
+    downloadedBytes: number
+    uploadedBytes: number
+    downloadBps: number | null
+    uploadBps: number | null
+  }[]
+  importLatency: { at: string, avgSeconds: number | null, count: number }[]
+  // Fastest, average and slowest single import in the window.
+  importSummary: { minSeconds: number | null, avgSeconds: number | null, maxSeconds: number | null, count: number }
+  peers: {
+    // `id` is stable (peer id, API key id, or `master`); `name` is the latest label.
+    gaveToMe: { id: string, name: string, bytes: number }[]
+    tookFromMe: { id: string, name: string, bytes: number }[]
+  }
+  failures: { code: string, count: number }[]
+  topTitles: { filename: string, bytes: number, requests: number, peers: number }[]
+  catalog: {
+    sources: { id: string, name: string }[]
+    points: { day: string, sourceId: string, titles: number, bytes: number }[]
+  }
 }

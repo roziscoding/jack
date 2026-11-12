@@ -39,6 +39,28 @@ function seed(repo: DownloadsRepository, peerId: string, filename: string) {
   })
 }
 
+describe('DownloadsRepository.summary', () => {
+  test('counts by status and sums bytes in SQL', () => {
+    const repo = makeRepo()
+    const a = seed(repo, 'p1', 'A.mkv')
+    seed(repo, 'p1', 'B.mkv')
+    repo.updateProgress(a.id, 40)
+    repo.markFailed(a.id, 'PEER_UNREACHABLE', 'nope')
+    expect(repo.summary()).toMatchObject({
+      byStatus: {
+        downloading: 1,
+        failed: 1,
+        import_queued: 0,
+        imported: 0,
+      },
+      total: 2,
+      bytesMoved: 40,
+      mismatched: 0,
+    })
+    expect(repo.listByStatus('failed', 1).map(r => r.id)).toEqual([a.id])
+  })
+})
+
 describe('DownloadsRepository.reassignPeerId', () => {
   test('moves only the matching rows', () => {
     const repo = makeRepo()
