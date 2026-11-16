@@ -99,8 +99,8 @@ const importTiles = computed(() => [
 const hasLatency = computed(() => stats.value?.importLatency.some(l => l.count > 0) ?? false)
 
 // One line per catalog. Colors follow the source (this instance first, then peers
-// by id), so a peer keeps its color as others come and go. Eight slots, so at
-// most eight lines.
+// by id), so a peer keeps its color as others come and go. The palette has eight
+// slots; past that, colors repeat in order.
 const CATALOG_SLOTS = 8
 const catalogSeries = computed<LineSeries[]>(() => {
   const s = stats.value
@@ -112,13 +112,13 @@ const catalogSeries = computed<LineSeries[]>(() => {
       : b.id === 'self'
         ? 1
         : a.id.localeCompare(b.id))
-  return sources.slice(0, CATALOG_SLOTS).map((source, i) => {
+  return sources.map((source, i) => {
     // Points come oldest first, one per day. A bucket takes the latest reading
     // on or before its UTC day, so sub-day buckets share their day's reading.
     const points = s.catalog.points.filter(p => p.sourceId === source.id)
     return {
       name: source.name,
-      color: `var(--viz-${i + 1})`,
+      color: `var(--viz-${(i % CATALOG_SLOTS) + 1})`,
       values: s.buckets.map((at) => {
         const day = at.slice(0, 10)
         return points.findLast(p => p.day <= day)?.titles ?? null
