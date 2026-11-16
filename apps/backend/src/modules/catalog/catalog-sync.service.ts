@@ -50,6 +50,8 @@ export interface CatalogSyncDeps {
   metadata?: Pick<TmdbMetadataRepository, 'get'>
   // The current cron expression; read again on every reschedule().
   schedule: () => string
+  // Called after each successful full sync, e.g. to record catalog sizes. Must not throw.
+  onSynced?: () => void
 }
 
 /**
@@ -207,6 +209,7 @@ export class CatalogSyncService {
         ])
       })
       this.syncedAt = new Date().toISOString()
+      this.deps.onSynced?.()
     }
     catch (err) {
       logger.error({ err }, 'Catalog sync failed')

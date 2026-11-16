@@ -2,6 +2,7 @@ import type { StatusController } from './status.controller'
 import { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { streamSnapshots } from '../../lib/sse'
+import { DEFAULT_STATS_RANGE, isStatsRange, STATS_RANGES } from '../stats/stats'
 
 export function getStatusRouter(controller: StatusController) {
   const app = new Hono()
@@ -90,6 +91,38 @@ export function getStatusRouter(controller: StatusController) {
       },
     },
   }), c => streamSnapshots(c, () => controller.listUploads(), subscriber => controller.subscribeUploads(subscriber)))
+
+  app.get('/stats', describeRoute({
+    tags: ['Status'],
+    summary: 'Dashboard statistics',
+    description: 'Transfer volume, average speed and import latency over a history window, plus lifetime bytes per peer, current failures by error code, the five files peers pulled most, and the daily catalog size history. `range` picks the window and its bucket width: `5m` (10 s buckets), `30m` (1 min), `1h` (2 min), `24h` (1 h), `7d` (6 h) or `30d` (1 day, the default).',
+    parameters: [
+      {
+        name: 'range',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: Object.keys(STATS_RANGES),
+          default: DEFAULT_STATS_RANGE,
+        },
+      },
+    ],
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Dashboard statistics',
+        content: { 'application/json': {} },
+      },
+    },
+  }), (c) => {
+    const requested = c.req.query('range')
+    return c.json(controller.getStats(isStatsRange(requested)
+      ? requested
+      : DEFAULT_STATS_RANGE))
+  })
 
   return app
 }

@@ -3,9 +3,12 @@ import type { ArrServerConnector } from '../../lib/servers/arr/base'
 import type { ServerConnector } from '../../lib/servers/base'
 import type { PeerConnector } from '../../lib/servers/peer'
 import type { DownloadRecord, DownloadsRepository } from '../downloads/downloads.repository'
+import type { DashboardStats, StatsRange } from '../stats/stats'
+import type { StatsRepository } from '../stats/stats.repository'
 import type { UploadRecord } from '../uploads/uploads.repository'
 import type { UploadsService } from '../uploads/uploads.service'
 import { DOWNLOAD_STATUSES, UPLOAD_STATUSES } from '../../database/schema'
+import { rangeBuckets, STATS_RANGES } from '../stats/stats'
 
 // The management surface can expose richer detail than the public API: every
 // connector here carries its URL-derived `id` (the management UI keys edit/delete
@@ -110,6 +113,7 @@ export class StatusController {
     private readonly connectors: { servers: ArrServerConnector[], peers: PeerConnector[], subscribe?: (subscriber: () => void) => () => void },
     private readonly downloads?: DownloadsRepository,
     private readonly uploads?: UploadsService,
+    private readonly stats?: StatsRepository,
   ) {}
 
   private enrichUpload = (u: UploadRecord) => enrichUpload(u)
@@ -202,6 +206,28 @@ export class StatusController {
     return {
       ...this.uploads.repository.summary(),
       active: this.uploads.repository.listActive().map(this.enrichUpload),
+    }
+  }
+
+  /** Chart data for the dashboard: the history window `range` plus lifetime rankings. */
+  getStats(range: StatsRange): DashboardStats {
+    // Aggregated in SQLite: the history is never loaded for a chart.
+    return this.stats?.dashboard(range) ?? {
+      range,
+      bucketMs: STATS_RANGES[range].bucketMs,
+      buckets: rangeBuckets(range),
+      importSummary: {
+        minSeconds: null,
+        avgSeconds: null,
+        maxSeconds: null,
+        count: 0,
+      },
+      transfers: [],
+      importLatency: [],
+      peers: { gaveToMe: [], tookFromMe: [] },
+      failures: [],
+      topTitles: [],
+      catalog: { sources: [], points: [] },
     }
   }
 

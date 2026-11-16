@@ -30,6 +30,7 @@ function baseRecord(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
     startedAt: '2026-06-06T00:00:00.000Z',
     updatedAt: '2026-06-06T00:00:00.000Z',
     completedAt: null,
+    importedAt: null,
     error: null,
     errorCode: null,
     errorDetails: null,

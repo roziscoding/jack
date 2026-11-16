@@ -325,3 +325,35 @@ export interface LogRecord {
   trace_id?: string
   [key: string]: unknown
 }
+
+export const STATS_RANGES = ['5m', '30m', '1h', '24h', '7d', '30d'] as const
+export type StatsRange = typeof STATS_RANGES[number]
+
+// GET /stats: the dashboard charts. Every series has one entry per bucket;
+// `buckets` holds their starts (ISO 8601, oldest first).
+export interface DashboardStats {
+  range: StatsRange
+  bucketMs: number
+  buckets: string[]
+  transfers: {
+    at: string
+    downloadedBytes: number
+    uploadedBytes: number
+    downloadBps: number | null
+    uploadBps: number | null
+  }[]
+  importLatency: { at: string, avgSeconds: number | null, count: number }[]
+  // Fastest, average and slowest single import in the window.
+  importSummary: { minSeconds: number | null, avgSeconds: number | null, maxSeconds: number | null, count: number }
+  peers: {
+    // `id` is stable (peer id, API key id, or `master`); `name` is the latest label.
+    gaveToMe: { id: string, name: string, bytes: number }[]
+    tookFromMe: { id: string, name: string, bytes: number }[]
+  }
+  failures: { code: string, count: number }[]
+  topTitles: { filename: string, bytes: number, requests: number, peers: number }[]
+  catalog: {
+    sources: { id: string, name: string }[]
+    points: { day: string, sourceId: string, titles: number, bytes: number }[]
+  }
+}
