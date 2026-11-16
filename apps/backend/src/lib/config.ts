@@ -276,6 +276,15 @@ export const DownloadsConfig = z.object({
   // library's link) or copied it. Enabling this unlinks jack's directory entry —
   // never a recursive delete — right after a row flips to `imported`.
   unlinkImportedFiles: z.boolean().default(false),
+  // When enabled, a download that ends up `failed` (a transfer or import whose own
+  // retries above are spent, or a permanent error) is retried as a whole up to
+  // `failedDownloadRetries` times, backing off exponentially from
+  // `failedRetryBaseDelayMs` (capped at `retryMaxDelayMs`). If it still fails, its
+  // row and any partial or completed file are deleted. User cancels are left alone.
+  removeFailedDownloads: z.boolean().default(false),
+  // At least 3: network errors are often only reported once per attempt.
+  failedDownloadRetries: z.number().int().min(3).default(3),
+  failedRetryBaseDelayMs: z.number().int().min(0).default(60_000),
 })
 
 export type DownloadsConfig = z.infer<typeof DownloadsConfig>
@@ -300,6 +309,9 @@ export const RawDownloadsConfig = z.object({
   manualImportBackoffBaseMs: z.number().int().min(0).nullish(),
   manualImportBackoffMaxMs: z.number().int().min(0).nullish(),
   unlinkImportedFiles: z.boolean().nullish(),
+  removeFailedDownloads: z.boolean().nullish(),
+  failedDownloadRetries: z.number().int().min(3).nullish(),
+  failedRetryBaseDelayMs: z.number().int().min(0).nullish(),
 })
 
 export type RawDownloadsConfig = z.infer<typeof RawDownloadsConfig>

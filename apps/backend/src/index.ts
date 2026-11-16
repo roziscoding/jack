@@ -16,12 +16,16 @@ import { CatalogSyncService } from './modules/catalog/catalog-sync.service'
 import { OwnCatalogRepository } from './modules/catalog/own-catalog.repository'
 import { TmdbMetadataRepository } from './modules/catalog/tmdb-metadata.repository'
 import { ConfigService } from './modules/config/config.service'
+import { DownloadsManagementController } from './modules/downloads/downloads.controller'
 import { DownloadsRepository } from './modules/downloads/downloads.repository'
 import { DownloadsService } from './modules/downloads/downloads.service'
+import { FailedDownloadReaper } from './modules/downloads/failed-download-reaper'
 import { ImportWatcher } from './modules/downloads/import-watcher'
 import { ManagedKeysRepository } from './modules/managed-keys/managed-keys.repository'
 import { ManagedApiKeys } from './modules/managed-keys/managed-keys.service'
 import { qbCategoryForServer } from './modules/qbittorrent/qbittorrent.mapper'
+import { UploadsRepository } from './modules/uploads/uploads.repository'
+import { UploadsService } from './modules/uploads/uploads.service'
 
 function logRegistrationFailure(what: string, destName: string | undefined, err: unknown) {
   if (err instanceof FetchError) {
@@ -49,6 +53,10 @@ const apiKeysRepository = new ApiKeysRepository(database.db)
 const managedKeysRepository = new ManagedKeysRepository(database.db)
 const catalogCacheRepository = new CatalogCacheRepository(database.db)
 const tmdbMetadataRepository = new TmdbMetadataRepository(database.db)
+const uploadsService = new UploadsService(new UploadsRepository(database.db))
+
+// A receipt that never came (a lost POST) shouldn't leave an upload running forever.
+setInterval(() => uploadsService.expireUnconfirmed(), 60 * 60 * 1000).unref()
 
 // Seed the management service from the shared raw object returned by getAppConfig
 // so the service's persisted state can never diverge from the loaded runtime config.
@@ -85,6 +93,7 @@ const app = getApp(envs, config, connectorManager, {
   apiKeysRepository,
   managedKeysRepository,
   ownCatalogRepository,
+  uploadsService,
 })
 const server = Bun.serve({
   fetch: app.fetch,
@@ -120,6 +129,28 @@ const importWatcher = downloadsConfig
     })
   : undefined
 
+// Retries failed downloads with backoff, then deletes the ones that keep failing.
+// Routed through the management controller so transfers and imports each retry the
+// way the ***Retry*** button does.
+const downloadsController = new DownloadsManagementController(downloadsRepository, downloadsService, importWatcher)
+const failedDownloadReaper = downloadsConfig
+  ? new FailedDownloadReaper({
+      // Read per tick so the UI toggle applies live. With the management API, the
+      // file is the truth: the UI turns it off by dropping the key, which must read
+      // as off rather than falling back to the value jack started with.
+      enabled: () => configService
+        ? configService.getRawDownloads()?.removeFailedDownloads ?? false
+        : downloadsConfig.removeFailedDownloads,
+      list: () => downloadsRepository.list(),
+      get: id => downloadsRepository.get(id),
+      retry: id => downloadsController.retry(id),
+      remove: (id, onlyIf) => downloadsService!.delete(id, onlyIf),
+      maxRetries: downloadsConfig.failedDownloadRetries,
+      baseDelayMs: downloadsConfig.failedRetryBaseDelayMs,
+      maxDelayMs: downloadsConfig.retryMaxDelayMs,
+    })
+  : undefined
+
 function startManagementServer() {
   if (!envs.MANAGEMENT_KEY)
     return undefined
@@ -137,6 +168,7 @@ function startManagementServer() {
     downloadsRepository,
     downloadsService,
     importWatcher,
+    uploadsService,
     apiKeysRepository,
     catalogCacheRepository,
     tmdbMetadataRepository,
@@ -185,6 +217,8 @@ for (const dest of registrable) {
 managedApiKeys.prune(registrable.map(d => d.id))
 
 importWatcher?.start()
+if (downloadsConfig)
+  failedDownloadReaper?.start(downloadsConfig.importPollIntervalMs)
 
 // Re-drive interrupted downloads from a prior run.
 if (config.downloads && downloadsService) {
@@ -204,6 +238,7 @@ else {
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, exiting')
   importWatcher?.stop()
+  failedDownloadReaper?.stop()
   catalogSync.stop()
   database.close()
   server.stop()
@@ -215,6 +250,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, exiting')
   importWatcher?.stop()
+  failedDownloadReaper?.stop()
   catalogSync.stop()
   database.close()
   server.stop()

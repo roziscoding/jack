@@ -62,6 +62,34 @@ export function getStatusRouter(controller: StatusController) {
       },
     },
   }), c => streamSnapshots(c, () => controller.listDownloads(), subscriber => controller.subscribeDownloads(subscriber)))
+  app.get('/uploads', describeRoute({
+    tags: ['Uploads'],
+    summary: 'List uploads',
+    description: 'Files peers pulled or are pulling from this instance, newest first. One record per transfer, however often the peer resumed or retried it.',
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Upload records',
+        content: { 'application/json': {} },
+      },
+    },
+  }), c => c.json(controller.listUploads()))
+  app.get('/uploads/stream', describeRoute({
+    tags: ['Uploads'],
+    summary: 'Stream uploads',
+    description: 'Server-Sent Events stream with an initial upload snapshot and an update after every upload change, at most about once a second while files stream.',
+    security: [
+      { 'X-Management-Key': [] },
+    ],
+    responses: {
+      200: {
+        description: 'Live upload snapshots',
+        content: { 'text/event-stream': {} },
+      },
+    },
+  }), c => streamSnapshots(c, () => controller.listUploads(), subscriber => controller.subscribeUploads(subscriber)))
 
   return app
 }

@@ -28,6 +28,9 @@ CMD ["bun", "run", "--cwd", "apps/ui", "dev", "--host", "0.0.0.0", "--port", "30
 
 # ---- build: the Nuxt/Nitro server ----
 FROM development AS build
+# The version shown in the UI (CI passes the image version). Unset falls back to
+# `dev`, since the build context has no .git to read tags from.
+ARG APP_VERSION
 RUN bun run --cwd apps/ui build
 
 # ---- runtime: the self-contained Nitro output ----

@@ -35,6 +35,9 @@ it alone.)
 | [`downloads.manualImportBackoffBaseMs`](#downloads-manualimportbackoffbasems) | Import retry backoff base |
 | [`downloads.manualImportBackoffMaxMs`](#downloads-manualimportbackoffmaxms) | Import retry backoff cap |
 | [`downloads.unlinkImportedFiles`](#downloads-unlinkimportedfiles) | Drop jack's copy after *arr imports |
+| [`downloads.removeFailedDownloads`](#downloads-removefaileddownloads) | Retry, then delete failed downloads |
+| [`downloads.failedDownloadRetries`](#downloads-faileddownloadretries) | Retries before a failed download is deleted |
+| [`downloads.failedRetryBaseDelayMs`](#downloads-failedretrybasedelayms) | Failed-download retry backoff base |
 | [`servers[].name`](#servers-name) | Display name |
 | [`servers[].type`](#servers-type) | Radarr or Sonarr |
 | [`servers[].url`](#servers-url) | *arr base URL |
@@ -127,8 +130,9 @@ a qBittorrent download client when this block is present. Everything except
 Every key here is also editable from the management UI
 (***Settings -> Downloads***).
 Clearing a field there removes the key from the file, so the default below
-applies again. Only `unlinkImportedFiles` takes effect immediately; the rest are
-read at startup, so restart jack after changing them.
+applies again. Only `unlinkImportedFiles` and `removeFailedDownloads` take
+effect immediately; the rest are read at startup, so restart jack after changing
+them.
 
 ### `downloads.completedPath`
 
@@ -243,7 +247,56 @@ still references is left alone. If the unlink fails, the download stays
 `imported` and the failure is logged.
 
 Editable from the management UI (***Settings -> Downloads***) and applies
-immediately. Unlike the other keys in this block, it does not need a restart.
+immediately, without a restart.
+
+### `downloads.removeFailedDownloads`
+
+**Type:** `boolean`\
+**Default:** `false`
+
+Retry failed downloads, then delete the ones that keep failing. A download is
+failed once its own retries are spent
+([`maxDownloadAttempts`](#downloads-maxdownloadattempts) for transfers,
+[`maxManualImportAttempts`](#downloads-maxmanualimportattempts) for imports) or
+it hit an error those retries don't cover.
+
+With this on, jack checks for failed downloads on every
+[`importPollIntervalMs`](#downloads-importpollintervalms) tick:
+
+- **Retryable failures** (a transfer, or a manual import jack pushed) are
+  retried up to [`failedDownloadRetries`](#downloads-faileddownloadretries)
+  times. The delay before each retry doubles from
+  [`failedRetryBaseDelayMs`](#downloads-failedretrybasedelayms), capped at
+  [`retryMaxDelayMs`](#downloads-retrymaxdelayms).
+- **Failures that can't be retried**, and retryable ones still failing after
+  the last retry, are deleted the same way ***Delete*** does it: the row goes,
+  along with its partial or completed file, unless another download still uses
+  that file.
+
+Downloads you cancel are never retried or removed. Retry counts are kept in
+memory, so a restart starts them over.
+
+Editable from the management UI (***Settings -> Downloads***) and applies
+immediately, without a restart.
+
+### `downloads.failedDownloadRetries`
+
+**Type:** `integer`\
+**Format:** ≥ 3\
+**Default:** `3`
+
+How many times [`removeFailedDownloads`](#downloads-removefaileddownloads)
+retries a failed download before deleting it. The minimum is 3, since a single
+network error is often enough to fail one attempt.
+
+### `downloads.failedRetryBaseDelayMs`
+
+**Type:** `integer`\
+**Format:** milliseconds, ≥ 0\
+**Default:** `60000`
+
+Delay before the first of those retries. Each further retry waits twice as
+long, up to [`retryMaxDelayMs`](#downloads-retrymaxdelayms).
 
 ## `servers`
 

@@ -5,7 +5,11 @@ import { constantTimeEqual, hashKey, isGeneratedKey, isManagedKey } from '../lib
 import { UnauthorizedError } from '../lib/errors/UnauthorizedError'
 
 export interface AuthVariables {
+  // For display: key names are optional, editable and not unique.
   apiKeyName?: string
+  // Stable identity of the peer key (its row id), for ownership checks. Unset for
+  // the master key and managed keys.
+  apiKeyId?: number
 }
 
 // Each protected surface accepts exactly one class of key, so the scope is mounted
@@ -63,6 +67,7 @@ export function requireApiKey(masterKey: string, scope: ApiKeyScope) {
     }
 
     ctx.set('apiKeyName', resolution.row.name ?? 'unnamed')
+    ctx.set('apiKeyId', resolution.row.id)
     return next()
   })
 }

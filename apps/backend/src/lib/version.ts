@@ -1,6 +1,6 @@
 // jack's own version, reported to peers over /handshake. This doubles as the
 // peer-protocol version: a bump here signals a potential protocol change.
-export const PROTOCOL_VERSION = '0.2.0'
+export const PROTOCOL_VERSION = '0.3.0'
 
 // Oldest peer version we can still talk to. Peers below this — or peers too old
 // to expose a version at all — are rejected at init time as incompatible.
@@ -9,6 +9,10 @@ export const MIN_PEER_PROTOCOL_VERSION = '0.1.0'
 // First version that serves `/peer/catalog` (per-title summaries). Older peers
 // only have `/peer/search`, so their catalog is summarized from full releases.
 export const PEER_CATALOG_SUMMARY_VERSION = '0.2.0'
+
+// First version with transfers (`POST /peer/items/:itemId/downloads`), which it
+// records as uploads. Older peers only serve the untracked `/items/:itemId/file`.
+export const PEER_TRANSFERS_VERSION = '0.3.0'
 
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/
 

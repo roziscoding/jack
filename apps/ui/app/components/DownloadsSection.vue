@@ -27,6 +27,9 @@ function blankState() {
     manualImportBackoffBaseMs: null as number | null,
     manualImportBackoffMaxMs: null as number | null,
     unlinkImportedFiles: false,
+    removeFailedDownloads: false,
+    failedDownloadRetries: null as number | null,
+    failedRetryBaseDelayMs: null as number | null,
   }
 }
 
@@ -99,6 +102,9 @@ async function save() {
     manualImportBackoffMaxMs: state.manualImportBackoffMaxMs,
     // Off is the default, so write it as an absent key rather than an explicit false.
     unlinkImportedFiles: state.unlinkImportedFiles ? true : null,
+    removeFailedDownloads: state.removeFailedDownloads ? true : null,
+    failedDownloadRetries: state.failedDownloadRetries,
+    failedRetryBaseDelayMs: state.failedRetryBaseDelayMs,
   }
   const creating = !downloads.value
   try {
@@ -133,6 +139,8 @@ const transferKeys = [
   'idleTimeoutMs',
   'retryBaseDelayMs',
   'retryMaxDelayMs',
+  'failedDownloadRetries',
+  'failedRetryBaseDelayMs',
 ] as const
 const importKeys = [
   'importPollIntervalMs',
@@ -151,6 +159,8 @@ const DEFAULTS: Record<string, number> = {
   maxManualImportAttempts: 6,
   manualImportBackoffBaseMs: 60_000,
   manualImportBackoffMaxMs: 1_800_000,
+  failedDownloadRetries: 3,
+  failedRetryBaseDelayMs: 60_000,
 }
 
 function customCount(keys: readonly string[]) {
@@ -218,6 +228,14 @@ const importOpen = ref(false)
         >
           <USwitch v-model="state.unlinkImportedFiles" :disabled="saving" />
         </UFormField>
+
+        <UFormField
+          name="removeFailedDownloads"
+          label="Retry, then remove failed downloads"
+          description="When a download fails, jack retries it with a growing delay. If it still fails after the last retry, jack deletes it from the list along with any partial or completed file. Downloads you cancel are left alone. Tune the retries under Transfer retries."
+        >
+          <USwitch v-model="state.removeFailedDownloads" :disabled="saving" />
+        </UFormField>
       </UCard>
 
       <!-- Everything below is retry/backoff tuning: collapsed, because the defaults
@@ -276,6 +294,24 @@ const importOpen = ref(false)
               label="Longest retry delay"
               description="Ceiling for that backoff."
               :default-value="DEFAULTS.retryMaxDelayMs!"
+              unit="ms"
+            />
+            <ConfigNumberField
+              v-model="state.failedDownloadRetries"
+              :disabled="saving"
+              name="failedDownloadRetries"
+              label="Retries before removing"
+              description="With failed-download removal on: how many times a failed download is retried before jack deletes it. At least 3."
+              :default-value="DEFAULTS.failedDownloadRetries!"
+              :min="3"
+            />
+            <ConfigNumberField
+              v-model="state.failedRetryBaseDelayMs"
+              :disabled="saving"
+              name="failedRetryBaseDelayMs"
+              label="First failed-download retry delay"
+              description="Starting point for the backoff between those retries, capped at the longest retry delay."
+              :default-value="DEFAULTS.failedRetryBaseDelayMs!"
               unit="ms"
             />
           </UCard>
@@ -353,7 +389,7 @@ const importOpen = ref(false)
         title="Saved."
         :description="justAdded
           ? 'Restart the server to start downloading from peers with these settings.'
-          : 'Unlinking applies right away. The other settings are read at startup, so restart the server for them to take effect.'"
+          : 'Unlinking and failed-download removal apply right away. The other settings are read at startup, so restart the server for them to take effect.'"
       />
 
       <div class="flex flex-wrap items-center justify-end gap-2 pt-1">

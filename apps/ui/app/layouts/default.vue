@@ -2,9 +2,10 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 
 const { state, logout } = useAuth()
+const version = useRuntimeConfig().public.appVersion
 
 // Peers and *arr servers are managed as sections under Settings, so the nav is
-// just the three live views plus configuration.
+// just the live views plus configuration.
 const items: NavigationMenuItem[] = [
   {
     label: 'Dashboard',
@@ -13,6 +14,7 @@ const items: NavigationMenuItem[] = [
     exact: true,
   },
   { label: 'Downloads', icon: 'i-ph-download-simple', to: '/downloads' },
+  { label: 'Uploads', icon: 'i-ph-upload-simple', to: '/uploads' },
   { label: 'Peer Catalog', icon: 'i-ph-film-reel', to: '/catalog' },
   { label: 'Logs', icon: 'i-ph-scroll', to: '/logs' },
   { label: 'Settings', icon: 'i-ph-gear-six', to: '/settings' },
@@ -46,22 +48,25 @@ async function onLogout() {
       </template>
 
       <template #footer="{ collapsed }">
-        <div class="flex w-full items-center gap-1.5" :class="collapsed ? 'flex-col' : ''">
-          <UButton
-            v-if="state.mode === 'cookie'"
-            :label="collapsed ? undefined : 'Sign out'"
-            icon="i-ph-sign-out"
-            color="neutral"
-            variant="ghost"
-            :loading="loggingOut"
-            :block="!collapsed"
-            :class="!collapsed && 'flex-1 justify-start'"
-            @click="onLogout"
-          />
-          <span v-else-if="!collapsed" class="flex-1 truncate px-2.5 text-xs text-muted">
-            Key injected by host
-          </span>
-          <UColorModeButton />
+        <div class="flex w-full flex-col gap-1">
+          <span v-if="!collapsed" class="px-2.5 font-mono text-xs text-dimmed">{{ formatVersion(version) }}</span>
+          <div class="flex w-full items-center gap-1.5" :class="collapsed ? 'flex-col' : ''">
+            <UButton
+              v-if="state.mode === 'cookie'"
+              :label="collapsed ? undefined : 'Sign out'"
+              icon="i-ph-sign-out"
+              color="neutral"
+              variant="ghost"
+              :loading="loggingOut"
+              :block="!collapsed"
+              :class="!collapsed && 'flex-1 justify-start'"
+              @click="onLogout"
+            />
+            <span v-else-if="!collapsed" class="flex-1 truncate px-2.5 text-xs text-muted">
+              Key injected by host
+            </span>
+            <UColorModeButton />
+          </div>
         </div>
       </template>
     </UDashboardSidebar>

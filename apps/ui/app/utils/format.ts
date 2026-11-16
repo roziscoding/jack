@@ -1,3 +1,20 @@
+/** "12.3 MB/s · 4 min left" for a running transfer; empty when there's no live speed yet. */
+export function formatTransferRate(speedBps: number | null, etaSeconds: number | null): string {
+  if (speedBps == null)
+    return ''
+  const rate = `${formatBytes(speedBps)}/s`
+  return etaSeconds == null
+    ? rate
+    : `${rate} · ${formatDurationMs(etaSeconds * 1000)} left`
+}
+
+/** `1.2.3` -> `v1.2.3`; a branch or PR build (`main`, `pr-12`, `dev`) is shown as is. */
+export function formatVersion(version: string): string {
+  return /^\d/.test(version)
+    ? `v${version}`
+    : version
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null || Number.isNaN(bytes))
     return '—'

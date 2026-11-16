@@ -69,6 +69,7 @@ export const managementDocumentation: GenerateSpecOptions['documentation'] = {
     { name: 'System', description: 'Health probe and the connector overview.' },
     { name: 'Config', description: 'Read and mutate the persisted jack/servers/peers configuration.' },
     { name: 'Downloads', description: 'List and stream download records, and manage individual downloads by their numeric id.' },
+    { name: 'Uploads', description: 'List and stream the files peers pull from this instance.' },
     { name: 'Logs', description: 'Backfill and live-tail the process\'s own logs.' },
     { name: 'Catalog', description: 'Aggregated peer catalog and TMDB-backed metadata for the UI.' },
     { name: 'API keys', description: 'Issue, list, and revoke the peer API keys this instance hands out.' },

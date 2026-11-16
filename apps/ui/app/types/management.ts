@@ -59,6 +59,9 @@ export interface DownloadItem {
   downloadedBytes: number
   totalBytes: number | null
   progress: number | null
+  // Live, while downloading: averaged over the last few seconds. Null otherwise.
+  speedBps: number | null
+  etaSeconds: number | null
   releaseSize: number
   attempts: number
   error: string | null
@@ -81,6 +84,35 @@ export interface DownloadItem {
   updatedAt: string
   completedAt: string | null
   expectedBytesMismatch: boolean
+}
+
+// A file a peer pulls from this instance. One per transfer, however often the
+// peer resumed or retried it.
+export interface UploadItem {
+  id: number
+  // The API key the peer used; 'master' for the master key.
+  peerName: string
+  itemId: string
+  filename: string
+  // The whole file's size on disk.
+  totalBytes: number
+  // Lowest byte requested: past 0 when the peer already had part of the file.
+  // Null until the file is first requested.
+  rangeStart: number | null
+  // Bytes this transfer delivered; 0 until the receipt.
+  sentBytes: number
+  // Creation to receipt; null without one.
+  durationMs: number | null
+  // 1 once completed, null before.
+  progress: number | null
+  // Average over the whole transfer. Null without a receipt.
+  speedBps: number | null
+  // Files go out zero-copy: `completed` needs the peer's receipt, and no receipt
+  // within 48 hours leaves it `unconfirmed`.
+  status: 'uploading' | 'completed' | 'unconfirmed'
+  startedAt: string
+  updatedAt: string
+  finishedAt: string | null
 }
 
 export interface TmdbMetadata {
@@ -180,6 +212,12 @@ export interface Overview {
     importQueued: DownloadItem[]
     failed: DownloadItem[]
   }
+  uploads: {
+    total: number
+    byStatus: Record<UploadItem['status'], number>
+    bytesSent: number
+    active: UploadItem[]
+  }
 }
 
 // Secret refs mirror the backend's RawConfigSecret union.
@@ -232,6 +270,9 @@ export interface DownloadsConfig {
   manualImportBackoffBaseMs?: number
   manualImportBackoffMaxMs?: number
   unlinkImportedFiles?: boolean
+  removeFailedDownloads?: boolean
+  failedDownloadRetries?: number
+  failedRetryBaseDelayMs?: number
 }
 
 // PATCH body for config.downloads. Absent leaves the stored value alone; `null` drops
